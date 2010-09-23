@@ -199,6 +199,13 @@ typedef struct _updowncall_entry {
             DWORD mode;
         } SetEa;
         struct {
+            HANDLE open_state;
+            HANDLE session;
+            PUNICODE_STRING filename;
+            PUNICODE_STRING target;
+            BOOLEAN set;
+        } Symlink;
+        struct {
             HANDLE session;
             FS_INFORMATION_CLASS query;
             PVOID buf;
@@ -968,6 +975,49 @@ out:
     return status;
 }
 
+NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG header_len = 0;
+    unsigned char *tmp = buf;
+
+    DbgEn();
+    status = marshal_nfs41_header(entry, tmp, buf_len, len);
+    if (status == STATUS_INSUFFICIENT_RESOURCES) 
+        goto out;
+    else 
+        tmp += *len;
+    header_len = *len + 2 * sizeof(HANDLE) + sizeof(BOOLEAN) +
+        length_as_ansi(entry->u.Symlink.filename);
+    if (entry->u.Symlink.set)
+        header_len += length_as_ansi(entry->u.Symlink.target);
+    if (header_len > buf_len) { 
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto out;
+    }
+
+    RtlCopyMemory(tmp, &entry->u.Symlink.session, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    RtlCopyMemory(tmp, &entry->u.Symlink.open_state, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    marshall_unicode_as_ansi(&tmp, entry->u.Symlink.filename);
+    RtlCopyMemory(tmp, &entry->u.Symlink.set, sizeof(BOOLEAN));
+    tmp += sizeof(BOOLEAN);
+    if (entry->u.Symlink.set)
+        marshall_unicode_as_ansi(&tmp, entry->u.Symlink.target);
+
+    *len = header_len;
+
+    DbgP("session=0x%x open_state=0x%x set=0x%x\n",
+        entry->u.SetEa.session, entry->u.SetEa.open_state, entry->u.SetEa.mode);
+out:
+    DbgEx();
+    return status;
+}
+
 NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
     unsigned char *buf,
     ULONG buf_len,
@@ -1085,6 +1135,9 @@ handle_upcall(
         break;
     case NFS41_EA_SET:
         status = marshal_nfs41_easet(entry, pbOut, cbOut, len);
+        break;
+    case NFS41_SYMLINK:
+        status = marshal_nfs41_symlink(entry, pbOut, cbOut, len);
         break;
     case NFS41_VOLUME_QUERY:
         status = marshal_nfs41_volume(entry, pbOut, cbOut, len);
@@ -1369,6 +1422,19 @@ nfs41_downcall (
                 buf += tmp->u.QueryFile.buf_len;
                 RtlCopyMemory(&cur->u.QueryFile.readdir_cookie, buf, sizeof(HANDLE));
             }
+            break;
+        case NFS41_SYMLINK:
+            if (cur->u.Symlink.set)
+                break;
+            RtlCopyMemory(&cur->u.Symlink.target->Length, buf, sizeof(USHORT));
+            buf += sizeof(USHORT);
+            if (cur->u.Symlink.target->Length > cur->u.Symlink.target->MaximumLength) {
+                cur->status = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+            RtlCopyMemory(cur->u.Symlink.target->Buffer, buf,
+                cur->u.Symlink.target->Length);
+            cur->u.Symlink.target->Length -= sizeof(UNICODE_NULL);
             break;
         case NFS41_VOLUME_QUERY:
             RtlCopyMemory(&tmp->u.Volume.buf_len, buf, sizeof(LONG));

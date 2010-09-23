@@ -579,6 +579,7 @@ const char *opcode2string(int opcode)
     case NFS41_FILE_QUERY: return "NFS41_FILE_QUERY";
     case NFS41_FILE_SET: return "NFS41_FILE_SET";
     case NFS41_EA_SET: return "NFS41_EA_SET";
+    case NFS41_SYMLINK: return "NFS41_SYMLINK";
     case NFS41_VOLUME_QUERY: return "NFS41_VOLUME_QUERY";
     default: return "UNKNOWN";
     }

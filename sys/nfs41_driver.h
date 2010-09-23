@@ -64,6 +64,7 @@ typedef enum _nfs41_opcodes {
     NFS41_FILE_QUERY,
     NFS41_FILE_SET,
     NFS41_EA_SET,
+    NFS41_SYMLINK,
     NFS41_VOLUME_QUERY,
     NFS41_SHUTDOWN,
     INVALID_OPCODE
