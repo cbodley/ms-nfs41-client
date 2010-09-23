@@ -303,7 +303,7 @@ typedef struct __createtype4 {
     /* case NF4LNK: */
         struct __create_type_lnk {
             uint32_t        linkdata_len;
-            char            linkdata[NFS4_OPAQUE_LIMIT];
+            const char      *linkdata;
         } lnk;
     /* case NF4BLK, NF4CHR: */
         specdata4           devdata;
@@ -909,6 +909,7 @@ int nfs41_create(
     IN nfs41_session *session,
     IN uint32_t type,
     IN uint32_t mode,
+    IN OPTIONAL const char *symlink,
     IN nfs41_path_fh *parent,
     OUT nfs41_path_fh *file);
 

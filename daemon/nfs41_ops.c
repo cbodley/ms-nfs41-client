@@ -411,6 +411,7 @@ int nfs41_create(
     IN nfs41_session *session,
     IN uint32_t type,
     IN uint32_t mode,
+    IN OPTIONAL const char *symlink,
     IN nfs41_path_fh *parent,
     OUT nfs41_path_fh *file)
 {
@@ -450,6 +451,10 @@ int nfs41_create(
 
     compound_add_op(&compound, OP_CREATE, &create_args, &create_res);
     create_args.objtype.type = type;
+    if (type == NF4LNK) {
+        create_args.objtype.u.lnk.linkdata = symlink;
+        create_args.objtype.u.lnk.linkdata_len = (uint32_t)strlen(symlink);
+    }
     create_args.name = &file->name;
     create_args.createattrs.info.attrmask.count = 2;
     create_args.createattrs.info.attrmask.arr[0] = 0;

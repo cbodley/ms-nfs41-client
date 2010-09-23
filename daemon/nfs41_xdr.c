@@ -1168,7 +1168,7 @@ static bool_t encode_createtype4(
     createtype4 *ct)
 {
     bool_t result = TRUE;
-    char *linkdata;
+    const char *linkdata;
 
     if (!xdr_u_int32_t(xdr, &ct->type))
         return FALSE;
@@ -1177,7 +1177,7 @@ static bool_t encode_createtype4(
     {
     case NF4LNK:
         linkdata = ct->u.lnk.linkdata;
-        result = xdr_bytes(xdr, &linkdata, &ct->u.lnk.linkdata_len,
+        result = xdr_bytes(xdr, (char**)&linkdata, &ct->u.lnk.linkdata_len,
             NFS4_OPAQUE_LIMIT);
         break;
     case NF4BLK:

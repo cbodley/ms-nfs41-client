@@ -300,7 +300,7 @@ int handle_open(nfs41_upcall *upcall)
 
         if (create == OPEN4_CREATE && (args->create_opts & FILE_DIRECTORY_FILE)) {
             status = nfs41_create(state->session, NF4DIR, args->mode,
-                &state->parent, &state->file);
+                NULL, &state->parent, &state->file);
             args->std_info.Directory = 1;
             args->created = status == NFS4_OK;
         } else {
