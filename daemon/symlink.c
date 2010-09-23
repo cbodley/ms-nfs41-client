@@ -188,6 +188,12 @@ int handle_symlink(nfs41_upcall *upcall)
     int status = NO_ERROR;
 
     if (args->set) {
+        if (state->file.fh.len) {
+            /* the check in handle_open() didn't catch that we're creating
+             * a symlink, so we have to remove the file it already created */
+            nfs41_remove(state->session, &state->parent, &state->file.name);
+        }
+
         /* create the symlink */
         status = nfs41_create(state->session, NF4LNK, 0777,
             args->target_set, &state->parent, &state->file);

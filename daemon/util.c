@@ -311,6 +311,7 @@ int nfs_to_windows_error(int status, int default_error)
     case NFS4ERR_SYMLINK:
     case NFS4ERR_WRONG_TYPE:    return ERROR_INVALID_PARAMETER;
 
+    case NFS4ERR_NOFILEHANDLE:
     case NFS4ERR_OLD_STATEID:
     case NFS4ERR_BAD_STATEID:
     case NFS4ERR_ADMIN_REVOKED: return ERROR_FILE_INVALID;

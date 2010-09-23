@@ -119,7 +119,7 @@ out:
     return status;
 }
 
-static BOOLEAN do_lookup(uint32_t type, ULONG access_mask, ULONG disposition) 
+static BOOLEAN do_lookup(uint32_t type, ULONG access_mask, ULONG disposition)
 {
     if (type == NF4DIR) {
         if (disposition == FILE_OPEN || disposition == FILE_OVERWRITE) {
@@ -132,10 +132,10 @@ static BOOLEAN do_lookup(uint32_t type, ULONG access_mask, ULONG disposition)
     }
 
     if ((access_mask & FILE_READ_DATA) ||
-         (access_mask & FILE_WRITE_DATA) ||
-         (access_mask & FILE_APPEND_DATA) ||
-         (access_mask & FILE_EXECUTE))
-         return FALSE;
+        (access_mask & FILE_WRITE_DATA) ||
+        (access_mask & FILE_APPEND_DATA) ||
+        (access_mask & FILE_EXECUTE))
+        return FALSE;
     else {
         dprintf(1, "Open call that wants to manage attributes\n");
         return TRUE;
@@ -274,7 +274,35 @@ int handle_open(nfs41_upcall *upcall)
         state->type = info.type;
     } else if (status != ERROR_FILE_NOT_FOUND)
         goto out_free_state;
-    if (do_lookup(state->type, args->access_mask, args->disposition)) {
+    
+    /* XXX: this is a hard-coded check for the open arguments we see from
+     * the CreateSymbolicLink() system call.  we respond to this by deferring
+     * the CREATE until we get the upcall to set the symlink.  this approach
+     * is troublesome for two reasons:
+     * -an application might use these exact arguments to create a normal
+     *   file, and we would return success without actually creating it
+     * -an application could create a symlink by sending the FSCTL to set
+     *   the reparse point manually, and their open might be different.  in
+     *   this case we'd create the file on open, and need to remove it
+     *   before creating the symlink */
+    if (args->disposition == FILE_CREATE &&
+        args->access_mask == (FILE_WRITE_ATTRIBUTES | SYNCHRONIZE | DELETE) &&
+        args->access_mode == 0 &&
+        args->create_opts & FILE_OPEN_REPARSE_POINT) {
+        /* fail if the file already exists */
+        uint32_t create;
+        status = map_disposition_2_nfsopen(args->disposition, status,
+            &create, &upcall->last_error);
+        if (status)
+            goto out_free_state;
+
+        /* defer the call to CREATE until we get the symlink set upcall */
+        dprintf(1, "trying to create a symlink, deferring create\n");
+
+        /* because of WRITE_ATTR access, be prepared for a setattr upcall;
+         * will crash if the superblock is null, so use the parent's */
+        state->file.fh.superblock = state->parent.fh.superblock;
+    } else if (do_lookup(state->type, args->access_mask, args->disposition)) {
         if (status) {
             dprintf(1, "nfs41_lookup failed with %d\n", status);
             goto out_free_state;
