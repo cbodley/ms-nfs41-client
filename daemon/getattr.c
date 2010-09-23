@@ -102,7 +102,8 @@ int handle_getattr(nfs41_upcall *upcall)
         break;
     case FileAttributeTagInformation:
         args->tag_info.FileAttributes = nfs_file_info_to_attributes(&info);
-        args->tag_info.ReparseTag = 0;
+        args->tag_info.ReparseTag = info.type == NF4LNK ?
+            IO_REPARSE_TAG_SYMLINK : 0;
         break;
     default:
         eprintf("unhandled file query class %d\n", args->query_class);

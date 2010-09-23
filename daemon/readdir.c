@@ -190,7 +190,8 @@ static void readdir_copy_full_dir_info(
     IN PFILE_DIR_INFO_UNION info)
 {
     readdir_copy_dir_info(entry, info);
-    info->fifdi.EaSize = 0;
+    info->fifdi.EaSize = entry->attr_info.type == NF4LNK ?
+        IO_REPARSE_TAG_SYMLINK : 0;
 }
 
 static void readdir_copy_both_dir_info(
