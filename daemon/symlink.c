@@ -25,6 +25,7 @@
 #include <Windows.h>
 #include <strsafe.h>
 
+#include "nfs41_ops.h"
 #include "upcall.h"
 #include "util.h"
 #include "daemon_debug.h"
@@ -170,9 +171,40 @@ out:
     return status;
 }
 
+static int map_symlink_errors(int status)
+{
+    switch (status) {
+    case NFS4ERR_BADCHAR:
+    case NFS4ERR_BADNAME:       return ERROR_INVALID_REPARSE_DATA;
+    case NFS4ERR_WRONG_TYPE:    return ERROR_NOT_A_REPARSE_POINT;
+    default: return nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
+    }
+}
+
 int handle_symlink(nfs41_upcall *upcall)
 {
-    return NO_ERROR;
+    symlink_upcall_args *args = &upcall->args.symlink;
+    nfs41_open_state *state = args->state;
+    int status = NO_ERROR;
+
+    if (args->set) {
+    } else {
+        uint32_t len;
+
+        /* read the link */
+        status = nfs41_readlink(state->session, &state->file,
+            NFS41_MAX_PATH_LEN, args->target_get.path, &len);
+        if (status) {
+            eprintf("nfs41_readlink() failed with %s\n",
+                nfs_error_string(status));
+            status = map_symlink_errors(status);
+            goto out;
+        }
+        args->target_get.len = (unsigned short)len;
+        dprintf(2, "returning symlink target '%s'\n", args->target_get.path);
+    }
+out:
+    return status;
 }
 
 int marshall_symlink(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)

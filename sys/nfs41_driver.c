@@ -4228,14 +4228,124 @@ out:
     return status;
 }
 
+static NTSTATUS map_symlink_errors(NTSTATUS status)
+{
+    switch (status) {
+    case NO_ERROR:                  return STATUS_SUCCESS;
+    case ERROR_INVALID_REPARSE_DATA: return STATUS_IO_REPARSE_DATA_INVALID;
+    case ERROR_NOT_A_REPARSE_POINT: return STATUS_NOT_A_REPARSE_POINT;
+    case ERROR_OUTOFMEMORY:         return STATUS_INSUFFICIENT_RESOURCES;
+    case ERROR_INSUFFICIENT_BUFFER: return STATUS_BUFFER_TOO_SMALL;
+    case STATUS_BUFFER_TOO_SMALL:
+    case ERROR_BUFFER_OVERFLOW:     return STATUS_BUFFER_OVERFLOW;
+    default:
+        DbgP("failed to map windows error %d to NTSTATUS; "
+            "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", status);
+    case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
+    }
+}
+
+static void print_reparse_buffer(PREPARSE_DATA_BUFFER Reparse)
+{
+    UNICODE_STRING name;
+    DbgP("ReparseTag:           %08X\n", Reparse->ReparseTag);
+    DbgP("ReparseDataLength:    %8u\n", Reparse->ReparseDataLength);
+    DbgP("Reserved:             %8u\n", Reparse->Reserved);
+    DbgP("SubstituteNameOffset: %8u\n", Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset);
+    DbgP("SubstituteNameLength: %8u\n", Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength);
+    DbgP("PrintNameOffset:      %8u\n", Reparse->SymbolicLinkReparseBuffer.PrintNameOffset);
+    DbgP("PrintNameLength:      %8u\n", Reparse->SymbolicLinkReparseBuffer.PrintNameLength);
+    DbgP("Flags:                %08X\n", Reparse->SymbolicLinkReparseBuffer.Flags);
+
+    name.Buffer = &Reparse->SymbolicLinkReparseBuffer.PathBuffer[
+        Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset/sizeof(WCHAR)];
+    name.MaximumLength = name.Length =
+        Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength;
+    DbgP("SubstituteName:       %wZ\n", &name);
+
+    name.Buffer = &Reparse->SymbolicLinkReparseBuffer.PathBuffer[
+        Reparse->SymbolicLinkReparseBuffer.PrintNameOffset/sizeof(WCHAR)];
+    name.MaximumLength = name.Length =
+        Reparse->SymbolicLinkReparseBuffer.PrintNameLength;
+    DbgP("PrintName:            %wZ\n", &name);
+}
+
+static NTSTATUS nfs41_GetReparsePoint(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    UNICODE_STRING TargetName;
+    XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
+    PNFS41_FOBX Fobx = NFS41GetFileObjectExtension(RxContext->pFobx);
+    PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    PNFS41_V_NET_ROOT_EXTENSION VNetRoot = NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    nfs41_updowncall_entry *entry;
+    const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
+        SymbolicLinkReparseBuffer.PathBuffer);
+    NTSTATUS status;
+
+    if (FsCtl->OutputBufferLength < HeaderLen) {
+        RxContext->InformationToReturn = HeaderLen;
+        status = STATUS_BUFFER_TOO_SMALL;
+        goto out;
+    }
+
+    TargetName.Buffer = (PWCH)((PBYTE)FsCtl->pOutputBuffer + HeaderLen);
+    TargetName.MaximumLength = (USHORT)min(FsCtl->OutputBufferLength - HeaderLen, 0xFFFF);
+
+    status = nfs41_UpcallCreate(NFS41_SYMLINK, &entry);
+    if (status)
+        goto out;
+
+    entry->u.Symlink.session = VNetRoot->session;
+    entry->u.Symlink.open_state = Fobx->nfs41_open_state;
+    entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
+    entry->u.Symlink.target = &TargetName;
+    entry->u.Symlink.set = FALSE;
+
+    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+        status = STATUS_INTERNAL_ERROR;
+        goto out;
+    }
+
+    status = map_symlink_errors(entry->status);
+    if (status == STATUS_SUCCESS) {
+        /* fill in the output buffer */
+        PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pOutputBuffer;
+        Reparse->ReparseTag = IO_REPARSE_TAG_SYMLINK;
+        Reparse->ReparseDataLength = HeaderLen + TargetName.Length -
+            REPARSE_DATA_BUFFER_HEADER_SIZE;
+        Reparse->Reserved = 0;
+        Reparse->SymbolicLinkReparseBuffer.Flags = SYMLINK_FLAG_RELATIVE;
+        /* PrintName and SubstituteName point to the same string */
+        Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset = 0;
+        Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength = TargetName.Length;
+        Reparse->SymbolicLinkReparseBuffer.PrintNameOffset = 0;
+        Reparse->SymbolicLinkReparseBuffer.PrintNameLength = TargetName.Length;
+        print_reparse_buffer(Reparse);
+
+        RxContext->IoStatusBlock.Information = HeaderLen + TargetName.Length;
+    } else if (status == STATUS_BUFFER_TOO_SMALL) {
+        RxContext->InformationToReturn = HeaderLen + TargetName.Length;
+    }
+    RxFreePool(entry);
+out:
+    return status;
+}
+
 NTSTATUS nfs41_FsCtl(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
     DbgEn();
+    DbgP("FileName: %wZ\n", &RxContext->CurrentIrpSp->FileObject->FileName);
+    switch (RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode) {
+    case FSCTL_GET_REPARSE_POINT:
+        DbgP("FSCTL_GET_REPARSE_POINT\n");
+        status = nfs41_GetReparsePoint(RxContext);
+        break;
+    }
     DbgEx();
     return status;
-
 }
 
 NTSTATUS nfs41_IoCtl(
