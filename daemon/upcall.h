@@ -134,6 +134,15 @@ typedef struct __readdir_upcall_args {
     BOOLEAN single;
 } readdir_upcall_args;
 
+typedef struct __symlink_upcall_args {
+    nfs41_abs_path target_get;
+    const char *target_set;
+    nfs41_root *root;
+    nfs41_open_state *state;
+    const char *path;
+    BOOLEAN set;
+} symlink_upcall_args;
+
 typedef struct __volume_upcall_args {
     nfs41_root *root;
     FS_INFORMATION_CLASS query;
@@ -157,6 +166,7 @@ typedef union __upcall_args {
     setattr_upcall_args     setattr;
     setexattr_upcall_args   setexattr;
     readdir_upcall_args     readdir;
+    symlink_upcall_args     symlink;
     volume_upcall_args      volume;
 } upcall_args;
 

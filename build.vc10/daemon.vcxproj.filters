@@ -107,6 +107,9 @@
     <ClCompile Include="..\daemon\service.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\daemon\symlink.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\daemon\daemon_debug.h">

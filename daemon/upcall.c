@@ -76,6 +76,10 @@ int parse_setexattr(unsigned char*, uint32_t, nfs41_upcall*);
 int handle_setexattr(nfs41_upcall*);
 int marshall_setexattr(unsigned char*, uint32_t*, nfs41_upcall*);
 
+int parse_symlink(unsigned char*, uint32_t, nfs41_upcall*);
+int handle_symlink(nfs41_upcall*);
+int marshall_symlink(unsigned char*, uint32_t*, nfs41_upcall*);
+
 int parse_volume(unsigned char*, uint32_t, nfs41_upcall*);
 int handle_volume(nfs41_upcall*);
 int marshall_volume(unsigned char*, uint32_t*, nfs41_upcall*);
@@ -93,6 +97,7 @@ static const nfs41_upcall_op g_upcall_op_table[] = {
     { parse_getattr,    handle_getattr,     marshall_getattr,   NULL },
     { parse_setattr,    handle_setattr,     marshall_setattr,   NULL },
     { parse_setexattr,  handle_setexattr,   marshall_setexattr, NULL },
+    { parse_symlink,    handle_symlink,     marshall_symlink,   NULL },
     { parse_volume,     handle_volume,      marshall_volume,    NULL },
     { NULL, NULL, NULL, NULL }, /* NFS41_SHUTDOWN */
     { NULL, NULL, NULL, NULL }, /* INVALID_OPCODE */

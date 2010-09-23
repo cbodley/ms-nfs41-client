@@ -219,6 +219,7 @@
     <ClCompile Include="..\daemon\readwrite.c" />
     <ClCompile Include="..\daemon\service.c" />
     <ClCompile Include="..\daemon\setattr.c" />
+    <ClCompile Include="..\daemon\symlink.c" />
     <ClCompile Include="..\daemon\upcall.c" />
     <ClCompile Include="..\daemon\util.c" />
     <ClCompile Include="..\daemon\volume.c" />
