@@ -4270,6 +4270,50 @@ static void print_reparse_buffer(PREPARSE_DATA_BUFFER Reparse)
     DbgP("PrintName:            %wZ\n", &name);
 }
 
+static NTSTATUS nfs41_SetReparsePoint(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    UNICODE_STRING TargetName;
+    XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
+    PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pInputBuffer;
+    PNFS41_FOBX Fobx = NFS41GetFileObjectExtension(RxContext->pFobx);
+    PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    PNFS41_V_NET_ROOT_EXTENSION VNetRoot = NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    nfs41_updowncall_entry *entry;
+    NTSTATUS status;
+
+    print_reparse_buffer(Reparse);
+
+    if (Reparse->ReparseTag != IO_REPARSE_TAG_SYMLINK) {
+        status = STATUS_IO_REPARSE_TAG_MISMATCH;
+        goto out;
+    }
+
+    TargetName.MaximumLength = TargetName.Length =
+        Reparse->SymbolicLinkReparseBuffer.PrintNameLength;
+    TargetName.Buffer = &Reparse->SymbolicLinkReparseBuffer.PathBuffer[
+        Reparse->SymbolicLinkReparseBuffer.PrintNameOffset/sizeof(WCHAR)];
+
+    status = nfs41_UpcallCreate(NFS41_SYMLINK, &entry);
+    if (status)
+        goto out;
+
+    entry->u.Symlink.session = VNetRoot->session;
+    entry->u.Symlink.open_state = Fobx->nfs41_open_state;
+    entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
+    entry->u.Symlink.target = &TargetName;
+    entry->u.Symlink.set = TRUE;
+
+    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+        status = STATUS_INTERNAL_ERROR;
+        goto out;
+    }
+    status = map_symlink_errors(entry->status);
+    RxFreePool(entry);
+out:
+    return status;
+}
+
 static NTSTATUS nfs41_GetReparsePoint(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4339,6 +4383,11 @@ NTSTATUS nfs41_FsCtl(
     DbgEn();
     DbgP("FileName: %wZ\n", &RxContext->CurrentIrpSp->FileObject->FileName);
     switch (RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode) {
+    case FSCTL_SET_REPARSE_POINT:
+        DbgP("FSCTL_SET_REPARSE_POINT\n");
+        status = nfs41_SetReparsePoint(RxContext);
+        break;
+
     case FSCTL_GET_REPARSE_POINT:
         DbgP("FSCTL_GET_REPARSE_POINT\n");
         status = nfs41_GetReparsePoint(RxContext);

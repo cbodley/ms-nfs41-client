@@ -188,6 +188,15 @@ int handle_symlink(nfs41_upcall *upcall)
     int status = NO_ERROR;
 
     if (args->set) {
+        /* create the symlink */
+        status = nfs41_create(state->session, NF4LNK, 0777,
+            args->target_set, &state->parent, &state->file);
+        if (status) {
+            eprintf("nfs41_create() failed with %s\n",
+                nfs_error_string(status));
+            status = map_symlink_errors(status);
+            goto out;
+        }
     } else {
         uint32_t len;
 
