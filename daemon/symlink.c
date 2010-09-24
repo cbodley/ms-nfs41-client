@@ -30,7 +30,7 @@
 #include "daemon_debug.h"
 
 
-int abs_path_link(
+static int abs_path_link(
     OUT nfs41_abs_path *path,
     IN char *path_pos,
     IN const char *link,
@@ -48,14 +48,12 @@ int abs_path_link(
     if (is_delimiter(*link))
         path_pos = path->path;
 
-    /* eat trailing slashes from the path */
-    path_pos = (char*)prev_non_delimiter(path_pos, path->path);
-    if (path_pos > path->path)
-        path_pos = (char*)next_delimiter(path_pos, path_pos);
-
     /* copy each component of link into the path */
     while (next_component(link_pos, link_end, &name)) {
         link_pos = name.name + name.len;
+
+        if (is_delimiter(*path_pos))
+            path_pos++;
 
         /* handle special components . and .. */
         if (name.len == 1 && name.name[0] == '.')
@@ -71,19 +69,18 @@ int abs_path_link(
             continue;
         }
 
-        /* add a \ and copy the component */
-        if (FAILED(StringCchCopyNA(path_pos,
-            path_max-path_pos, "\\", 1))) {
-            status = ERROR_BUFFER_OVERFLOW;
-            goto out;
-        }
-        path_pos++;
+        /* copy the component and add a \ */
         if (FAILED(StringCchCopyNA(path_pos,
             path_max-path_pos, name.name, name.len))) {
             status = ERROR_BUFFER_OVERFLOW;
             goto out;
         }
         path_pos += name.len;
+        if (FAILED(StringCchCopyNA(path_pos,
+            path_max-path_pos, "\\", 1))) {
+            status = ERROR_BUFFER_OVERFLOW;
+            goto out;
+        }
     }
 
     /* make sure the path is null terminated */
@@ -98,43 +95,49 @@ out:
     return status;
 }
 
-static int follow_link(
-    IN open_upcall_args *args,
-    IN nfs41_open_state *state)
+int nfs41_symlink_follow(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    OUT nfs41_abs_path *target)
 {
     char link[NFS41_MAX_PATH_LEN];
+    const nfs41_abs_path *path = file->path;
     ptrdiff_t path_offset;
     uint32_t link_len;
     int status;
 
     /* read the link */
-    status = nfs41_readlink(state->session, &state->file,
-        NFS41_MAX_PATH_LEN, link, &link_len);
+    status = nfs41_readlink(session, file, NFS41_MAX_PATH_LEN, link, &link_len);
     if (status) {
-        eprintf("nfs41_readlink() failed with %s\n",
-            nfs_error_string(status));
+        eprintf("nfs41_readlink() failed with %s\n", nfs_error_string(status));
         status = ERROR_PATH_NOT_FOUND;
         goto out;
     }
 
     /* overwrite the last component of the path; get the starting offset */
-    path_offset = (state->parent.name.name + state->parent.name.len) -
-        state->path.path;
+    path_offset = file->name.name - path->path;
 
     /* copy the path and update it with the results from link */
-    args->symlink.len = state->path.len;
-    if (FAILED(StringCchCopyNA(args->symlink.path, NFS41_MAX_PATH_LEN,
-        state->path.path, state->path.len))) {
+    target->len = path->len;
+    if (FAILED(StringCchCopyNA(target->path, NFS41_MAX_PATH_LEN,
+        path->path, path->len))) {
         status = ERROR_BUFFER_OVERFLOW;
         goto out;
     }
-    status = abs_path_link(&args->symlink,
-        args->symlink.path + path_offset, link, link_len);
+    status = abs_path_link(target, target->path + path_offset, link, link_len);
     if (status) {
         eprintf("abs_path_link() failed with %d\n", status);
         status = ERROR_PATH_NOT_FOUND;
         goto out;
     }
+
+    /* append any components after the symlink */
+    if (FAILED(StringCchCopyA(target->path + target->len,
+        NFS41_MAX_PATH_LEN - target->len, file->name.name + file->name.len))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    target->len = (unsigned short)strlen(target->path);
 out:
     return status;
 }

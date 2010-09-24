@@ -265,7 +265,8 @@ int handle_open(nfs41_upcall *upcall)
                 upcall->last_error = ERROR_REPARSE;
 
                 /* replace the path with the symlink target */
-                status = follow_link(args, state);
+                status = nfs41_symlink_follow(state->session,
+                    &state->parent, &state->file, &args->symlink);
                 goto out_free_state;
             }
         } else
