@@ -170,6 +170,10 @@ static void readdir_copy_dir_info(
             entry->attr_info.size;
     info->fdi.FileAttributes = nfs_file_info_to_attributes(
         &entry->attr_info);
+
+    /* use cansettime to flag the symlink target as a directory */
+    if (entry->attr_info.cansettime)
+        info->fdi.FileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
 }
 
 static void readdir_copy_shortname(
@@ -214,6 +218,26 @@ static void readdir_copy_filename(
     memcpy(name_out, name, name_size);
 }
 
+static int format_abs_path(
+    IN const nfs41_abs_path *path,
+    IN const nfs41_component *name,
+    OUT nfs41_abs_path *path_out)
+{
+    /* format an absolute path 'parent\name' */
+    int status = NO_ERROR;
+
+    InitializeSRWLock(&path_out->lock);
+    abs_path_copy(path_out, path);
+    if (FAILED(StringCchPrintfA(path_out->path + path_out->len,
+        NFS41_MAX_PATH_LEN - path_out->len, "\\%s", name->name))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    path_out->len += name->len + 1;
+out:
+    return status;
+}
+
 static int lookup_entry(
     IN nfs41_root *root,
     IN nfs41_session *session,
@@ -221,29 +245,60 @@ static int lookup_entry(
     OUT nfs41_readdir_entry *entry)
 {
     nfs41_abs_path path;
-    nfs41_path_fh file;
+    nfs41_component name;
     int status;
 
-    /* format an absolute path 'parent\name' */
-    InitializeSRWLock(&path.lock);
-    abs_path_copy(&path, parent->path);
-    if (path.len + entry->name_len >= NFS41_MAX_PATH_LEN) {
-        status = ERROR_BUFFER_OVERFLOW;
-        goto out;
-    }
-    StringCchPrintfA(path.path + path.len,
-        NFS41_MAX_PATH_LEN - path.len, "\\%s", entry->name);
-    path.len += (unsigned short)entry->name_len;
+    name.name = entry->name;
+    name.len = (unsigned short)entry->name_len;
 
-    path_fh_init(&file, &path);
+    status = format_abs_path(parent->path, &name, &path);
+    if (status) goto out;
 
     status = nfs41_lookup(root, session, &path,
         NULL, NULL, &entry->attr_info, NULL);
-    if (status) {
-        dprintf(1, "nfs41_lookup failed with %s\n", nfs_error_string(status));
-        status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
-        goto out;
-    }
+    if (status) goto out;
+out:
+    return status;
+}
+
+static int lookup_symlink(
+    IN nfs41_root *root,
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN const nfs41_component *name,
+    OUT nfs41_file_info *info_out)
+{
+    nfs41_abs_path path;
+    nfs41_path_fh link_parent, file;
+    nfs41_file_info info;
+    int status;
+
+    status = format_abs_path(parent->path, name, &path);
+    if (status) goto out;
+
+    file.path = &path;
+    /* get a filehandle for the symlink */
+    status = nfs41_lookup(root, session, &path, NULL, &file, &info, NULL);
+    if (status) goto out;
+
+    link_parent.path = &path;
+    last_component(path.path, path.path + path.len, &file.name);
+    last_component(path.path, file.name.name, &link_parent.name);
+
+    /* attempt to follow the symlink */
+    status = nfs41_symlink_follow(session, &file, &path);
+    if (status) goto out;
+
+    /* get attributes for the target */
+    status = nfs41_lookup(root, session, &path, &link_parent, NULL, &info, NULL);
+    if (status) goto out;
+
+    if (info.type == NF4LNK) {
+        status = lookup_symlink(root, session, &link_parent, &file.name, &info);
+        if (status) goto out;
+        info_out->cansettime = info.cansettime;
+    } else if (info.type == NF4DIR)
+        info_out->cansettime = 1;
 out:
     return status;
 }
@@ -280,6 +335,12 @@ static int readdir_copy_entry(
          * it's okay if lookup fails, we'll just write garbage attributes */
         lookup_entry(args->root, args->state->session,
             &args->state->file, entry);
+    } else if (entry->attr_info.type == NF4LNK) {
+        const nfs41_component name = { entry->name,
+            (unsigned short)entry->name_len - 1 };
+        /* look up the symlink target to see whether it's a directory */
+        lookup_symlink(args->root, args->state->session,
+            &args->state->file, &name, &entry->attr_info);
     }
 
     switch (args->query_class)
