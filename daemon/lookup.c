@@ -169,6 +169,17 @@ out:
     return status;
 }
 
+static int map_lookup_error(int status, bool_t is_last_component)
+{
+    switch (status) {
+    case NFS4ERR_NOENT:
+        if (is_last_component)  return ERROR_FILE_NOT_FOUND;
+        else                    return ERROR_PATH_NOT_FOUND;
+    case NFS4ERR_MOVED:         return ERROR_FILESYSTEM_ABSENT;
+    default: return nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
+    }
+}
+
 static int server_lookup(
     IN nfs41_session *session,
     IN nfs41_path_fh *dir,
@@ -237,7 +248,6 @@ static int server_lookup(
             path_fh_copy(&res->referral->parent, file);
             res->referral->name.name = args->lookup[i].name->name;
             res->referral->name.len = args->lookup[i].name->len;
-            return ERROR_FILESYSTEM_ABSENT;
         }
         status = res->getfh[i].status;      if (status) break;
         status = res->getattr[i].status;    if (status) break;
@@ -270,12 +280,7 @@ static int server_lookup(
         }
     }
 out:
-    status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
-
-    /* use PATH_NOT_FOUND for all but the last name */
-    if (status == ERROR_FILE_NOT_FOUND && i != count-1)
-        status = ERROR_PATH_NOT_FOUND;
-    return status;
+    return map_lookup_error(status, i == count-1);
 }
 
 static uint32_t max_lookup_components(
