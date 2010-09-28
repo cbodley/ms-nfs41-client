@@ -175,6 +175,7 @@ static int map_lookup_error(int status, bool_t is_last_component)
     case NFS4ERR_NOENT:
         if (is_last_component)  return ERROR_FILE_NOT_FOUND;
         else                    return ERROR_PATH_NOT_FOUND;
+    case NFS4ERR_SYMLINK:       return ERROR_REPARSE;
     case NFS4ERR_MOVED:         return ERROR_FILESYSTEM_ABSENT;
     default: return nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
     }
@@ -238,9 +239,15 @@ static int server_lookup(
     }
 
     for (i = 0; i < count; i++) {
-        if (res->lookup[i].status == NFS4ERR_NOENT)
+        if (res->lookup[i].status == NFS4ERR_SYMLINK) {
+            /* return the symlink as the parent file */
+            last_component(path, args->lookup[i].name->name, &file->name);
+            if (parent_out) *parent_out = file;
+        } else if (res->lookup[i].status == NFS4ERR_NOENT) {
+            /* insert a negative lookup entry */
             nfs41_name_cache_insert(session_name_cache(session),
                 path, args->lookup[i].name, NULL, NULL, NULL);
+        }
         status = res->lookup[i].status;     if (status) break;
 
         if (res->getfh[i].status == NFS4ERR_MOVED) {
@@ -340,6 +347,15 @@ static int server_lookup_loop(
         status = server_lookup(session, dir, path->path, path_end, count,
             &args, &res, &parent, &target, info_out);
 
+        if (status == ERROR_REPARSE) {
+            /* copy the component name of the symlink */
+            if (parent_out && parent) {
+                const ptrdiff_t offset = parent->name.name - path->path;
+                parent_out->name.name = parent_out->path->path + offset;
+                parent_out->name.len = parent->name.len;
+            }
+            goto out_parent;
+        }
         if (status == ERROR_FILE_NOT_FOUND && is_last_component(path_pos, path_end))
             goto out_parent;
         if (status)
