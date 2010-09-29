@@ -2643,17 +2643,17 @@ NTSTATUS nfs41_Create(
          * the symlink target's by calling RxPrepareToReparseSymbolicLink()
          * and returning STATUS_REPARSE. the object manager will attempt to
          * open the new path, and return its handle for the original open */
-        PMRX_NET_ROOT NetRoot = RxContext->pRelevantSrvOpen->pVNetRoot->pNetRoot;
-        PRDBSS_DEVICE_OBJECT DeviceObject = NetRoot->pSrvCall->RxDeviceObject;
+        PRDBSS_DEVICE_OBJECT DeviceObject = RxContext->RxDeviceObject;
+        PV_NET_ROOT VNetRoot = (PV_NET_ROOT)RxContext->pRelevantSrvOpen->pVNetRoot;
+        PUNICODE_STRING VNetRootPrefix = &VNetRoot->PrefixEntry.Prefix;
         UNICODE_STRING AbsPath;
         PCHAR buf;
         BOOLEAN ReparseRequired;
 
         /* allocate the string for RxPrepareToReparseSymbolicLink(), and
-         * format an absolute path "DeviceName+NetRootName+symlink" */
-        AbsPath.Length = DeviceObject->DeviceName.Length +
-            NetRoot->pNetRootName->Length + entry->u.Open.symlink.Length;
-        AbsPath.MaximumLength = AbsPath.Length + sizeof(WCHAR);
+         * format an absolute path "DeviceName+VNetRootName+symlink" */
+        AbsPath.MaximumLength = AbsPath.Length = DeviceObject->DeviceName.Length +
+            VNetRootPrefix->Length + entry->u.Open.symlink.Length;
         AbsPath.Buffer = RxAllocatePoolWithTag(NonPagedPool,
             AbsPath.MaximumLength, NFS41_MM_POOLTAG);
         if (AbsPath.Buffer == NULL) {
@@ -2664,8 +2664,8 @@ NTSTATUS nfs41_Create(
         buf = (PCHAR)AbsPath.Buffer;
         RtlCopyMemory(buf, DeviceObject->DeviceName.Buffer, DeviceObject->DeviceName.Length);
         buf += DeviceObject->DeviceName.Length;
-        RtlCopyMemory(buf, NetRoot->pNetRootName->Buffer, NetRoot->pNetRootName->Length);
-        buf += NetRoot->pNetRootName->Length;
+        RtlCopyMemory(buf, VNetRootPrefix->Buffer, VNetRootPrefix->Length);
+        buf += VNetRootPrefix->Length;
         RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, entry->u.Open.symlink.Length);
 
         status = RxPrepareToReparseSymbolicLink(RxContext,
