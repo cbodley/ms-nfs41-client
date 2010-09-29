@@ -236,6 +236,17 @@ int handle_open(nfs41_upcall *upcall)
     status = nfs41_lookup(args->root, nfs41_root_session(args->root),
         &state->path, &state->parent, &state->file, &info, &state->session);
 
+    if (status == ERROR_REPARSE) {
+        /* one of the parent components was a symlink */
+        upcall->last_error = ERROR_REPARSE;
+        args->symlink_embedded = TRUE;
+
+        /* replace the path with the symlink target */
+        status = nfs41_symlink_follow(state->session,
+            &state->parent, &args->symlink);
+        goto out_free_state;
+    }
+
     // now if file/dir exists, use type returned by lookup
     if (status == NO_ERROR) {
         if (info.type == NF4DIR) {
@@ -263,10 +274,11 @@ int handle_open(nfs41_upcall *upcall)
             } else {
                 /* tell the driver to call RxPrepareToReparseSymbolicLink() */
                 upcall->last_error = ERROR_REPARSE;
+                args->symlink_embedded = FALSE;
 
                 /* replace the path with the symlink target */
                 status = nfs41_symlink_follow(state->session,
-                    &state->parent, &state->file, &args->symlink);
+                    &state->file, &args->symlink);
                 goto out_free_state;
             }
         } else
@@ -375,6 +387,8 @@ int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
     if (status) goto out;
     if (upcall->last_error == ERROR_REPARSE) {
         unsigned short len = (args->symlink.len + 1) * sizeof(WCHAR);
+        status = safe_write(&buffer, length, &args->symlink_embedded, sizeof(BOOLEAN));
+        if (status) goto out;
         status = safe_write(&buffer, length, &len, sizeof(len));
         if (status) goto out;
         /* convert args->symlink to wchar */

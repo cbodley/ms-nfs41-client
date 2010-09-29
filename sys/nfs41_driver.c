@@ -162,6 +162,7 @@ typedef struct _updowncall_entry {
             ULONG open_owner_id;
             DWORD mode;
             LONGLONG changeattr;
+            BOOLEAN symlink_embedded;
         } Open;
         struct {
             HANDLE open_state;
@@ -1398,6 +1399,8 @@ nfs41_downcall (
             RtlCopyMemory(&cur->u.Open.changeattr, buf, sizeof(LONGLONG));
             buf += sizeof(LONGLONG);
             if (tmp->errno == ERROR_REPARSE) {
+                RtlCopyMemory(&cur->u.Open.symlink_embedded, buf, sizeof(BOOLEAN));
+                buf += sizeof(BOOLEAN);
                 RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, buf, sizeof(USHORT));
                 buf += sizeof(USHORT);
                 cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength - sizeof(WCHAR);
@@ -2666,9 +2669,9 @@ NTSTATUS nfs41_Create(
         RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, entry->u.Open.symlink.Length);
 
         status = RxPrepareToReparseSymbolicLink(RxContext,
-            FALSE, &AbsPath, TRUE, &ReparseRequired);
-        DbgP("RxPrepareToReparseSymbolicLink('%wZ') returned %08lX, "
-            "FileName is '%wZ'\n",
+            entry->u.Open.symlink_embedded, &AbsPath, TRUE, &ReparseRequired);
+        DbgP("RxPrepareToReparseSymbolicLink(%u, '%wZ') returned %08lX, "
+            "FileName is '%wZ'\n", entry->u.Open.symlink_embedded,
             &AbsPath, status, &RxContext->CurrentIrpSp->FileObject->FileName);
         if (status == STATUS_SUCCESS)
             status = ReparseRequired ? STATUS_REPARSE :
