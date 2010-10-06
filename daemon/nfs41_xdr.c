@@ -3132,6 +3132,13 @@ bool_t nfs_decode_compound(
         eprintf("reply with %u operations, only sent %u!\n",
             res->resarray_count, expected_count);
         return FALSE;
+    } else if (res->resarray_count < expected_count &&
+        res->status == NFS4_OK) {
+        /* illegal for a server to reply with less operations,
+         * unless one of them fails */
+        eprintf("successful reply with only %u operations, sent %u!\n",
+            res->resarray_count, expected_count);
+        return FALSE;
     }
 
     for (i = 0; i < res->resarray_count; i++)
