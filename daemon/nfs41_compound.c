@@ -304,7 +304,7 @@ retry:
                 if (argarray[i].op == OP_PUTFH) {
                     putfh = (nfs41_putfh_args*)argarray[i].arg;
 
-                    if (!putfh->in_recovery)
+                    if (!putfh->in_recovery && putfh->file->path)
                         nfs41_name_cache_remove_stale(name_cache,
                             session, putfh->file->path);
                 }
