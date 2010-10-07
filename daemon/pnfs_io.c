@@ -147,7 +147,9 @@ static enum pnfs_status thread_next_unit(
 
     /* loop until we find an io unit that matches this thread */
     while (thread->offset < thread->offset_end) {
-        pnfs_file_device_io_unit(pattern, thread->offset, io);
+        status = pnfs_file_device_io_unit(pattern, thread->offset, io);
+        if (status)
+            break;
 
 #ifdef PNFS_THREAD_BY_SERVER
         if (io->serverid == thread->id) {
