@@ -628,6 +628,14 @@ int nfs41_write(
     }
 
     *bytes_written = write_res.resok4.count;
+
+    /* we shouldn't ever see this, but a buggy server could
+     * send us into an infinite loop. return NFS4ERR_IO */
+    if (!write_res.resok4.count) {
+        status = NFS4ERR_IO;
+        eprintf("WRITE succeeded with count=0; returning %s\n",
+            nfs_error_string(status));
+    }
 out:
     return status;
 }
@@ -680,6 +688,14 @@ int nfs41_read(
 
     *data_len_out = read_res.resok4.data_len;
     *eof_out = read_res.resok4.eof;
+
+    /* we shouldn't ever see this, but a buggy server could
+     * send us into an infinite loop. return NFS4ERR_IO */
+    if (!read_res.resok4.data_len && !read_res.resok4.eof) {
+        status = NFS4ERR_IO;
+        eprintf("READ succeeded with len=0 and eof=0; returning %s\n",
+            nfs_error_string(status));
+    }
 out:
     return status;
 }
