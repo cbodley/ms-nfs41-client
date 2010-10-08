@@ -195,7 +195,7 @@ typedef struct __pnfs_io_pattern {
     struct __pnfs_io_thread *threads;
     struct __nfs41_root     *root;
     nfs41_path_fh           *meta_file;
-    stateid4                *stateid;
+    stateid4                stateid;
     pnfs_file_layout        *layout;
     unsigned char           *buffer;
     uint64_t                offset_start;

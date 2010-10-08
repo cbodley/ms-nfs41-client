@@ -77,7 +77,11 @@ static enum pnfs_status pattern_init(
 
     pattern->root = root;
     pattern->meta_file = meta_file;
-    pattern->stateid = stateid;
+    /* 13.9.1.  Global Stateid Requirements
+     * "The stateid sent to the data server MUST be sent
+     * with the seqid set to zero" */
+    memcpy(&pattern->stateid, stateid, sizeof(stateid4));
+    pattern->stateid.seqid = 0;
     pattern->layout = layout;
     pattern->buffer = buffer;
     pattern->offset_start = offset;
@@ -297,7 +301,7 @@ static uint32_t WINAPI file_layout_read_thread(void *args)
     pnfs_io_unit io;
     pnfs_io_thread *thread = (pnfs_io_thread*)args;
     pnfs_io_pattern *pattern = thread->pattern;
-    stateid4 *state = pattern->stateid;
+    stateid4 *state = &pattern->stateid;
     pnfs_data_server *server;
     nfs41_client *client;
     uint32_t maxreadsize, bytes_read, total_read;
@@ -360,7 +364,7 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
     nfs41_write_verf verf;
     pnfs_io_thread *thread = (pnfs_io_thread*)args;
     pnfs_io_pattern *pattern = thread->pattern;
-    stateid4 *state = pattern->stateid;
+    stateid4 *state = &pattern->stateid;
     pnfs_data_server *server;
     pnfs_file_layout *layout = pattern->layout;
     nfs41_client *client;
