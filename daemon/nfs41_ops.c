@@ -1241,12 +1241,13 @@ int nfs41_link(
     IN nfs41_session *session,
     IN nfs41_path_fh *src,
     IN nfs41_path_fh *dst_dir,
-    IN const nfs41_component *target)
+    IN const nfs41_component *target,
+    OUT OPTIONAL nfs41_path_fh *link_out)
 {
     int status;
     nfs41_compound compound;
-    nfs_argop4 argops[8];
-    nfs_resop4 resops[8];
+    nfs_argop4 argops[9];
+    nfs_resop4 resops[9];
     nfs41_sequence_args sequence_args;
     nfs41_sequence_res sequence_res;
     nfs41_putfh_args putfh_args[2];
@@ -1254,16 +1255,22 @@ int nfs41_link(
     nfs41_savefh_res savefh_res;
     nfs41_link_args link_args;
     nfs41_link_res link_res;
-    nfs41_restorefh_res restorefh_res;
-    nfs41_getattr_args getattr_args, pgetattr_args;
-    nfs41_getattr_res getattr_res, pgetattr_res;
-    nfs41_file_info info, dir_info;
-    bitmap4 dir_attr_request;
+    nfs41_lookup_args lookup_args;
+    nfs41_lookup_res lookup_res;
+    nfs41_getfh_res getfh_res;
+    nfs41_getattr_args getattr_args[2];
+    nfs41_getattr_res getattr_res[2];
+    nfs41_file_info info[2];
+    nfs41_path_fh file;
+
+    if (link_out == NULL)
+        link_out = &file;
 
     ZeroMemory(&info, sizeof(info));
-    info.attrmask.count = 2;
-    info.attrmask.arr[1] = FATTR4_WORD1_NUMLINKS;
-    init_getattr_request(&dir_attr_request);
+    init_getattr_request(&info[0].attrmask);
+    info[0].attrmask.arr[0] |= FATTR4_WORD0_FILEID;
+    init_getattr_request(&info[1].attrmask);
+    info[1].attrmask.arr[0] |= FATTR4_WORD0_FILEID;
 
     compound_init(&compound, argops, resops);
 
@@ -1272,12 +1279,14 @@ int nfs41_link(
     if (status)
         goto out;
 
+    /* PUTFH(src) */
     compound_add_op(&compound, OP_PUTFH, &putfh_args[0], &putfh_res[0]);
     putfh_args[0].file = src;
     putfh_args[0].in_recovery = 0;
 
     compound_add_op(&compound, OP_SAVEFH, NULL, &savefh_res);
 
+    /* PUTFH(dst_dir) */
     compound_add_op(&compound, OP_PUTFH, &putfh_args[1], &putfh_res[1]);
     putfh_args[1].file = dst_dir;
     putfh_args[1].in_recovery = 0;
@@ -1285,17 +1294,25 @@ int nfs41_link(
     compound_add_op(&compound, OP_LINK, &link_args, &link_res);
     link_args.newname = target;
 
-    compound_add_op(&compound, OP_GETATTR, &pgetattr_args, &pgetattr_res);
-    pgetattr_args.attr_request = &dir_attr_request;
-    pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    pgetattr_res.info = &dir_info;
+    /* GETATTR(dst_dir) */
+    compound_add_op(&compound, OP_GETATTR, &getattr_args[0], &getattr_res[0]);
+    getattr_args[0].attr_request = &info[0].attrmask;
+    getattr_res[0].obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
+    getattr_res[0].info = &info[0];
 
-    compound_add_op(&compound, OP_RESTOREFH, NULL, &restorefh_res);
+    /* LOOKUP(target) */
+    compound_add_op(&compound, OP_LOOKUP, &lookup_args, &lookup_res);
+    lookup_args.name = target;
 
-    compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
-    getattr_args.attr_request = &info.attrmask;
-    getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    getattr_res.info = &info;
+    /* GETATTR(target) */
+    compound_add_op(&compound, OP_GETATTR, &getattr_args[1], &getattr_res[1]);
+    getattr_args[1].attr_request = &info[1].attrmask;
+    getattr_res[1].obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
+    getattr_res[1].info = &info[1];
+
+    /* GETFH(target) */
+    compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
+    getfh_res.fh = &link_out->fh;
 
     status = compound_encode_send_decode(session, &compound, 0, 0);
     if (status)
@@ -1304,17 +1321,27 @@ int nfs41_link(
     if (compound_error(status = compound.res.status))
         goto out;
 
-    /* update the attributes of the destination directory */
-    memcpy(&dir_info.attrmask, &pgetattr_res.obj_attributes.attrmask,
-        sizeof(bitmap4));
-    nfs41_attr_cache_update(session_name_cache(session),
-        dst_dir->fh.fileid, &dir_info);
+    /* fill in the file handle's fileid and superblock */
+    link_out->fh.fileid = info[1].fileid;
+    status = nfs41_superblock_for_fh(session,
+        &info[1].fsid, &dst_dir->fh, link_out);
+    if (status)
+        goto out;
 
-    /* update the attributes of the source file */
-    memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
+    /* update the attributes of the destination directory */
+    memcpy(&info[0].attrmask, &getattr_res[0].obj_attributes.attrmask,
         sizeof(bitmap4));
     nfs41_attr_cache_update(session_name_cache(session),
-        src->fh.fileid, &info);
+        info[0].fileid, &info[0]);
+
+    /* add the new file handle and attributes to the name cache */
+    memcpy(&info[1].attrmask, &getattr_res[1].obj_attributes.attrmask,
+        sizeof(bitmap4));
+    AcquireSRWLockShared(&dst_dir->path->lock);
+    nfs41_name_cache_insert(session_name_cache(session),
+        dst_dir->path->path, target, &link_out->fh,
+        &info[1], &link_res.cinfo);
+    ReleaseSRWLockShared(&dst_dir->path->lock);
 out:
     return status;
 }

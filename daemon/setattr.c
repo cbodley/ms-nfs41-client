@@ -367,7 +367,8 @@ int handle_nfs41_link(setattr_upcall_args *args)
         }
     }
 
-    status = nfs41_link(state->session, &state->file, &dst_dir, &dst_name);
+    status = nfs41_link(state->session, &state->file,
+        &dst_dir, &dst_name, NULL);
     if (status) {
         dprintf(1, "nfs41_link() failed with error %s.\n",
             nfs_error_string(status));

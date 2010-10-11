@@ -1017,7 +1017,8 @@ int nfs41_link(
     IN nfs41_session *session,
     IN nfs41_path_fh *src,
     IN nfs41_path_fh *dst_dir,
-    IN const nfs41_component *target);
+    IN const nfs41_component *target,
+    OUT OPTIONAL nfs41_path_fh *link_out);
 
 int nfs41_readlink(
     IN nfs41_session *session,
