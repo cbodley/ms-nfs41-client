@@ -140,6 +140,13 @@ typedef struct __volume_upcall_args {
     union {
         FILE_FS_SIZE_INFORMATION size;
         FILE_FS_FULL_SIZE_INFORMATION fullsize;
+        FILE_FS_ATTRIBUTE_INFORMATION attribute;
+
+        /* attribute.FileSystemName is WCHAR[1], so even though there's
+         * some extra space in the union from other members, reserve
+         * enough space for an arbitrary NFS41_FILESYSTEM_NAME_LEN */
+        unsigned char buffer[sizeof(FILE_FS_ATTRIBUTE_INFORMATION) +
+            NFS41_FILESYSTEM_NAME_LEN];
     } info;
 } volume_upcall_args;
 

@@ -1546,6 +1546,14 @@ static bool_t decode_file_attrs(
             if (!xdr_u_int32_t(xdr, &info->rdattr_error))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_CASE_INSENSITIVE) {
+            if (!xdr_bool(xdr, &info->case_insensitive))
+                return FALSE;
+        }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_CASE_PRESERVING) {
+            if (!xdr_bool(xdr, &info->case_preserving))
+                return FALSE;
+        }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_FILEID) {
             if (!xdr_u_hyper(xdr, &info->fileid))
                 return FALSE;

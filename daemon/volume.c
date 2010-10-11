@@ -22,6 +22,7 @@
  */
 
 #include <Windows.h>
+#include <strsafe.h>
 #include <stdio.h>
 
 #include "nfs41_ops.h"
@@ -88,6 +89,59 @@ out:
     return status;
 }
 
+static int handle_volume_attributes(
+    IN nfs41_session *session,
+    IN volume_upcall_args *args)
+{
+    /* query the case_ attributes of the root filesystem */
+    nfs41_file_info info = { 0 };
+    bitmap4 attr_request = { 1, { FATTR4_WORD0_CASE_INSENSITIVE |
+        FATTR4_WORD0_CASE_PRESERVING } };
+    PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
+    size_t max_length;
+    int status = NO_ERROR;
+
+    status = nfs41_getattr(session, NULL, &attr_request, &info);
+    if (status) {
+        eprintf("nfs41_getattr() failed with %s\n",
+            nfs_error_string(status));
+        status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
+        goto out;
+    }
+
+    attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
+    if (info.case_preserving)
+        attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
+    if (!info.case_insensitive)
+        attr->FileSystemAttributes |= FILE_CASE_SENSITIVE_SEARCH;
+
+    attr->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
+
+    /* calculate how much space we have for FileSystemName; args.info.buffer
+     * should guarantee us enough room for NFS41_FILESYSTEM_NAME */
+    max_length = sizeof(args->info) -
+        FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName);
+
+    if (FAILED(StringCbCopyNW(attr->FileSystemName, max_length,
+        NFS41_FILESYSTEM_NAME, NFS41_FILESYSTEM_NAME_LEN))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        eprintf("FileSystemName '%S' truncated to '%S'! returning %d\n",
+            NFS41_FILESYSTEM_NAME, attr->FileSystemName, status);
+        goto out;
+    }
+
+    attr->FileSystemNameLength = NFS41_FILESYSTEM_NAME_LEN;
+    args->len = sizeof(args->info.attribute) + NFS41_FILESYSTEM_NAME_LEN;
+
+    dprintf(2, "FileFsAttributeInformation: case_preserving %u, "
+        "case_insensitive %u, max component %u, name '%S', length %u\n",
+        info.case_preserving, info.case_insensitive,
+        attr->MaximumComponentNameLength,
+        attr->FileSystemName, attr->FileSystemNameLength);
+out:
+    return status;
+}
+
 int handle_volume(nfs41_upcall *upcall)
 {
     volume_upcall_args *args = &upcall->args.volume;
@@ -115,6 +169,10 @@ int handle_volume(nfs41_upcall *upcall)
             &args->info.fullsize.TotalAllocationUnits.QuadPart,
             &args->info.fullsize.CallerAvailableAllocationUnits.QuadPart,
             &args->info.fullsize.ActualAvailableAllocationUnits.QuadPart);
+        break;
+
+    case FileFsAttributeInformation:
+        status = handle_volume_attributes(session, args);
         break;
 
     default:

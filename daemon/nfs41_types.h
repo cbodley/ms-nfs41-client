@@ -180,6 +180,8 @@ typedef struct __nfs41_file_info {
     uint32_t                lease_time; /* XXX: per-server */
     uint32_t                fs_layout_types; /* pnfs, XXX: per-fs */
     bool_t                  hidden;
+    bool_t                  case_insensitive;
+    bool_t                  case_preserving;
 } nfs41_file_info;
 
 #endif /* !__NFS41_DAEMON_TYPES_H__ */

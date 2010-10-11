@@ -41,8 +41,11 @@
 
 #define UPCALL_BUF_SIZE         1024
 
-/* see MaximumComponentNameLength in FileFsAttributeInformation
- * in nfs41_driver.c:nfs41_QueryVolumeInformation() */
+/* FileSystemName reported for FileFsAttributeInformation */
+#define NFS41_FILESYSTEM_NAME     L"NFS"
+#define NFS41_FILESYSTEM_NAME_LEN (sizeof(NFS41_FILESYSTEM_NAME)-sizeof(WCHAR))
+
+/* MaximumComponentNameLength reported for FileFsAttributeInformation */
 #define NFS41_MAX_COMPONENT_LEN     64
 #define NFS41_MAX_PATH_LEN          MAX_PATH
 
