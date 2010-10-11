@@ -488,6 +488,9 @@ static int name_cache_entry_changed(
     IN struct name_cache_entry *entry,
     IN const change_info4 *cinfo)
 {
+    if (entry->attributes == NULL)
+        return FALSE;
+
     if (cinfo->after == entry->attributes->change ||
             (cinfo->atomic && cinfo->before == entry->attributes->change)) {
         entry->attributes->change = cinfo->after;
