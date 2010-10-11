@@ -192,4 +192,35 @@ typedef struct _FILE_LINK_INFORMATION {
     WCHAR FileName[1];
 } FILE_LINK_INFORMATION, *PFILE_LINK_INFORMATION;
 
+/* wdm.h */
+typedef enum _FSINFOCLASS {
+    FileFsVolumeInformation       = 1,
+    FileFsLabelInformation,      // 2
+    FileFsSizeInformation,       // 3
+    FileFsDeviceInformation,     // 4
+    FileFsAttributeInformation,  // 5
+    FileFsControlInformation,    // 6
+    FileFsFullSizeInformation,   // 7
+    FileFsObjectIdInformation,   // 8
+    FileFsDriverPathInformation, // 9
+    FileFsVolumeFlagsInformation,// 10
+    FileFsMaximumInformation
+} FS_INFORMATION_CLASS, *PFS_INFORMATION_CLASS;
+
+/* ntddk.h */
+typedef struct _FILE_FS_SIZE_INFORMATION {
+    LARGE_INTEGER TotalAllocationUnits;
+    LARGE_INTEGER AvailableAllocationUnits;
+    ULONG SectorsPerAllocationUnit;
+    ULONG BytesPerSector;
+} FILE_FS_SIZE_INFORMATION, *PFILE_FS_SIZE_INFORMATION;
+
+typedef struct _FILE_FS_FULL_SIZE_INFORMATION {
+    LARGE_INTEGER TotalAllocationUnits;
+    LARGE_INTEGER CallerAvailableAllocationUnits;
+    LARGE_INTEGER ActualAvailableAllocationUnits;
+    ULONG SectorsPerAllocationUnit;
+    ULONG BytesPerSector;
+} FILE_FS_FULL_SIZE_INFORMATION, *PFILE_FS_FULL_SIZE_INFORMATION;
+
 #endif

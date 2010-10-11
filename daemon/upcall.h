@@ -25,6 +25,7 @@
 #define __NFS41_DAEMON_UPCALL_H__
 
 #include "nfs41_ops.h"
+#include "from_kernel.h"
 
 
 /* structures for upcall arguments */
@@ -134,9 +135,12 @@ typedef struct __readdir_upcall_args {
 
 typedef struct __volume_upcall_args {
     nfs41_root *root;
-    ULONGLONG total;
-    ULONGLONG user;
-    ULONGLONG avail;
+    FS_INFORMATION_CLASS query;
+    int len;
+    union {
+        FILE_FS_SIZE_INFORMATION size;
+        FILE_FS_FULL_SIZE_INFORMATION fullsize;
+    } info;
 } volume_upcall_args;
 
 typedef union __upcall_args {
