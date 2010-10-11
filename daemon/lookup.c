@@ -427,6 +427,7 @@ int nfs41_lookup(
     nfs41_path_fh parent, target, *server_start;
     const char *path_pos, *path_end;
     struct lookup_referral referral;
+    bool_t negative = 0;
     int status;
 
     if (session_out) *session_out = session;
@@ -448,10 +449,9 @@ int nfs41_lookup(
     if (target_out == NULL) target_out = &target;
     parent_out->fh.len = target_out->fh.len = 0;
 
-    status = nfs41_name_cache_lookup(cache,
-        path_pos, path_end, &path_pos,
-        &parent_out->fh, &target_out->fh, info_out);
-    if (status == NO_ERROR)
+    status = nfs41_name_cache_lookup(cache, path_pos, path_end, &path_pos,
+        &parent_out->fh, &target_out->fh, info_out, &negative);
+    if (status == NO_ERROR || negative)
         goto out;
 
     if (target_out->fh.len) {

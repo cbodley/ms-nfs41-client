@@ -545,7 +545,7 @@ out_success:
     return entry;
 }
 
-static __inline int entry_has_expired(
+static int entry_has_expired(
     IN struct name_cache_entry *entry)
 {
     /* invalidated by another entry or timer expired */
@@ -557,14 +557,30 @@ static __inline int entry_has_expired(
     return expired;
 }
 
+static int entry_invis(
+    IN struct name_cache_entry *entry,
+    OUT OPTIONAL bool_t *is_negative)
+{
+    if (entry_has_expired(entry))
+        return 1;
+
+    /* a negative lookup entry has an empty fh and no attributes */
+    if (entry->attributes == NULL) {
+        if (is_negative) *is_negative = 1;
+        return 1;
+    }
+    return 0;
+}
+
 static int name_cache_lookup(
     IN struct nfs41_name_cache *cache,
-    IN bool_t skip_expired,
+    IN bool_t skip_invis,
     IN const char *path,
     IN const char *path_end,
     OUT OPTIONAL const char **remaining_path_out,
     OUT OPTIONAL struct name_cache_entry **parent_out,
-    OUT OPTIONAL struct name_cache_entry **target_out)
+    OUT OPTIONAL struct name_cache_entry **target_out,
+    OUT OPTIONAL bool_t *is_negative)
 {
     struct name_cache_entry *parent, *target, *tmp;
     nfs41_component component;
@@ -577,7 +593,7 @@ static int name_cache_lookup(
     target = cache->root;
     component.name = path_pos = path;
 
-    if (target == NULL || (skip_expired && entry_has_expired(target))) {
+    if (target == NULL || (skip_invis && entry_invis(target, is_negative))) {
         target = NULL;
         status = ERROR_PATH_NOT_FOUND;
         goto out;
@@ -585,7 +601,7 @@ static int name_cache_lookup(
 
     while (next_component(path_pos, path_end, &component)) {
         tmp = name_cache_search(cache, target, &component);
-        if (tmp == NULL || (skip_expired && entry_has_expired(tmp))) {
+        if (tmp == NULL || (skip_invis && entry_invis(tmp, is_negative))) {
             if (is_last_component(component.name, path_end))
                 status = ERROR_FILE_NOT_FOUND;
             else
@@ -695,7 +711,7 @@ static int name_cache_find_or_create(
     dprintf(NCLVL1, "--> name_cache_find_or_create('%s')\n", path);
 
     status = name_cache_lookup(cache, 0, path, path_end,
-        &path_pos, &parent, target_out);
+        &path_pos, &parent, target_out, NULL);
     if (status != ERROR_FILE_NOT_FOUND)
         goto out;
 
@@ -816,7 +832,8 @@ int nfs41_name_cache_lookup(
     OUT OPTIONAL const char **remaining_path_out,
     OUT OPTIONAL nfs41_fh *parent_out,
     OUT OPTIONAL nfs41_fh *target_out,
-    OUT OPTIONAL nfs41_file_info *info_out)
+    OUT OPTIONAL nfs41_file_info *info_out,
+    OUT OPTIONAL bool_t *is_negative)
 {
     struct name_cache_entry *parent, *target;
     const char *path_pos = path;
@@ -830,7 +847,7 @@ int nfs41_name_cache_lookup(
     }
 
     status = name_cache_lookup(cache, 1, path, path_end,
-        &path_pos, &parent, &target);
+        &path_pos, &parent, &target, is_negative);
 
     if (parent_out) copy_fh(parent_out, parent);
     if (target_out) copy_fh(target_out, target);
@@ -946,7 +963,7 @@ int nfs41_name_cache_insert(
     }
 
     status = name_cache_lookup(cache, 0, path, name->name,
-        NULL, &grandparent, &parent);
+        NULL, &grandparent, &parent, NULL);
     if (status)
         goto out_unlock;
 
@@ -989,7 +1006,7 @@ int nfs41_name_cache_remove(
     }
 
     status = name_cache_lookup(cache, 0, path,
-        name->name + name->len, NULL, &parent, &target);
+        name->name + name->len, NULL, &parent, &target, NULL);
     if (status == ERROR_PATH_NOT_FOUND)
         goto out_unlock;
 
@@ -1036,13 +1053,13 @@ int nfs41_name_cache_rename(
 
     /* get src_parent and target */
     status = name_cache_lookup(cache, 0, src_path,
-        src_name->name + src_name->len, NULL, &src_parent, &target);
+        src_name->name + src_name->len, NULL, &src_parent, &target, NULL);
     if (status)
         goto out_unlock;
 
     /* get dst_parent */
     status = name_cache_lookup(cache, 0, dst_path,
-        dst_name->name, NULL, NULL, &dst_parent);
+        dst_name->name, NULL, NULL, &dst_parent, NULL);
     if (status) {
         status = ERROR_PATH_NOT_FOUND;
         goto out_unlock;
@@ -1089,8 +1106,8 @@ static bool_t get_path_fhs(
     AcquireSRWLockShared(&cache->lock);
 
     /* look up the parent of the first component */
-    status = name_cache_lookup(cache, 1, path->path, *path_pos,
-        NULL, NULL, &target);
+    status = name_cache_lookup(cache, 1, path->path,
+        *path_pos, NULL, NULL, &target, NULL);
     if (status)
         goto out_unlock;
 
@@ -1103,7 +1120,7 @@ static bool_t get_path_fhs(
         *path_pos = name->name + name->len;
 
         target = name_cache_search(cache, target, name);
-        if (target == NULL || entry_has_expired(target)) {
+        if (target == NULL || entry_invis(target, NULL)) {
             if (is_last_component(name->name, path_end))
                 status = ERROR_FILE_NOT_FOUND;
             else
@@ -1183,7 +1200,7 @@ static int delete_stale_component(
     AcquireSRWLockExclusive(&cache->lock);
 
     status = name_cache_lookup(cache, 0, path->path,
-        component->name + component->len, NULL, NULL, &target);
+        component->name + component->len, NULL, NULL, &target, NULL);
     if (status == NO_ERROR)
         name_cache_unlink(cache, target);
 
