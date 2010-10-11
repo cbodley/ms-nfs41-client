@@ -73,8 +73,8 @@ int nfs41_name_cache_insert(
     IN struct nfs41_name_cache *cache,
     IN const char *path,
     IN const nfs41_component *name,
-    IN const nfs41_fh *fh,
-    IN const nfs41_file_info *info,
+    IN OPTIONAL const nfs41_fh *fh,
+    IN OPTIONAL const nfs41_file_info *info,
     IN OPTIONAL const change_info4 *cinfo);
 
 int nfs41_name_cache_remove(

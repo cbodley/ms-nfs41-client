@@ -417,7 +417,6 @@ static void name_cache_unlink_children_recursive(
 static int name_cache_entry_create(
     IN struct nfs41_name_cache *cache,
     IN const nfs41_component *component,
-    IN uint64_t fileid,
     OUT struct name_cache_entry **entry_out)
 {
     int status = NO_ERROR;
@@ -439,17 +438,11 @@ static int name_cache_entry_create(
 
     name_cache_entry_rename(entry, component);
 
-    status = attr_cache_find_or_create(&cache->attributes,
-        fileid, &entry->attributes);
-    if (status)
-        goto out;
-
     *entry_out = entry;
-out:
     return status;
 }
 
-static __inline void name_cache_entry_refresh(
+static void name_cache_entry_refresh(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *entry)
 {
@@ -460,15 +453,34 @@ static __inline void name_cache_entry_refresh(
     list_add_head(&cache->exp_entries, &entry->exp_entry);
 }
 
-static void name_cache_entry_update(
+static int name_cache_entry_update(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *entry,
-    IN const nfs41_fh *fh,
-    IN const nfs41_file_info *info)
+    IN OPTIONAL const nfs41_fh *fh,
+    IN OPTIONAL const nfs41_file_info *info)
 {
-    fh_copy(&entry->fh, fh);
-    attr_cache_update(entry->attributes, info);
+    int status = NO_ERROR;
+
+    if (fh)
+        fh_copy(&entry->fh, fh);
+    else
+        entry->fh.len = 0;
+
+    if (info) {
+        /* negative -> positive entry, create the attributes */
+        if (entry->attributes == NULL)
+            status = attr_cache_find_or_create(&cache->attributes,
+                info->fileid, &entry->attributes);
+
+        if (status == NO_ERROR)
+            attr_cache_update(entry->attributes, info);
+    } else if (entry->attributes) {
+        /* positive -> negative entry, deref the attributes */
+        attr_cache_entry_deref(&cache->attributes, entry->attributes);
+        entry->attributes = NULL;
+    }
     name_cache_entry_refresh(cache, entry);
+    return status;
 }
 
 static int name_cache_entry_changed(
@@ -492,16 +504,17 @@ static int name_cache_entry_changed(
     }
 }
 
-static __inline void name_cache_entry_invalidate(
+static void name_cache_entry_invalidate(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *entry)
 {
     dprintf(NCLVL1, "name_cache_entry_invalidate('%s')\n", entry->component);
 
-    /* flag attributes so that entry_has_expired() will return true
-     * if another entry attempts to use them */
-    entry->attributes->invalidated = 1;
-
+    if (entry->attributes) {
+        /* flag attributes so that entry_has_expired() will return true
+         * if another entry attempts to use them */
+        entry->attributes->invalidated = 1;
+    }
     name_cache_unlink(cache, entry);
 }
 
@@ -659,11 +672,10 @@ out:
     return status;
 }
 
-static int name_cache_entry_find_or_create(
+static int name_cache_find_or_create(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *parent,
     IN const nfs41_component *component,
-    IN uint64_t fileid,
     OUT struct name_cache_entry **target_out)
 {
     char dbg_name[NFS41_MAX_COMPONENT_LEN];
@@ -671,14 +683,14 @@ static int name_cache_entry_find_or_create(
 
     StringCchCopyNA(dbg_name, NFS41_MAX_COMPONENT_LEN,
         component->name, component->len);
-    dprintf(NCLVL1, "--> name_cache_entry_find_or_create("
+    dprintf(NCLVL1, "--> name_cache_find_or_create("
         "'%s' under '%s')\n", dbg_name, parent->component);
 
     *target_out = name_cache_search(cache, parent, component);
     if (*target_out)
         goto out;
 
-    status = name_cache_entry_create(cache, component, fileid, target_out);
+    status = name_cache_entry_create(cache, component, target_out);
     if (status)
         goto out;
 
@@ -687,43 +699,13 @@ static int name_cache_entry_find_or_create(
         goto out_err;
 
 out:
-    dprintf(NCLVL1, "<-- name_cache_entry_find_or_create() returning %d\n",
+    dprintf(NCLVL1, "<-- name_cache_find_or_create() returning %d\n",
         status);
     return status;
 
 out_err:
     *target_out = NULL;
     goto out;
-}
-
-static int name_cache_find_or_create(
-    IN struct nfs41_name_cache *cache,
-    IN const char *path,
-    IN const char *path_end,
-    IN const uint64_t fileid,
-    OUT struct name_cache_entry **target_out)
-{
-    struct name_cache_entry *parent;
-    const char *path_pos;
-    nfs41_component component;
-    int status = NO_ERROR;
-
-    dprintf(NCLVL1, "--> name_cache_find_or_create('%s')\n", path);
-
-    status = name_cache_lookup(cache, 0, path, path_end,
-        &path_pos, &parent, target_out, NULL);
-    if (status != ERROR_FILE_NOT_FOUND)
-        goto out;
-
-    component.name = path_pos;
-    component.len = (unsigned short)(path_end - path_pos);
-
-    status = name_cache_entry_find_or_create(cache,
-        *target_out, &component, fileid, target_out);
-out:
-    dprintf(NCLVL1, "<-- name_cache_find_or_create() returning 0x%p\n",
-        *target_out);
-    return status;
 }
 
 static void name_cache_rename(
@@ -913,7 +895,7 @@ int nfs41_attr_cache_update(
         status = ERROR_FILE_NOT_FOUND;
         goto out_unlock;
     }
-    
+
     attr_cache_update(entry, info);
 
 out_unlock:
@@ -927,8 +909,8 @@ int nfs41_name_cache_insert(
     IN struct nfs41_name_cache *cache,
     IN const char *path,
     IN const nfs41_component *name,
-    IN const nfs41_fh *fh,
-    IN const nfs41_file_info *info,
+    IN OPTIONAL const nfs41_fh *fh,
+    IN OPTIONAL const nfs41_file_info *info,
     IN OPTIONAL const change_info4 *cinfo)
 {
     char dbg_path[NFS41_MAX_PATH_LEN];
@@ -951,14 +933,12 @@ int nfs41_name_cache_insert(
         /* create the root entry if it doesn't exist */
         if (cache->root == NULL) {
             const nfs41_component name = { "ROOT", 4 };
-            status = name_cache_entry_create(cache,
-                &name, fh->fileid, &cache->root);
+            status = name_cache_entry_create(cache, &name, &cache->root);
             if (status)
                 goto out_unlock;
         }
 
-        name_cache_entry_update(cache, cache->root, fh, info);
-        status = NO_ERROR;
+        status = name_cache_entry_update(cache, cache->root, fh, info);
         goto out_unlock;
     }
 
@@ -972,12 +952,11 @@ int nfs41_name_cache_insert(
         goto out_unlock;
     }
 
-    status = name_cache_entry_find_or_create(cache,
-        parent, name, fh->fileid, &target);
+    status = name_cache_find_or_create(cache, parent, name, &target);
     if (status)
         goto out_unlock;
 
-    name_cache_entry_update(cache, target, fh, info);
+    status = name_cache_entry_update(cache, target, fh, info);
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
