@@ -38,10 +38,20 @@ enum {
     NCLVL2
 };
 
+
 #define NAME_CACHE_EXPIRATION 20 /* TODO: get from configuration */
 
 /* allow up to 128K of memory for name and attribute cache entries */
 #define NAME_CACHE_MAX_SIZE 131072
+
+/* negative lookup caching
+ *
+ * by caching lookups that result in NOENT, we can avoid sending subsequent
+ * lookups over the wire.  a name cache entry is negative when its attributes
+ * pointer is NULL.  negative entries are created by three functions:
+ * nfs41_name_cache_remove(), _insert() when called with NULL for the fh and
+ * attributes, and _rename() for the source entry
+ */
 
 
 /* attribute cache */
