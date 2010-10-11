@@ -531,6 +531,16 @@ static void name_cache_entry_invalidate(
     name_cache_unlink(cache, entry);
 }
 
+static int component_cmp(
+    IN const char *lhs,
+    IN unsigned short lhs_len,
+    IN const char *rhs,
+    IN unsigned short rhs_len)
+{
+    const int diff = rhs_len - lhs_len;
+    return diff ? diff : strncmp(lhs, rhs, lhs_len);
+}
+
 static struct name_cache_entry* name_cache_search(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *parent,
@@ -552,8 +562,9 @@ static struct name_cache_entry* name_cache_search(
     while (node) {
         entry = rb_entry(node, struct name_cache_entry, rbnode);
 
-        result = strncmp(component->name, entry->component,
-            max(component->len, entry->component_len));
+        result = component_cmp(component->name, component->len,
+            entry->component, entry->component_len);
+
         if (result < 0)
             node = node->rb_left;
         else if (result > 0)
@@ -658,7 +669,8 @@ static int name_cache_insert(
     while (*node) {
         current = rb_entry(*node, struct name_cache_entry, rbnode);
 
-        result = strcmp(entry->component, current->component);
+        result = component_cmp(entry->component, entry->component_len,
+            current->component, current->component_len);
 
         prev = *node;
         if (result < 0)
