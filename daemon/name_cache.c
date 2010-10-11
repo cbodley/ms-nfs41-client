@@ -708,27 +708,6 @@ out_err:
     goto out;
 }
 
-static void name_cache_rename(
-    IN struct nfs41_name_cache *cache,
-    IN struct name_cache_entry *src_dir,
-    IN struct name_cache_entry *src,
-    IN struct name_cache_entry *dst_dir,
-    IN const nfs41_component *component,
-    OUT struct name_cache_entry **dst_out)
-{
-    struct name_cache_entry *existing;
-
-    name_cache_remove(src, src_dir);
-
-    name_cache_entry_rename(src, component);
-
-    existing = name_cache_search(cache, dst_dir, component);
-    if (existing)
-        name_cache_unlink(cache, existing);
-
-    name_cache_insert(src, dst_dir);
-}
-
 
 /* public name cache interface, declared in name_cache.h */
 
@@ -1020,7 +999,7 @@ int nfs41_name_cache_rename(
     IN const nfs41_component *dst_name,
     IN const change_info4 *dst_cinfo)
 {
-    struct name_cache_entry *src_parent, *target;
+    struct name_cache_entry *src_parent, *src;
     struct name_cache_entry *dst_parent;
     int status = NO_ERROR;
 
@@ -1034,13 +1013,14 @@ int nfs41_name_cache_rename(
         goto out_unlock;
     }
 
-    /* get src_parent and target */
+    /* look up src_parent and src */
     status = name_cache_lookup(cache, 0, src_path,
-        src_name->name + src_name->len, NULL, &src_parent, &target, NULL);
-    if (status)
+        src_name->name + src_name->len, NULL, &src_parent, &src, NULL);
+    /* we can't create the dst entry without valid attributes */
+    if (status || src->attributes == NULL)
         goto out_unlock;
 
-    /* get dst_parent */
+    /* look up dst_parent */
     status = name_cache_lookup(cache, 0, dst_path,
         dst_name->name, NULL, NULL, &dst_parent, NULL);
     if (status) {
@@ -1049,15 +1029,47 @@ int nfs41_name_cache_rename(
     }
 
     if (name_cache_entry_changed(cache, dst_parent, dst_cinfo)) {
-        name_cache_unlink(cache, target);
         name_cache_entry_invalidate(cache, dst_parent);
-    } else
-        name_cache_rename(cache, src_parent, target,
-            dst_parent, dst_name, &target);
+        /* if dst_parent and src_parent are both gone,
+         * we no longer have an entry to rename */
+        if (dst_parent == src_parent)
+            goto out_unlock;
+    } else {
+        struct name_cache_entry *existing;
+        existing = name_cache_search(cache, dst_parent, dst_name);
+        if (existing) {
+            /* remove the existing entry, but don't unlink it yet;
+             * we may reuse it for a negative entry */
+            name_cache_remove(existing, dst_parent);
+        }
 
-    if (dst_parent != src_parent
-        && name_cache_entry_changed(cache, src_parent, src_cinfo))
+        /* move the src entry under dst_parent */
+        name_cache_remove(src, src_parent);
+        name_cache_entry_rename(src, dst_name);
+        name_cache_insert(src, dst_parent);
+
+        if (existing) {
+            /* recycle 'existing' as the negative entry 'src' */
+            name_cache_entry_rename(existing, src_name);
+            name_cache_insert(existing, src_parent);
+        }
+        src = existing;
+    }
+
+    if (name_cache_entry_changed(cache, src_parent, src_cinfo)) {
         name_cache_entry_invalidate(cache, src_parent);
+        goto out_unlock;
+    }
+
+    /* leave a negative entry where the file used to be */
+    if (src == NULL) {
+        /* src was moved, create a new entry in its place */
+        status = name_cache_find_or_create(cache, src_parent, src_name, &src);
+        if (status)
+            goto out_unlock;
+    }
+    name_cache_entry_update(cache, src, NULL, NULL);
+    name_cache_unlink_children_recursive(cache, src);
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
