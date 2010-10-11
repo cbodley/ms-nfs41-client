@@ -227,7 +227,11 @@ static int server_lookup(
     }
 
     for (i = 0; i < count; i++) {
+        if (res->lookup[i].status == NFS4ERR_NOENT)
+            nfs41_name_cache_insert(session_name_cache(session),
+                path, args->lookup[i].name, NULL, NULL, NULL);
         status = res->lookup[i].status;     if (status) break;
+
         if (res->getfh[i].status == NFS4ERR_MOVED) {
             /* save enough information to follow the referral */
             path_fh_copy(&res->referral->parent, file);
