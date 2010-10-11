@@ -458,14 +458,14 @@ int nfs41_lookup(
     if (status == NO_ERROR || negative)
         goto out;
 
-    if (target_out->fh.len) {
+    if (parent_out->fh.len) {
         /* start where the name cache left off */
-        if (target_out != &target) {
+        if (&parent != parent_out) {
             /* must make a copy for server_start, because
-             * server_lookup_loop() will overwrite target_out */
-            path_fh_copy(&target, target_out);
+             * server_lookup_loop() will overwrite parent_out */
+            path_fh_copy(&parent, parent_out);
         }
-        server_start = &target;
+        server_start = &parent;
     } else {
         /* start with PUTROOTFH */
         server_start = NULL;

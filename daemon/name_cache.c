@@ -595,7 +595,7 @@ static int name_cache_lookup(
     OUT OPTIONAL struct name_cache_entry **target_out,
     OUT OPTIONAL bool_t *is_negative)
 {
-    struct name_cache_entry *parent, *target, *tmp;
+    struct name_cache_entry *parent, *target;
     nfs41_component component;
     const char *path_pos;
     int status = NO_ERROR;
@@ -613,17 +613,16 @@ static int name_cache_lookup(
     }
 
     while (next_component(path_pos, path_end, &component)) {
-        tmp = name_cache_search(cache, target, &component);
-        if (tmp == NULL || (skip_invis && entry_invis(tmp, is_negative))) {
+        parent = target;
+        target = name_cache_search(cache, parent, &component);
+        path_pos = component.name + component.len;
+        if (target == NULL || (skip_invis && entry_invis(target, is_negative))) {
             if (is_last_component(component.name, path_end))
                 status = ERROR_FILE_NOT_FOUND;
             else
                 status = ERROR_PATH_NOT_FOUND;
             break;
         }
-        parent = target;
-        target = tmp;
-        path_pos = component.name + component.len;
     }
 out:
     if (remaining_path_out) *remaining_path_out = component.name;
@@ -812,7 +811,8 @@ int nfs41_name_cache_lookup(
 
     if (parent_out) copy_fh(parent_out, parent);
     if (target_out) copy_fh(target_out, target);
-    if (info_out && target) copy_attrs(info_out, target->attributes);
+    if (info_out && target && target->attributes)
+        copy_attrs(info_out, target->attributes);
 
 out_unlock:
     ReleaseSRWLockShared(&cache->lock);
