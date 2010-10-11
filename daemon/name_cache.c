@@ -558,28 +558,25 @@ out_success:
     return entry;
 }
 
-static int entry_has_expired(
-    IN struct name_cache_entry *entry)
-{
-    /* invalidated by another entry or timer expired */
-    const int expired = entry->attributes->invalidated
-        || time(NULL) > entry->expiration;
-
-    if (expired)
-        dprintf(NCLVL2, "entry_has_expired('%s')\n", entry->component);
-    return expired;
-}
-
 static int entry_invis(
     IN struct name_cache_entry *entry,
     OUT OPTIONAL bool_t *is_negative)
 {
-    if (entry_has_expired(entry))
+    /* name entry timer expired? */
+    if (time(NULL) > entry->expiration) {
+        dprintf(NCLVL2, "name_entry_expired('%s')\n", entry->component);
         return 1;
-
-    /* a negative lookup entry has an empty fh and no attributes */
+    }
+    /* negative lookup entry? */
     if (entry->attributes == NULL) {
         if (is_negative) *is_negative = 1;
+        dprintf(NCLVL2, "name_entry_negative('%s')\n", entry->component);
+        return 1;
+    }
+    /* attribute entry invalidated? */
+    if (entry->attributes->invalidated) {
+        dprintf(NCLVL2, "attr_entry_expired(%llu)\n",
+            entry->attributes->fileid);
         return 1;
     }
     return 0;
