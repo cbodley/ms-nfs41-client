@@ -198,9 +198,9 @@ typedef struct _updowncall_entry {
         } SetEa;
         struct {
             HANDLE session;
-            ULONGLONG total;
-            ULONGLONG user;
-            ULONGLONG avail;
+            FS_INFORMATION_CLASS query;
+            PVOID buf;
+            LONG buf_len;
         } Volume;
     } u;
 
@@ -978,13 +978,15 @@ NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + sizeof(HANDLE);
+    header_len = *len + sizeof(HANDLE) + sizeof(FS_INFORMATION_CLASS);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
     RtlCopyMemory(tmp, &entry->u.Volume.session, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(FS_INFORMATION_CLASS));
     *len = header_len;
 
     DbgP("session=0x%x\n", entry->u.Volume.session);
@@ -1336,13 +1338,15 @@ nfs41_downcall (
             }
             break;
         case NFS41_VOLUME_QUERY:
-            RtlCopyMemory(&cur->u.Volume.total, buf, sizeof(ULONGLONG));
-            buf += sizeof(ULONGLONG);
-            RtlCopyMemory(&cur->u.Volume.user, buf, sizeof(ULONGLONG));
-            buf += sizeof(ULONGLONG);
-            RtlCopyMemory(&cur->u.Volume.avail, buf, sizeof(ULONGLONG));
-            DbgP("[volume] total %llu user %llu avail %llu\n",
-                cur->u.Volume.total, cur->u.Volume.user, cur->u.Volume.avail);
+            RtlCopyMemory(&tmp->u.Volume.buf_len, buf, sizeof(LONG));
+            buf += sizeof(LONG);
+            if (tmp->u.Volume.buf_len > cur->u.Volume.buf_len) {
+                cur->status = STATUS_BUFFER_TOO_SMALL;
+                cur->u.Volume.buf_len = tmp->u.Volume.buf_len;
+                break;
+            }
+            cur->u.Volume.buf_len = tmp->u.Volume.buf_len;
+            RtlCopyMemory(cur->u.Volume.buf, buf, tmp->u.Volume.buf_len);
             break;
         }
     }
@@ -2999,43 +3003,6 @@ static NTSTATUS map_volume_errors(DWORD status)
     }
 }
 
-static NTSTATUS get_volume_size_info(
-    IN PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext,
-    IN ULONG BytesPerUnit,
-    OUT OPTIONAL PLONGLONG pTotal,
-    OUT OPTIONAL PLONGLONG pUser,
-    OUT OPTIONAL PLONGLONG pAvail)
-{
-    nfs41_updowncall_entry *entry;
-    NTSTATUS status;
-
-    DbgEn();
-
-    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &entry);
-    if (status)
-        goto out;
-    entry->u.Volume.session = pVNetRootContext->session;
-
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
-
-    if (entry->status == NO_ERROR) {
-        if (pTotal) *pTotal = entry->u.Volume.total / BytesPerUnit;
-        if (pUser) *pUser = entry->u.Volume.user / BytesPerUnit;
-        if (pAvail) *pAvail = entry->u.Volume.avail / BytesPerUnit;
-        status = STATUS_SUCCESS;
-    } else {
-        /* map windows ERRORs to NTSTATUS */
-        status = map_volume_errors(entry->status);
-    }
-    RxFreePool(entry);
-out:
-    DbgEx();
-    return status;
-}
-
 NTSTATUS nfs41_QueryVolumeInformation (
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -3046,6 +3013,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    nfs41_updowncall_entry *entry;
 
     DbgEn();
     print_queryvolume_args(RxContext);
@@ -3065,7 +3033,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
                 /* Have to have status success for Notepad to be happy */
                 status = STATUS_SUCCESS;
 #endif
-                break;
+                goto out;
             }
             RtlZeroMemory(pVolInfo, sizeof(FILE_FS_VOLUME_INFORMATION));
             pVolInfo->VolumeCreationTime.QuadPart = 0;
@@ -3074,8 +3042,9 @@ NTSTATUS nfs41_QueryVolumeInformation (
             RtlCopyMemory(&pVolInfo->VolumeLabel[0], (PVOID)Label.Buffer, Label.Length);
             RxContext->Info.LengthRemaining -= SizeUsed;
             status = STATUS_SUCCESS;
+            goto out;
         }
-        break;
+
         case FileFsDeviceInformation:
         {
             PFILE_FS_DEVICE_INFORMATION pDevInfo = RxContext->Info.Buffer;
@@ -3084,88 +3053,51 @@ NTSTATUS nfs41_QueryVolumeInformation (
             if (RemainingLength < SizeUsed) {
                 status = STATUS_BUFFER_TOO_SMALL;
                 RxContext->InformationToReturn = SizeUsed;
-                break;
+                goto out;
             }
             RtlZeroMemory(pDevInfo, SizeUsed);
             pDevInfo->DeviceType = RxContext->pFcb->pNetRoot->DeviceType;
             pDevInfo->Characteristics = FILE_REMOTE_DEVICE; // | FILE_READ_ONLY_DEVICE;
             RxContext->Info.LengthRemaining -= SizeUsed;
             status = STATUS_SUCCESS;
+            goto out;
         }
-        break;
-        case FileFsAttributeInformation:
-        {
-            PFILE_FS_ATTRIBUTE_INFORMATION pAttrInfo = RxContext->Info.Buffer;
-            //DECLARE_CONST_UNICODE_STRING(FSName, L"PNFS Stub FileSystemName");
-            DECLARE_CONST_UNICODE_STRING(FSName, L"NFS");
 
-            SizeUsed = sizeof(FILE_FS_ATTRIBUTE_INFORMATION) + FSName.Length;
-            if (RemainingLength < SizeUsed) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn -= SizeUsed;
-                break;
-            }
-            RtlZeroMemory(pAttrInfo, SizeUsed);
-            pAttrInfo->FileSystemAttributes = FILE_CASE_PRESERVED_NAMES |
-                FILE_CASE_SENSITIVE_SEARCH |
-                FILE_SUPPORTS_REMOTE_STORAGE;
-            pAttrInfo->MaximumComponentNameLength = 64;
-            pAttrInfo->FileSystemNameLength = FSName.Length;
-            RtlCopyMemory(pAttrInfo->FileSystemName, FSName.Buffer, FSName.Length);
-            RxContext->Info.LengthRemaining -= SizeUsed;
-            status = STATUS_SUCCESS;
-        }
-        break;
-        case FileFsFullSizeInformation:
-        {
-            PFILE_FS_FULL_SIZE_INFORMATION pSizeInfo =
-                (PFILE_FS_FULL_SIZE_INFORMATION) RxContext->Info.Buffer;
-
-            SizeUsed = sizeof(FILE_FS_FULL_SIZE_INFORMATION);
-            if (RemainingLength < SizeUsed) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = SizeUsed;
-                break;
-            }
-            RtlZeroMemory(pSizeInfo, SizeUsed);
-            pSizeInfo->SectorsPerAllocationUnit = 8;
-            pSizeInfo->BytesPerSector = 512;
-
-            status = get_volume_size_info(pVNetRootContext,
-                pSizeInfo->SectorsPerAllocationUnit * pSizeInfo->BytesPerSector,
-                &pSizeInfo->TotalAllocationUnits.QuadPart,
-                &pSizeInfo->CallerAvailableAllocationUnits.QuadPart,
-                &pSizeInfo->ActualAvailableAllocationUnits.QuadPart);
-            RxContext->Info.LengthRemaining -= SizeUsed;
-            break;
-        }
-        break;
         case FileFsSizeInformation:
-        {
-            PFILE_FS_SIZE_INFORMATION pSizeInfo =
-                (PFILE_FS_SIZE_INFORMATION) RxContext->Info.Buffer;
-
-            SizeUsed = sizeof(FILE_FS_SIZE_INFORMATION);
-            if (RemainingLength < SizeUsed) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = SizeUsed;
-                break;
-            }
-            RtlZeroMemory(pSizeInfo, SizeUsed);
-            pSizeInfo->SectorsPerAllocationUnit = 8;
-            pSizeInfo->BytesPerSector = 512;
-
-            status = get_volume_size_info(pVNetRootContext,
-                pSizeInfo->SectorsPerAllocationUnit * pSizeInfo->BytesPerSector,
-                &pSizeInfo->TotalAllocationUnits.QuadPart,
-                &pSizeInfo->AvailableAllocationUnits.QuadPart,
-                NULL);
-            RxContext->Info.LengthRemaining -= SizeUsed;
+        case FileFsAttributeInformation:
+        case FileFsFullSizeInformation:
             break;
-        }
-        break;
+
+        default:
+            DbgP("unhandled fs query class %d\n", InfoClass);
+            status = STATUS_INVALID_PARAMETER;
+            goto out;
     }
 
+    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &entry);
+    if (status)
+        goto out;
+    entry->u.Volume.session = pVNetRootContext->session;
+    entry->u.Volume.query = InfoClass;
+    entry->u.Volume.buf = RxContext->Info.Buffer;
+    entry->u.Volume.buf_len = RxContext->Info.LengthRemaining;
+
+    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+        status = STATUS_INTERNAL_ERROR;
+        goto out;
+    }
+
+    if (entry->status == STATUS_BUFFER_TOO_SMALL) {
+        RxContext->InformationToReturn = entry->u.Volume.buf_len;
+        status = STATUS_BUFFER_TOO_SMALL;
+    } else if (entry->status == STATUS_SUCCESS) {
+        RxContext->Info.LengthRemaining -= entry->u.Volume.buf_len;
+        status = STATUS_SUCCESS;
+    } else {
+        status = map_volume_errors(entry->status);
+    }
+    RxFreePool(entry);
+out:
     DbgEx();
     return status;
 }
