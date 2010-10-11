@@ -120,9 +120,6 @@ typedef struct __setexattr_upcall_args {
 
 typedef struct __readdir_upcall_args {
     char filter[UPCALL_BUF_SIZE];
-    FILE_BASIC_INFO basic_info;
-    FILE_STANDARD_INFO std_info;
-    FILE_ATTRIBUTE_TAG_INFO tag_info;
     nfs41_readdir_cookie *cookie;
     nfs41_root *root;
     nfs41_open_state *state;
