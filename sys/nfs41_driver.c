@@ -2652,8 +2652,9 @@ NTSTATUS nfs41_Create(
 
         /* allocate the string for RxPrepareToReparseSymbolicLink(), and
          * format an absolute path "DeviceName+VNetRootName+symlink" */
-        AbsPath.MaximumLength = AbsPath.Length = DeviceObject->DeviceName.Length +
+        AbsPath.Length = DeviceObject->DeviceName.Length +
             VNetRootPrefix->Length + entry->u.Open.symlink.Length;
+        AbsPath.MaximumLength = AbsPath.Length + sizeof(UNICODE_NULL);
         AbsPath.Buffer = RxAllocatePoolWithTag(NonPagedPool,
             AbsPath.MaximumLength, NFS41_MM_POOLTAG);
         if (AbsPath.Buffer == NULL) {
@@ -2667,6 +2668,8 @@ NTSTATUS nfs41_Create(
         RtlCopyMemory(buf, VNetRootPrefix->Buffer, VNetRootPrefix->Length);
         buf += VNetRootPrefix->Length;
         RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, entry->u.Open.symlink.Length);
+        buf += entry->u.Open.symlink.Length;
+        *(PWCHAR)buf = UNICODE_NULL;
 
         status = RxPrepareToReparseSymbolicLink(RxContext,
             entry->u.Open.symlink_embedded, &AbsPath, TRUE, &ReparseRequired);
