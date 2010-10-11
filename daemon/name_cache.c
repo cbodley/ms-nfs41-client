@@ -994,8 +994,12 @@ int nfs41_name_cache_remove(
     if (status == ERROR_FILE_NOT_FOUND)
         goto out_unlock;
 
-    target->attributes->numlinks--;
-    name_cache_unlink(cache, target);
+    if (target->attributes)
+        target->attributes->numlinks--;
+
+    /* make this a negative entry and unlink children */
+    name_cache_entry_update(cache, target, NULL, NULL);
+    name_cache_unlink_children_recursive(cache, target);
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
