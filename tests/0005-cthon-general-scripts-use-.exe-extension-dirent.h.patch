@@ -1,0 +1,169 @@
+From c2e26900f6631eea3b5f7e09af30b68243339162 Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:24:29 -0400
+Subject: [PATCH 05/11] cthon: general scripts use .exe extension, dirent.h
+
+large*.c files include <dirent.h> instead of <sys/dir.h>
+---
+ general/large.c      |    8 ++++----
+ general/large1.c     |    8 ++++----
+ general/large2.c     |    8 ++++----
+ general/large3.c     |    8 ++++----
+ general/large4.sh    |    2 +-
+ general/runtests.wrk |   14 +++++++-------
+ 6 files changed, 24 insertions(+), 24 deletions(-)
+
+diff --git a/general/large.c b/general/large.c
+index 5dd2950..1ae2e85 100644
+--- a/general/large.c
++++ b/general/large.c
+@@ -9,11 +9,11 @@
+ #include <stdio.h>
+ #include <ctype.h>
+ #include <signal.h>
+-#ifdef SVR4
++//#ifdef SVR4
+ #include <dirent.h>
+-#else
+-#include <sys/dir.h>
+-#endif
++//#else
++//#include <sys/dir.h>
++//#endif
+ 
+ #undef  MAXNAMLEN
+ #define MAXNAMLEN	256
+diff --git a/general/large1.c b/general/large1.c
+index 5dd2950..1ae2e85 100644
+--- a/general/large1.c
++++ b/general/large1.c
+@@ -9,11 +9,11 @@
+ #include <stdio.h>
+ #include <ctype.h>
+ #include <signal.h>
+-#ifdef SVR4
++//#ifdef SVR4
+ #include <dirent.h>
+-#else
+-#include <sys/dir.h>
+-#endif
++//#else
++//#include <sys/dir.h>
++//#endif
+ 
+ #undef  MAXNAMLEN
+ #define MAXNAMLEN	256
+diff --git a/general/large2.c b/general/large2.c
+index 5dd2950..1ae2e85 100644
+--- a/general/large2.c
++++ b/general/large2.c
+@@ -9,11 +9,11 @@
+ #include <stdio.h>
+ #include <ctype.h>
+ #include <signal.h>
+-#ifdef SVR4
++//#ifdef SVR4
+ #include <dirent.h>
+-#else
+-#include <sys/dir.h>
+-#endif
++//#else
++//#include <sys/dir.h>
++//#endif
+ 
+ #undef  MAXNAMLEN
+ #define MAXNAMLEN	256
+diff --git a/general/large3.c b/general/large3.c
+index 5dd2950..1ae2e85 100644
+--- a/general/large3.c
++++ b/general/large3.c
+@@ -9,11 +9,11 @@
+ #include <stdio.h>
+ #include <ctype.h>
+ #include <signal.h>
+-#ifdef SVR4
++//#ifdef SVR4
+ #include <dirent.h>
+-#else
+-#include <sys/dir.h>
+-#endif
++//#else
++//#include <sys/dir.h>
++//#endif
+ 
+ #undef  MAXNAMLEN
+ #define MAXNAMLEN	256
+diff --git a/general/large4.sh b/general/large4.sh
+index 7c3117f..954a23f 100644
+--- a/general/large4.sh
++++ b/general/large4.sh
+@@ -10,4 +10,4 @@ $CC $CFLAGS -o large1 large1.c&
+ $CC $CFLAGS -o large2 large2.c&
+ $CC $CFLAGS -o large3 large3.c&
+ wait
+-rm large large1 large2 large3 
++rm large.exe large1.exe large2.exe large3.exe 
+diff --git a/general/runtests.wrk b/general/runtests.wrk
+index 5efc091..83f3124 100644
+--- a/general/runtests.wrk
++++ b/general/runtests.wrk
+@@ -60,7 +60,7 @@ $TIME $CC $CFLAGS -o stat stat.c -lm 2>> smcomp.time || eval $errexit
+ $TIME $CC $CFLAGS -o stat stat.c -lm 2>> smcomp.time || eval $errexit
+ $TIME $CC $CFLAGS -o stat stat.c -lm 2>> smcomp.time || eval $errexit
+ set -e
+-./stat smcomp.time
++./stat.exe smcomp.time
+ set +e
+ 
+ echo ""
+@@ -76,7 +76,7 @@ set -e
+ # versions of tbl.
+ egrep -v '^tbl:.*$' <tbl.time >tbl.new
+ mv -f tbl.new tbl.time
+-./stat tbl.time
++./stat.exe tbl.time
+ set +e
+ 
+ echo ""
+@@ -89,7 +89,7 @@ $TIME nroff < nroff.tbl > nroff.out 2>> nroff.time || cat nroff.time
+ $TIME nroff < nroff.tbl > nroff.out 2>> nroff.time || cat nroff.time
+ rm nroff.out nroff.tbl
+ set -e
+-./stat nroff.time
++./stat.exe nroff.time
+ set +e
+ 
+ echo ""
+@@ -101,9 +101,9 @@ $TIME $CC $CFLAGS -o large large.c 2>> lrgcomp.time || eval $errexit
+ $TIME $CC $CFLAGS -o large large.c 2>> lrgcomp.time || eval $errexit
+ $TIME $CC $CFLAGS -o large large.c 2>> lrgcomp.time || eval $errexit
+ $TIME $CC $CFLAGS -o large large.c 2>> lrgcomp.time || eval $errexit
+-rm large
++rm large.exe
+ set -e
+-./stat lrgcomp.time
++./stat.exe lrgcomp.time
+ set +e
+ 
+ echo ""
+@@ -116,7 +116,7 @@ $TIME ./large4.sh 2>> 4lrg.time || eval $errexit
+ $TIME ./large4.sh 2>> 4lrg.time || eval $errexit
+ $TIME ./large4.sh 2>> 4lrg.time || eval $errexit
+ set -e
+-./stat 4lrg.time
++./stat.exe 4lrg.time
+ set +e
+ 
+ echo ""
+@@ -134,7 +134,7 @@ rmdummy
+ grep -iv warning: makefile.time | grep -v 'make: ' > makefile.time2
+ mv makefile.time2 makefile.time
+ set -e
+-./stat makefile.time
++./stat.exe makefile.time
+ set +e
+ 
+ echo ""
+-- 
+1.6.4.msysgit.0
+

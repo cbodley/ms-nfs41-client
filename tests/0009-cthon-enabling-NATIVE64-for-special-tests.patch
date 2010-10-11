@@ -1,0 +1,26 @@
+From aafcd8aea575739115458cf3aeb58611d65647ee Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:26:01 -0400
+Subject: [PATCH 09/11] cthon: enabling NATIVE64 for special tests
+
+that enables 64bit offset tests in the special tests
+---
+ tests.init |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/tests.init b/tests.init
+index 3a1ba74..c5116e6 100644
+--- a/tests.init
++++ b/tests.init
+@@ -205,7 +205,7 @@ LOCKTESTS=`echo tlocklfs tlock64`
+ 
+ # Use with Linux 2.4 / GNU libc 2.2
+ #CFLAGS=`echo -DLINUX -DGLIBC=22 -DMMAP -DSTDARG -fwritable-strings`
+-CFLAGS=`echo -DLINUX -DGLIBC=22 -DMMAP -DSTDARG`
++CFLAGS=`echo -DLINUX -DGLIBC=22 -DMMAP -DSTDARG -DNATIVE64`
+ #LIBS=`echo -lnsl`
+ MOUNT=/bin/mount
+ UMOUNT=/bin/umount
+-- 
+1.6.4.msysgit.0
+

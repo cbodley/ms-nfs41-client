@@ -1,0 +1,577 @@
+From 8a73c727370c3062ff06f9203efbcc81ad37497e Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:25:16 -0400
+Subject: [PATCH 07/11] cthon: porting lock tests to win32 api
+
+added '#ifdef _WIN32' blocks to implement the following changes:
+
+int testfd -> HANDLE testfd
+open() -> CreateFile()
+close() -> CloseHandle()
+unlink() -> DeleteFile()
+write() -> WriteFile()
+read() -> ReadFile()
+ftruncate() -> SetFilePointer()+SetEndOfFile()
+mmap() -> CreateFileMapping()+MapViewOfFile()
+munmap() -> UnmapViewOfFile()+CloseHandle()
+lockf(F_LOCK) -> LockFileEx()
+lockf(F_TLOCK) -> LockFile()
+lockf(F_ULOCK) -> UnlockFileEx()
+lockf(F_TEST) -> LockFile()+UnlockFileEx()
+
+some tests expect an overflow error when the lock range wraps, but win32 allows this.  changed the expected errors for checks in _WIN32
+
+skipping test8, which times 1000 consecutive calls to lock/unlock. this doesn't tell us anything, except that we're slow
+
+skipping test10 which checks for splitting lock regions; in windows, the unlock range must match lock range exactly
+
+for test11, the _WIN32 path reopens the file instead of using dup()/dup2(); the windows DuplicateHandle() function works differently, in that both copies of the handle must be closed before it releases its locks
+
+for test12, it forks an extra 'subchild' process, takes a lock, then kills the process to make sure it releases the lock.  had to move the open call from the child block into the subchild block for this to work; otherwise, the lock wouldn't release because the child still holds a handle
+---
+ lock/tlock.c |  273 +++++++++++++++++++++++++++++++++++++++++++++++++++++-----
+ 1 files changed, 251 insertions(+), 22 deletions(-)
+
+diff --git a/lock/tlock.c b/lock/tlock.c
+index fe8c760..dac3519 100644
+--- a/lock/tlock.c
++++ b/lock/tlock.c
+@@ -54,6 +54,12 @@
+ #endif
+ #endif
+ 
++#define _WIN32
++
++#ifdef _WIN32
++# include <Windows.h>
++#endif
++
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <signal.h>
+@@ -135,8 +141,16 @@ static int pidpipe[2];
+ 
+ static char testfile[256];	/* file for locking test */
+ static char *filepath = ".";
++#ifdef _WIN32
++static HANDLE testfd;
++#else
+ static int testfd;
++#endif
++
+ #ifdef MMAP
++#ifdef _WIN32
++static HANDLE mappinghandle;
++#endif
+ static caddr_t mappedaddr;	/* address file is mapped to (some tests) */
+ static off_t mappedlen;
+ #endif
+@@ -586,12 +600,21 @@ open_testfile(flags, modes)
+ 	int flags;
+ 	int modes;
+ {
+-
++#ifdef _WIN32
++    testfd = CreateFile(testfile, GENERIC_READ | GENERIC_WRITE,
++        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
++        FILE_ATTRIBUTE_NORMAL, NULL);
++    if (testfd == INVALID_HANDLE_VALUE) {
++        fprintf(stderr, "CreateFile(%s) returned %d\n", testfile, GetLastError());
++        testexit(1);
++    }
++#else
+ 	testfd = open(testfile, flags, modes);
+ 	if (testfd < 0) {
+ 		perror("tlock: open");
+ 		testexit(1);
+ 	}
++#endif
+ }
+ 
+ static void
+@@ -599,11 +622,17 @@ close_testfile(cleanup)
+ 	int cleanup;
+ {
+ 
+-	if (cleanup == JUST_CLOSE)
+-		comment("Closed testfile.");
++    if (cleanup == JUST_CLOSE)
++        comment("Closed testfile.");
++#ifdef _WIN32
++    CloseHandle(testfd);
++    if (cleanup == DO_UNLINK)
++        DeleteFile(testfile);
++#else
+ 	close(testfd);
+ 	if (cleanup == DO_UNLINK)
+ 		(void) unlink(testfile);
++#endif
+ }
+ 
+ static void
+@@ -615,12 +644,28 @@ write_testfile(datap, offset, count, do_comment)
+ {
+ 	int result;
+ 
++#ifdef _WIN32
++    {
++        DWORD bytes = 0;
++        LARGE_INTEGER off = { offset };
++        OVERLAPPED overlapped = { 0 };
++        overlapped.Offset = off.LowPart;
++        overlapped.OffsetHigh = off.HighPart;
++
++        if (!WriteFile(testfd, datap, count, &bytes, &overlapped)) {
++            fprintf(stderr, "WriteFile() failed with %d\n", GetLastError());
++            testexit(1);
++        }
++        result = bytes;
++    }
++#else
+ 	(void) lseek(testfd, offset, 0);
+ 	result = write(testfd, datap, count);
+ 	if (result < 0) {
+ 		perror("tlock: testfile write");
+ 		testexit(1);
+ 	}
++#endif
+ 	if (result != count) {
+ 		fprintf(stderr, "tlock: short write (got %d, expected %d)\n",
+ 			result, count);
+@@ -663,6 +708,21 @@ read_testfile(test, sec, datap, offset, count, pass, fail)
+ 		exit(1);
+ 	}
+ 
++#ifdef _WIN32
++    {
++        DWORD bytes = 0;
++        LARGE_INTEGER off = { offset };
++        OVERLAPPED overlapped = { 0 };
++        overlapped.Offset = off.LowPart;
++        overlapped.OffsetHigh = off.HighPart;
++
++        if (!ReadFile(testfd, array, count, &bytes, &overlapped)) {
++            fprintf(stderr, "ReadFile() failed with %d\n", GetLastError());
++            testexit(1);
++        }
++        result = bytes;
++    }
++#else
+ 	(void) lseek(testfd, offset, 0);
+ 	if (count > IORATE_BUFSIZE)
+ 		count = IORATE_BUFSIZE;
+@@ -671,6 +731,7 @@ read_testfile(test, sec, datap, offset, count, pass, fail)
+ 		perror("tlock: testfile read");
+ 		testexit(1);
+ 	}
++#endif
+ 	if (result != count) {
+ 		fprintf(stderr, "tlock: short read (got %d, expected %d)\n",
+ 			result, count);
+@@ -703,7 +764,6 @@ testdup2(fd1, fd2)
+ 	int fd1;
+ 	int fd2;
+ {
+-
+ 	if (dup2(fd1, fd2) < 0) {
+ 		perror("tlock: dup2");
+ 		testexit(1);
+@@ -713,12 +773,22 @@ testdup2(fd1, fd2)
+ static void
+ testtruncate()
+ {
+-
+-	comment("Truncated testfile.");
++    comment("Truncated testfile.");
++#ifdef _WIN32
++    if (SetFilePointer(testfd, 0, 0, FILE_BEGIN) == INVALID_SET_FILE_POINTER) {
++        fprintf(stderr, "SetFilePointer() failed with %d\n", GetLastError());
++        testexit(1);
++    }
++    if (!SetEndOfFile(testfd)) {
++        fprintf(stderr, "SetEndOfFile() failed with %d\n", GetLastError());
++        testexit(1);
++    }
++#else
+ 	if (ftruncate(testfd, (off_t)0) < 0) {
+ 		perror("tlock: ftruncate");
+ 		testexit(1);
+ 	}
++#endif
+ }
+ 
+ #ifdef MMAP
+@@ -735,25 +805,120 @@ testtruncate()
+ static int
+ testmmap()
+ {
++#ifdef _WIN32
++    LARGE_INTEGER len = { mappedlen };
++
++    mappinghandle = CreateFileMapping(testfd, NULL,
++        PAGE_READWRITE, len.HighPart, len.LowPart, NULL);
++    if (mappinghandle == INVALID_HANDLE_VALUE)
++        return GetLastError();
++
++    mappedaddr = MapViewOfFile(mappinghandle, FILE_MAP_READ | FILE_MAP_WRITE,
++        0, 0, len.QuadPart);
++    if (mappedaddr == NULL)
++        return GetLastError();
++#else
+ 	mappedaddr = mmap(0, mappedlen, PROT_READ | PROT_WRITE, MAP_SHARED,
+ 			testfd, (off_t)0);
+ 	if (mappedaddr == (caddr_t)MAP_FAILED)
+ 		return (errno);
++#endif
+ 	return (0);
+ }
+ 
+ static void
+ testmunmap()
+ {
+-	comment("unmap testfile.");
++    comment("unmap testfile.");
++#ifdef _WIN32
++    if (!UnmapViewOfFile(mappedaddr)) {
++        fprintf(stderr, "UnmapViewOfFile() failed with %d\n", GetLastError());
++        testexit(1);
++    }
++    CloseHandle(mappinghandle);
++#else
+ 	if (munmap(mappedaddr, mappedlen) < 0) {
+ 		perror("Can't unmap testfile.");
+ 		testexit(1);
+ 	}
++#endif
+ 	mappedaddr = (caddr_t)0xdeadbeef;
+ }
+ #endif /* MMAP */
+ 
++#ifdef _WIN32
++
++static int map_lock_error(int num, int sec, int status) {
++    switch (status) {
++    case NO_ERROR: return 0;
++    case ERROR_NOT_LOCKED:
++    case ERROR_LOCK_VIOLATION: return denied_err;
++    default:
++        comment("%d.%d unexpected windows error %d", num, sec, status);
++        testexit(1);
++    }
++}
++
++static void
++test(num, sec, func, offset, length, pass, fail)
++int num;			/* test number */
++int sec;			/* section number */
++int func;			/* lockf function to invoke */
++off_t offset;			/* starting offset of lock */
++off_t length;			/* length of lock */
++int pass;			/* expected return code */
++int fail;			/* error vs warning */
++{
++    int result = PASS;
++    LARGE_INTEGER off = { offset };
++    LARGE_INTEGER len = { length };
++    OVERLAPPED overlapped = { 0 };
++    overlapped.Offset = off.LowPart;
++    overlapped.OffsetHigh = off.HighPart;
++
++    if (off.QuadPart + len.QuadPart < 0) {
++        result = EINVAL;
++        goto out;
++    }
++    if (length == 0)
++        len.QuadPart = ULLONG_MAX - offset;
++    if (len.QuadPart == 0) {
++        result = EINVAL;
++        goto out;
++    }
++
++    switch (func) {
++    case F_LOCK: /* blocking lock */
++        if (!LockFileEx(testfd, LOCKFILE_EXCLUSIVE_LOCK,
++            0, len.LowPart, len.HighPart, &overlapped))
++            result = map_lock_error(num, sec, GetLastError());
++        break;
++
++    case F_TLOCK: /* non-blocking lock */
++        if (!LockFile(testfd, off.LowPart, off.HighPart, len.LowPart, len.HighPart))
++            result = map_lock_error(num, sec, GetLastError());
++        break;
++
++    case F_ULOCK:
++        if (!UnlockFileEx(testfd, 0, len.LowPart, len.HighPart, &overlapped))
++            result = map_lock_error(num, sec, GetLastError());
++        break;
++
++    case F_TEST:
++        if (!LockFile(testfd, off.LowPart, off.HighPart, len.LowPart, len.HighPart)) {
++            result = map_lock_error(num, sec, GetLastError());
++        } else if (!UnlockFileEx(testfd, 0, len.LowPart, len.HighPart, &overlapped)) {
++            fprintf(stderr, "UnlockFileEx() returned %d\n", GetLastError());
++            testexit(1);
++        }
++        break;
++    }
++out:
++    report(num, sec, tfunstr(func), offset, length, pass, result, fail);
++}
++
++#else /* !_WIN32 */
++
+ #ifdef USE_LOCKF
+ 
+ static void
+@@ -854,11 +1019,16 @@ test(num, sec, func, offset, length, pass, fail)
+ }
+ 
+ #endif /* USE_LOCKF */
++#endif /* !_WIN32 */
+ 
+ static void
+ rate(cnt)
+ 	int cnt;
+ {
++#ifdef _WIN32
++    LARGE_INTEGER len = { 1 };
++    OVERLAPPED overlapped = { 0 };
++#endif
+ 	int i;
+ 	long beg;
+ 	long end;
+@@ -867,9 +1037,17 @@ rate(cnt)
+ 
+ 	beg = times(&tms);
+ 	for (i = 0; i < cnt; i++) {
++#ifdef _WIN32
++        if (!LockFileEx(testfd, LOCKFILE_EXCLUSIVE_LOCK, 0,
++                len.LowPart, len.HighPart, &overlapped) ||
++            !UnlockFileEx(testfd, 0, len.LowPart,
++                len.HighPart, &overlapped)) {
++			fprintf(stderr, "tlock: rate error=%d.\n", GetLastError());
++#else
+ 		if ((lockf(testfd, F_LOCK, 1) != 0) ||
+ 		    (lockf(testfd, F_ULOCK, 1) != 0)) {
+ 			fprintf(stderr, "tlock: rate error=%d.\n", errno);
++#endif
+ 			tstfail++;
+ 			break;
+ 		}
+@@ -972,8 +1150,11 @@ test1()
+ 		 * integer, no overflow).  So treat those failures as
+ 		 * warnings, not fatal.
+ 		 */
+-		test(1, 9, F_TEST, maxeof, maxeof, oflow_err,
+-			WARN);
++#ifdef _WIN32
++		test(1, 9, F_TEST, maxeof, maxeof, PASS, FATAL);
++#else
++        test(1, 9, F_TEST, maxeof, maxeof, oflow_err, WARN);
++#endif
+ 		close_testfile(DO_UNLINK);
+ 		childfree(0);
+ 	} else {
+@@ -1006,10 +1187,12 @@ test2()
+ 		test(2, 5, F_TEST, (off_t)1, (off_t)END, denied_err, FATAL);
+ 		test(2, 6, F_TEST, (off_t)1, maxeof, denied_err, FATAL);
+ 		test(2, 7, F_TEST, maxeof, (off_t)1, denied_err, FATAL);
+-		test(2, 8, F_TEST, maxeof, (off_t)END, denied_err,
+-		    FATAL);
+-		test(2, 9, F_TEST, maxeof, maxeof, oflow_err,
+-			WARN);
++		test(2, 8, F_TEST, maxeof, (off_t)END, denied_err, FATAL);
++#ifdef _WIN32
++        test(2, 9, F_TEST, maxeof, maxeof, denied_err, FATAL);
++#else
++		test(2, 9, F_TEST, maxeof, maxeof, oflow_err, WARN);
++#endif
+ 		close_testfile(DO_UNLINK);
+ 		parentfree(0);
+ 	}
+@@ -1135,8 +1318,12 @@ test6()
+ 		    FATAL);
+ 		test(6, 3, F_TEST, maxeof - 1, (off_t)END,
+ 		    denied_err, FATAL);
+-		test(6, 4, F_TEST, maxeof, (off_t)1, denied_err, FATAL);
++        test(6, 4, F_TEST, maxeof, (off_t)1, denied_err, FATAL);
++#ifdef _WIN32
++        test(6, 5, F_TEST, maxeof, (off_t)2, denied_err, FATAL);
++#else
+ 		test(6, 5, F_TEST, maxeof, (off_t)2, oflow_err, WARN);
++#endif
+ 		test(6, 6, F_TEST, maxeof, (off_t)END, denied_err,
+ 		    FATAL);
+ 		test(6, 7, F_TEST, (off_t)maxplus1, (off_t)END, EINVAL,
+@@ -1320,7 +1507,9 @@ test10()
+ static void
+ test11()
+ {
++#ifndef _WIN32
+ 	int dupfd;
++#endif
+ 	char *data = "123456789abcdef";
+ 	int datalen;
+ 
+@@ -1330,28 +1519,42 @@ test11()
+ 		parentwait();
+ 		header(11, "Make sure close() releases the process's locks.");
+ 		open_testfile(OPENFLAGS, OPENMODES);
++#ifndef _WIN32
+ 		dupfd = dup(testfd);
++#endif
+ 		test(11, 0, F_TLOCK, (off_t)0, (off_t)0, PASS, FATAL);
+ 		close_testfile(JUST_CLOSE);
+ 		childfree(0);
+ 
+-		parentwait();
+-		testdup2(dupfd, testfd);
++        parentwait();
++#ifdef _WIN32
++        open_testfile(OPENFLAGS, OPENMODES);
++#else
++        testdup2(dupfd, testfd);
++#endif
+ 		test(11, 3, F_TLOCK, (off_t)29, (off_t)1463, PASS, FATAL);
+ 		test(11, 4, F_TLOCK, (off_t)0x2000, (off_t)87, PASS, FATAL);
+ 		close_testfile(JUST_CLOSE);
+ 		childfree(0);
+ 
+-		parentwait();
+-		testdup2(dupfd, testfd);
++        parentwait();
++#ifdef _WIN32
++        open_testfile(OPENFLAGS, OPENMODES);
++#else
++        testdup2(dupfd, testfd);
++#endif
+ 		write_testfile(data, (off_t)0, datalen, COMMENT);
+ 		test(11, 7, F_TLOCK, (off_t)0, (off_t)0, PASS, FATAL);
+ 		write_testfile(data, (off_t)(datalen - 3), datalen, COMMENT);
+ 		close_testfile(JUST_CLOSE);
+ 		childfree(0);
+ 
+-		parentwait();
++        parentwait();
++#ifdef _WIN32
++        open_testfile(OPENFLAGS, OPENMODES);
++#else
+ 		testdup2(dupfd, testfd);
++#endif
+ 		write_testfile(data, (off_t)0, datalen, COMMENT);
+ 		test(11, 10, F_TLOCK, (off_t)0, (off_t)0, PASS, FATAL);
+ 		testtruncate();
+@@ -1359,7 +1562,9 @@ test11()
+ 		childfree(0);
+ 
+ 		parentwait();
++#ifndef _WIN32
+ 		close(dupfd);
++#endif
+ 		close_testfile(DO_UNLINK);
+ 	} else {
+ 		parentfree(0);
+@@ -1400,8 +1605,10 @@ test12()
+ 		open_testfile(OPENFLAGS, OPENMODES);
+ 		childfree(0);
+ 
+-		parentwait();
++        parentwait();
++#ifndef _WIN32
+ 		(void) lseek(testfd, (off_t)0, 0);
++#endif
+ 		if (read(pidpipe[0], &target, sizeof (target)) !=
+ 		    sizeof (target)) {
+ 			perror("can't read pid to kill");
+@@ -1420,7 +1627,9 @@ test12()
+ 
+ 		parentfree(0);
+ 		childwait();
++#ifndef _WIN32
+ 		open_testfile(OPENFLAGS, OPENMODES);
++#endif
+ 		/*
+ 		 * Create a subprocess to obtain a lock and get killed.  If
+ 		 * the parent kills the regular child, tlock will stop
+@@ -1440,7 +1649,9 @@ test12()
+ 		if (subchild > 0) {
+ 			/* original child */
+ 			sleep(wait_time);
++#ifndef _WIN32
+ 			(void) lseek(testfd, (off_t)0, 0);
++#endif
+ 			if (write(pidpipe[1], &subchild, sizeof (subchild)) !=
+ 			    sizeof (subchild)) {
+ 				perror("can't record pid to kill");
+@@ -1449,11 +1660,16 @@ test12()
+ 			}
+ 			parentfree(0);
+ 			childwait();
++#ifndef _WIN32
+ 			close_testfile(DO_UNLINK);
++#endif
+ 		} else {
+ 			/* subchild */
++#ifdef _WIN32
++            open_testfile(OPENFLAGS, OPENMODES);
++#endif
+ 			signal(SIGINT, SIG_DFL);
+-			test(12, 0, F_TLOCK, (off_t)0, (off_t)0, PASS, FATAL);
++            test(12, 0, F_TLOCK, (off_t)0, (off_t)0, PASS, FATAL);
+ 			for (;;)
+ 				sleep(1);
+ 			/* NOTREACHED */
+@@ -1489,7 +1705,11 @@ test13()
+ 		lock1err = testmmap();
+ 		report(13, 1, "mmap", (off_t)0, (off_t)mappedlen, EAGAIN,
+ 			lock1err, WARN);
++#ifdef _WIN32
++		test(13, 2, F_ULOCK, (off_t)mappedlen - 2, (off_t)END, PASS, FATAL);
++#else
+ 		test(13, 2, F_ULOCK, (off_t)0, (off_t)END, PASS, FATAL);
++#endif
+ 		if (lock1err == 0)
+ 			testmunmap();
+ 
+@@ -1505,6 +1725,9 @@ test13()
+ 			FATAL);
+ 		test(13, 4, F_TLOCK, (off_t)mappedlen - 2, (off_t)END,
+ 			lock1err, WARN);
++#ifdef _WIN32
++		testmunmap();
++#endif
+ 		close_testfile(DO_UNLINK);
+ 
+ 		childfree(0);
+@@ -1589,21 +1812,27 @@ runtests()
+ 	if (DO_TEST(7)) {
+ 		test7();
+ 	}
++#ifndef _WIN32
+ 	if (DO_RATE(8)) {
+ 		test8();
+ 	}
++#endif
+ 	if (DO_MAND(9)) {
+ 		test9();
+ 	}
++#ifndef _WIN32
++    /* windows doesn't allow splitting lock ranges;
++     * unlock ranges must correspond exactly to lock ranges */
+ 	if (DO_TEST(10)) {
+ 		test10();
+ 	}
++#endif
+ 	if (DO_TEST(11)) {
+ 		test11();
+ 	}
+ 	if (DO_TEST(12)) {
+ 		test12();
+-	}
++    }
+ #ifdef MMAP
+ 	if (DO_TEST(13)) {
+ 		test13();
+-- 
+1.6.4.msysgit.0
+

@@ -1,0 +1,26 @@
+From 8be0e35514ff0be2c0023065000ae80dbf312a8d Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:24:10 -0400
+Subject: [PATCH 04/11] cthon: removed -fwritable-strings from cflags
+
+---
+ tests.init |    3 ++-
+ 1 files changed, 2 insertions(+), 1 deletions(-)
+
+diff --git a/tests.init b/tests.init
+index e55a4aa..3a1ba74 100644
+--- a/tests.init
++++ b/tests.init
+@@ -204,7 +204,8 @@ LOCKTESTS=`echo tlocklfs tlock64`
+ #UMOUNT=/bin/umount
+ 
+ # Use with Linux 2.4 / GNU libc 2.2
+-CFLAGS=`echo -DLINUX -DGLIBC=22 -DMMAP -DSTDARG -fwritable-strings`
++#CFLAGS=`echo -DLINUX -DGLIBC=22 -DMMAP -DSTDARG -fwritable-strings`
++CFLAGS=`echo -DLINUX -DGLIBC=22 -DMMAP -DSTDARG`
+ #LIBS=`echo -lnsl`
+ MOUNT=/bin/mount
+ UMOUNT=/bin/umount
+-- 
+1.6.4.msysgit.0
+

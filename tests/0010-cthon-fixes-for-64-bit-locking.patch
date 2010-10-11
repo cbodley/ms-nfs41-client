@@ -1,0 +1,60 @@
+From c8deb58ef9500765aa38fc86747fca0add5d04b1 Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:33:50 -0400
+Subject: [PATCH 10/11] cthon: fixes for 64-bit locking
+
+cthon04/lock/tlock.c: fixed initialization of LARGE_INTEGERs, and removed the parts of test() that return EINVAL (our driver should be returning ERROR_INVALID_LOCK_RANGE for those)
+
+also updated the nfs_lock test program to take 64-bit input for length and offset
+---
+ lock/tlock.c |   18 ++++++++----------
+ 1 files changed, 8 insertions(+), 10 deletions(-)
+
+diff --git a/lock/tlock.c b/lock/tlock.c
+index dac3519..f06de6c 100644
+--- a/lock/tlock.c
++++ b/lock/tlock.c
+@@ -848,9 +848,12 @@ testmunmap()
+ 
+ #ifdef _WIN32
+ 
++#define ERROR_INVALID_LOCK_RANGE 0x133 // 307
++
+ static int map_lock_error(int num, int sec, int status) {
+     switch (status) {
+     case NO_ERROR: return 0;
++    case ERROR_INVALID_LOCK_RANGE: return EINVAL;
+     case ERROR_NOT_LOCKED:
+     case ERROR_LOCK_VIOLATION: return denied_err;
+     default:
+@@ -870,22 +873,17 @@ int pass;			/* expected return code */
+ int fail;			/* error vs warning */
+ {
+     int result = PASS;
+-    LARGE_INTEGER off = { offset };
+-    LARGE_INTEGER len = { length };
++    ULARGE_INTEGER off;
++    ULARGE_INTEGER len;
+     OVERLAPPED overlapped = { 0 };
++
++    off.QuadPart = offset;
++    len.QuadPart = length;
+     overlapped.Offset = off.LowPart;
+     overlapped.OffsetHigh = off.HighPart;
+ 
+-    if (off.QuadPart + len.QuadPart < 0) {
+-        result = EINVAL;
+-        goto out;
+-    }
+     if (length == 0)
+         len.QuadPart = ULLONG_MAX - offset;
+-    if (len.QuadPart == 0) {
+-        result = EINVAL;
+-        goto out;
+-    }
+ 
+     switch (func) {
+     case F_LOCK: /* blocking lock */
+-- 
+1.6.4.msysgit.0
+

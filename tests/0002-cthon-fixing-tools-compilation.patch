@@ -1,0 +1,51 @@
+From ea26a4a5e46428dae198d11c9e07c7ce0bbcee91 Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:23:38 -0400
+Subject: [PATCH 02/11] cthon: fixing tools compilation
+
+---
+ tools/Makefile |    4 ++--
+ tools/dirprt.c |    8 ++++----
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/tools/Makefile b/tools/Makefile
+index ce2cbc7..ce6019f 100644
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -31,9 +31,9 @@ dirdmp: dirdmp.c
+ dirprt: dirprt.c
+ 	$(CC) $(CFLAGS) -o $@ $@.c $(LIBS)
+ pmaptst: pmaptst.c
+-	$(CC) $(CFLAGS) -o $@ $@.c $(LIBS)
++	$(CC) $(CFLAGS) -o $@ $@.c $(LIBS) -lrpc
+ pmapbrd: pmapbrd.c
+-	$(CC) $(CFLAGS) -o $@ $@.c $(LIBS)
++	$(CC) $(CFLAGS) -o $@ $@.c $(LIBS) -lrpc
+ 
+ lint:
+ 	lint $(CFLAGS) tcp.c
+diff --git a/tools/dirprt.c b/tools/dirprt.c
+index a8b50ea..6f1f4ff 100644
+--- a/tools/dirprt.c
++++ b/tools/dirprt.c
+@@ -70,13 +70,13 @@ print(dir)
+ 	}
+ 	while ((dp = readdir(dirp)) != NULL) {
+ #if defined(SVR3) || defined(SVR4) || defined(LINUX)
+-		printf("%5ld %5ld %5d %s\n", (long)telldir(dirp),
++		printf("%5ld %5ld %s\n", (long)telldir(dirp),
+ 		       (long)dp->d_ino,
+-		       dp->d_reclen, dp->d_name);
++		       dp->d_name);
+ #else
+-		printf("%5ld %5d %5d %5d %s\n", (long)telldir(dirp), 
++		printf("%5ld %5d %5d %s\n", (long)telldir(dirp), 
+ 		       dp->d_fileno,
+-		       dp->d_reclen, dp->d_namlen, dp->d_name);
++		       dp->d_namlen, dp->d_name);
+ #endif
+ 	}
+ 	closedir(dirp);
+-- 
+1.6.4.msysgit.0
+

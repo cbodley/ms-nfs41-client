@@ -1,0 +1,29 @@
+From 97bc9d6416c65d7f41c43847f99ace92ac78254c Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:23:53 -0400
+Subject: [PATCH 03/11] cthon: fixing locks compilation problem
+
+---
+ lock/tlock.c |    2 ++
+ 1 files changed, 2 insertions(+), 0 deletions(-)
+
+diff --git a/lock/tlock.c b/lock/tlock.c
+index 8a7d0cc..fe8c760 100644
+--- a/lock/tlock.c
++++ b/lock/tlock.c
+@@ -75,10 +75,12 @@
+ #include <inttypes.h>
+ 
+ #if defined(LARGE_LOCKS) && !defined(_LFS64_LARGEFILE) && !defined(MACOSX)
++/*
+ This machine cannot compile the 64 bit version of this test using the
+ LARGE_LOCKS symbol.
+ If your machine uses native 64-bit offsets, you should not define
+ LARGE_LOCKS.
++*/
+ #endif
+ 
+ #ifndef HZ
+-- 
+1.6.4.msysgit.0
+

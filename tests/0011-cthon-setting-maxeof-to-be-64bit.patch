@@ -1,0 +1,26 @@
+From efeb9db4f13e1dabe29e8bcf97a503079efca8ab Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:34:14 -0400
+Subject: [PATCH 11/11] cthon: setting maxeof to be 64bit
+
+old value was 0x7fffffff
+---
+ lock/runtests |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/lock/runtests b/lock/runtests
+index a25f101..2335363 100644
+--- a/lock/runtests
++++ b/lock/runtests
+@@ -38,7 +38,7 @@ esac
+ 
+ if echo "$mntopts" | grep vers=2 > /dev/null
+ then
+-	TESTARGS="-v 2 $TESTARGS"
++	TESTARGS="-v 4 $TESTARGS"
+ fi
+ 
+ for i in $LOCKTESTS
+-- 
+1.6.4.msysgit.0
+

@@ -1,0 +1,26 @@
+From 520bd04d9752faa6f77acd50ea759d170fb149d4 Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:25:41 -0400
+Subject: [PATCH 08/11] cthon: disabling test8 from the basic test
+
+it's a symlink test and we are not supporting symlinks on windows
+---
+ basic/runtests |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/basic/runtests b/basic/runtests
+index 32e1d85..0b2f205 100644
+--- a/basic/runtests
++++ b/basic/runtests
+@@ -69,7 +69,7 @@ fi
+ 
+ # Symlink and readlink test
+ echo ""
+-./test8 $TESTARG
++#./test8 $TESTARG
+ 
+ # Getfs test
+ echo ""
+-- 
+1.6.4.msysgit.0
+

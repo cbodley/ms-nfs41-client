@@ -1,0 +1,72 @@
+From c640dc4eff98fe70732d0225d7b3f3e2b2e33e35 Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Mon, 11 Oct 2010 15:24:54 -0400
+Subject: [PATCH 06/11] cthon: fixing op_unlk op_ren
+
+fixing "ls" commands that unsuccessfully look for ".nfsXXXX" files instead of "nfsXXXX" files
+---
+ special/op_ren.c  |    6 +++---
+ special/op_unlk.c |    6 +++---
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/special/op_ren.c b/special/op_ren.c
+index 348b4f9..73fa409 100644
+--- a/special/op_ren.c
++++ b/special/op_ren.c
+@@ -120,13 +120,13 @@ main(argc, argv)
+ #endif /* O_RDWR */
+ 
+ 	printf("nfsjunk files before rename:\n  ");
+-	system("ls -al .nfs*");
++	system("ls -al nfs*");
+ 	ret = rename(taname, tbname);
+ 	printf("%s open; rename ret = %d\n", tbname, ret);
+ 	if (ret)
+ 		xxit(" unlink");
+ 	printf("nfsjunk files after rename:\n  ");
+-	system("ls -al .nfs*");
++	system("ls -al nfs*");
+ 	strcpy(wbuf, TMSG);
+ 	if ((ret = write(fd, wbuf, TBUFSIZ)) != TBUFSIZ) {
+ 		fprintf(stderr, "write ret %d; expected %d\n", ret, TBUFSIZ);
+@@ -165,7 +165,7 @@ main(argc, argv)
+ 	}
+ 
+ 	printf("nfsjunk files after close:\n  ");
+-	system("ls -al .nfs*");
++	system("ls -al nfs*");
+ 
+ 	if ((ret = close(fd)) == 0) {
+ 		errcount++;
+diff --git a/special/op_unlk.c b/special/op_unlk.c
+index 93a09b0..d5e5efc 100644
+--- a/special/op_unlk.c
++++ b/special/op_unlk.c
+@@ -78,13 +78,13 @@ main(argc, argv)
+ #ifndef WIN32
+ 	/* For WIN you can not delete the file if it is open */
+ 	printf("nfsjunk files before unlink:\n  ");
+-	system("ls -al .nfs*");
++	system("ls -al nfs*");
+ 	ret = unlink(tname);
+ 	printf("%s open; unlink ret = %d\n", tname, ret);
+ 	if (ret)
+ 		xxit(" unlink");
+ 	printf("nfsjunk files after unlink:\n  ");
+-	system("ls -al .nfs*");
++	system("ls -al nfs*");
+ #endif
+ 	strcpy(wbuf, TMSG);
+ 	if ((ret = write(fd, wbuf, TBUFSIZ)) != TBUFSIZ) {
+@@ -137,7 +137,7 @@ main(argc, argv)
+ 
+ #ifndef WIN32
+ 	printf("nfsjunk files after close:\n  ");
+-	system("ls -al .nfs*");
++	system("ls -al nfs*");
+ #endif
+ 
+ 	if ((ret = close(fd)) == 0) {
+-- 
+1.6.4.msysgit.0
+
