@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source files">
+      <UniqueIdentifier>{5cb3db05-7cb6-47df-835b-1f900bc6588b}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Resource files">
+      <UniqueIdentifier>{3eaffb55-1a2a-45b8-9ab0-1ae04813d050}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
+    </Filter>
+    <Filter Include="Header files">
+      <UniqueIdentifier>{b673e717-daca-4c21-8935-bee66da864fb}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\sys\nfs41_debug.c">
+      <Filter>Source files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\sys\nfs41_driver.c">
+      <Filter>Source files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\sys\wmlkm.c">
+      <Filter>Source files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\sys\makefile">
+      <Filter>Resource files</Filter>
+    </None>
+    <None Include="..\sys\nfs41_driver.ini">
+      <Filter>Resource files</Filter>
+    </None>
+    <None Include="..\sys\sources">
+      <Filter>Resource files</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\sys\nfs41_driver.rc">
+      <Filter>Resource files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\sys\nfs41_debug.h">
+      <Filter>Header files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\sys\nfs41_driver.h">
+      <Filter>Header files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\sys\wmlkm.h">
+      <Filter>Header files</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

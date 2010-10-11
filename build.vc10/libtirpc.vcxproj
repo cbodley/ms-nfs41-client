@@ -1,0 +1,308 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{2D918A9B-DE52-470A-93D5-78EA2C8113A1}</ProjectGuid>
+    <RootNamespace>libtirpc</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.30319.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(SolutionDir)$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</LinkIncremental>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkIncremental>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(SolutionDir)$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</LinkIncremental>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
+    <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">AllRules.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" />
+    <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" />
+    <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">AllRules.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
+    <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
+    <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">AllRules.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" />
+    <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" />
+    <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Release|x64'">AllRules.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
+    <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>INET6;FD_SETSIZE=128;PORTMAP;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MinimalRebuild>true</MinimalRebuild>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\libtirpc\libtirpc\libtirpc.def</ModuleDefinitionFile>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Windows</SubSystem>
+      <TargetMachine>MachineX86</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Midl>
+      <TargetEnvironment>X64</TargetEnvironment>
+    </Midl>
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>INET6;FD_SETSIZE=128;PORTMAP;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MinimalRebuild>true</MinimalRebuild>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\libtirpc\libtirpc\libtirpc.def</ModuleDefinitionFile>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Windows</SubSystem>
+      <EntryPointSymbol>
+      </EntryPointSymbol>
+      <TargetMachine>MachineX64</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>INET6;FD_SETSIZE=128;PORTMAP;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\libtirpc\libtirpc\libtirpc.def</ModuleDefinitionFile>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Windows</SubSystem>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <TargetMachine>MachineX86</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Midl>
+      <TargetEnvironment>X64</TargetEnvironment>
+    </Midl>
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>INET6;FD_SETSIZE=128;PORTMAP;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\libtirpc\libtirpc\libtirpc.def</ModuleDefinitionFile>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Windows</SubSystem>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <EntryPointSymbol>
+      </EntryPointSymbol>
+      <TargetMachine>MachineX64</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\libtirpc\src\asprintf.c" />
+    <ClCompile Include="..\libtirpc\src\auth_none.c" />
+    <ClCompile Include="..\libtirpc\src\auth_time.c" />
+    <ClCompile Include="..\libtirpc\src\auth_unix.c" />
+    <ClCompile Include="..\libtirpc\src\authunix_prot.c" />
+    <ClCompile Include="..\libtirpc\src\bindresvport.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_bcast.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_dg.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_generic.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_perror.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_raw.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_simple.c" />
+    <ClCompile Include="..\libtirpc\src\clnt_vc.c" />
+    <ClCompile Include="..\libtirpc\src\des_soft.c" />
+    <ClCompile Include="..\libtirpc\src\epoll_sub.c" />
+    <ClCompile Include="..\libtirpc\src\getnetconfig.c" />
+    <ClCompile Include="..\libtirpc\src\getnetpath.c" />
+    <ClCompile Include="..\libtirpc\src\getpeereid.c" />
+    <ClCompile Include="..\libtirpc\src\getpublickey.c" />
+    <ClCompile Include="..\libtirpc\src\getrpcent.c" />
+    <ClCompile Include="..\libtirpc\src\getrpcport.c" />
+    <ClCompile Include="..\libtirpc\src\gettimeofday.c" />
+    <ClCompile Include="..\libtirpc\src\key_call.c" />
+    <ClCompile Include="..\libtirpc\src\key_prot_xdr.c" />
+    <ClCompile Include="..\libtirpc\src\mt_misc.c" />
+    <ClCompile Include="..\libtirpc\src\netname.c" />
+    <ClCompile Include="..\libtirpc\src\netnamer.c" />
+    <ClCompile Include="..\libtirpc\src\pmap_clnt.c" />
+    <ClCompile Include="..\libtirpc\src\pmap_getmaps.c" />
+    <ClCompile Include="..\libtirpc\src\pmap_getport.c" />
+    <ClCompile Include="..\libtirpc\src\pmap_prot.c" />
+    <ClCompile Include="..\libtirpc\src\pmap_prot2.c" />
+    <ClCompile Include="..\libtirpc\src\pmap_rmt.c" />
+    <ClCompile Include="..\libtirpc\src\rpc_callmsg.c" />
+    <ClCompile Include="..\libtirpc\src\rpc_commondata.c" />
+    <ClCompile Include="..\libtirpc\src\rpc_dtablesize.c" />
+    <ClCompile Include="..\libtirpc\src\rpc_generic.c" />
+    <ClCompile Include="..\libtirpc\src\rpc_prot.c" />
+    <ClCompile Include="..\libtirpc\src\rpc_soc.c" />
+    <ClCompile Include="..\libtirpc\src\rpcb_clnt.c" />
+    <ClCompile Include="..\libtirpc\src\rpcb_prot.c" />
+    <ClCompile Include="..\libtirpc\src\rpcb_st_xdr.c" />
+    <ClCompile Include="..\libtirpc\src\rpcdname.c" />
+    <ClCompile Include="..\libtirpc\src\rtime.c" />
+    <ClCompile Include="..\libtirpc\src\svc.c" />
+    <ClCompile Include="..\libtirpc\src\svc_auth.c" />
+    <ClCompile Include="..\libtirpc\src\svc_auth_none.c" />
+    <ClCompile Include="..\libtirpc\src\svc_auth_unix.c" />
+    <ClCompile Include="..\libtirpc\src\svc_dg.c" />
+    <ClCompile Include="..\libtirpc\src\svc_generic.c" />
+    <ClCompile Include="..\libtirpc\src\svc_raw.c" />
+    <ClCompile Include="..\libtirpc\src\svc_run.c" />
+    <ClCompile Include="..\libtirpc\src\svc_simple.c" />
+    <ClCompile Include="..\libtirpc\src\svc_vc.c" />
+    <ClCompile Include="..\libtirpc\src\winstubs.c" />
+    <ClCompile Include="..\libtirpc\src\wintirpc.c" />
+    <ClCompile Include="..\libtirpc\src\xdr.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_array.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_float.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_mem.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_rec.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_reference.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_sizeof.c" />
+    <ClCompile Include="..\libtirpc\src\xdr_stdio.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\libtirpc\src\rpc_com.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth_des.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth_gss.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth_kerb.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth_unix.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\clnt.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\clnt_soc.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\clnt_stat.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpcsvc\crypt.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\des.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\des_crypt.h" />
+    <ClInclude Include="..\libtirpc\tirpc\misc\event.h" />
+    <ClInclude Include="..\libtirpc\tirpc\fpmath.h" />
+    <ClInclude Include="..\libtirpc\tirpc\getpeereid.h" />
+    <ClInclude Include="..\libtirpc\tirpc\libc_private.h" />
+    <ClInclude Include="..\libtirpc\tirpc\namespace.h" />
+    <ClInclude Include="..\libtirpc\tirpc\netconfig.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\nettype.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpcsvc\nis.h" />
+    <ClInclude Include="..\libtirpc\tirpc\nss_tls.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\pmap_clnt.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\pmap_prot.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\pmap_rmt.h" />
+    <ClInclude Include="..\libtirpc\tirpc\sys\queue.h" />
+    <ClInclude Include="..\libtirpc\tirpc\misc\queue.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\raw.h" />
+    <ClInclude Include="..\libtirpc\tirpc\reentrant.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\rpc.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\rpc_com.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\rpc_msg.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\rpcb_clnt.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\rpcb_prot.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\rpcent.h" />
+    <ClInclude Include="..\libtirpc\tirpc\misc\socket.h" />
+    <ClInclude Include="..\libtirpc\tirpc\spinlock.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\svc.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\svc_auth.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\svc_dg.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\svc_soc.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\types.h" />
+    <ClInclude Include="..\libtirpc\tirpc\un-namespace.h" />
+    <ClInclude Include="..\libtirpc\tirpc\wintirpc.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\xdr.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\libtirpc\libtirpc\libtirpc.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\libtirpc\libtirpc\libtirpc.def" />
+    <None Include="..\libtirpc\src\sources" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -1,0 +1,6 @@
+# exclude all build files by default
+*
+
+# allow visual studio project and solution files
+!*.vcproj
+!*.sln

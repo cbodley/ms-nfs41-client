@@ -1,0 +1,7 @@
+# exclude all build files by default
+*
+
+# allow visual studio project and solution files
+!*.vcxproj
+!*.vcxproj.filters
+!*.sln

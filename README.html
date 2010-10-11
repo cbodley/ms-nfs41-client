@@ -1,0 +1,107 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Windows NFS 4.1 Client Instructions</title>
+    <link rel="stylesheet" title="CITI Default" href="http://www.citi.umich.edu/format/citi.css" type="text/css"/>
+    <link rel="icon" href="http://www.citi.umich.edu/images/citilogo-16x16.png" type="image/png"/>
+    <link rel="shortcut icon" href="http://www.citi.umich.edu/images/citilogo-16x16.png" type="image/png"/>
+    <style type="text/css">
+    /*<![CDATA[*/
+    body { min-width: 600px; background-color: #DDDDFF; font-family: serif; }
+    #page { padding: 0 12px 0 12px; }
+    #content { margin: 12px 0 12px 0; padding: 8px; background-color: #FFFFFF; border: 1px solid #88A; }
+    #index { padding-right: 12px; float: right; background-color: #FFFFFF; border: 1px solid #88A; }
+    a { color: #0282b4; }
+    a:hover { color: #0244b4; }
+    h1 { font-size: 2em; text-align: center; background: none; }
+    h2 { margin: 24px 0 8px 0; font-variant: small-caps; border-bottom: 1px dashed #88A; }
+    h3 { margin-left: 8px; }
+    span.filename { font-weight: bold; }
+    span.code { font-family: Courier; }
+    /*]]>*/
+    </style>
+</head>
+<body>
+<div id="page">
+<h1>Windows NFS 4.1 Client Instructions</h1>
+<div id="content">
+<div id="index">
+<ol>
+    <li><a href="#build">Building</a></li>
+    <li><a href="#install">Installation</a></li>
+    <li><a href="#mount">Mounting</a></li>
+    <li><a href="#cthon">Connectation</a></li>
+    <li><a href="#issues">Known Issues</a></li>
+</ol>
+</div>
+<h2>1. <a name="build">Building</a></h2>
+<h3>Requirements</h3>
+<ul>
+    <li>ms-nfs41-client source code:
+    <br/><span class="code">&gt; git clone git://citi.umich.edu/projects/ms-nfs41-client.git</span></li>
+    <li>Windows Driver Development Kit (WinDDK 6000 or later)</li>
+</ul>
+<h3>Instructions</h3>
+<ol>
+    <li>Open the WinDDK build environment for the target platform.</li>
+    <li>Change directory to <span class="filename">ms-nfs41-client</span> and type <span class="code">build</span>. The project should build without errors.</li>
+</ol>
+<h2>2. <a name="install">Installation</a></h2>
+<h3>Requirements</h3>
+<ul>
+    <li>ms-nfs41-client binaries: <span class="filename">nfs41_driver.sys</span>, <span class="filename">nfs41_np.dll</span>, <span class="filename">libtirpc.dll</span>, <span class="filename">nfs_install.exe</span>, <span class="filename">nfsd.exe</span>, <span class="filename">nfs_mount.exe</span></li>
+    <li>ms-nfs41-client configuration files: <span class="filename">nfs41rdr.inf</span>, <span class="filename">install.bat</span>, <span class="filename">uninstall.bat</span>, <span class="filename">etc_netconfig</span></li>
+    <li>a certificate for test signing (<a href="http://msdn.microsoft.com/en-us/library/aa906283.aspx" title="Test-Signing a Driver File">http://msdn.microsoft.com/en-us/library/aa906283.aspx</a>)</li>
+</ul>
+<h3>Instructions</h3>
+<ol>
+    <li>Copy or extract all ms-nfs41-client binaries and configuration files into a directory that's convenient for testing.</li>
+    <li>Open an Administrator command prompt in this directory.</li>
+    <li>Test sign <span class="filename">nfs41_driver.sys</span>.</li>
+    <li>Install the driver and update the registry:
+    <br/><span class="code">&gt; install.bat</span></li>
+    <li>Copy the libtirpc configuration:
+    <br/><span class="code">&gt; mkdir C:\etc</span>
+    <br/><span class="code">&gt; copy etc_netconfig C:\etc\netconfig</span></li>
+    <li>Allow windows to load test-signed drivers:
+    <br/><span class="code">&gt; bcdedit /set testsigning on</span></li>
+    <li>Install the certificate used for test signing to the 'Trusted Root Certificate Authorities' store.</li>
+    <li>Open the Control Panel, navigate to User Accounts, and disable User Account Control (see <a href="#issues">5. Known Issues</a>).</li>
+    <li>Reboot.</li>
+</ol>
+<h2>3. <a name="mount">Mounting</a></h2>
+<h3>Instructions</h3>
+<ol>
+    <li>Run <span class="filename">nfsd.exe</span></li>
+    <li>Open a command prompt and run <span class="filename">nfs_mount.exe</span> to mount a share:
+    <br/><span class="code">&gt; nfs_mount.exe Z: nfs.citi.umich.edu:\</span></li>
+    <li>You can later unmount with:
+    <br/><span class="code">&gt; nfs_mount.exe -d Z</span></li>
+</ol>
+<h2>4. <a name="cthon">Connectathon</a></h2>
+<h3>Requirements</h3>
+<ul>
+    <li><a href="http://www.cygwin.com" title="www.cygwin.com">Cygwin</a>, including packages gcc-core, make, sunrpc, time</li>
+    <li>ms-nfs41-client source code (ported tests are located in <span class="filename">ms-nfs41-client\tests\cthon04</span>)</li>
+</ul>
+<h3>Instructions</h3>
+<ol>
+    <li>Copy <span class="filename">ms-nfs41-client\tests\cthon04</span> into a directory that's convenient for testing.</li>
+    <li>Open a cygwin shell, and change directory to cthon04.</li>
+    <li>Run the test suite on a mounted directory:
+    <br/><span class="code">&gt; ./runtests -a -t z:/testdir</span></li>
+</ol>
+<h2>5. <a name="issues">Known Issues</a></h2>
+<ul>
+    <li>Mounts must be obtained through nfs_mount.exe, and not via 'net use' or 'Map Network Drive'.</li>
+    <li>When nfs_mount.exe is run without arguments, it does not properly list mounted drives.</li>
+    <li>If nfsd.exe is restarted while a drive is mapped, that drive needs to be remounted before further use.</li>
+    <li>Symbolic links are not supported. Connectathon's basic test8 will not pass.</li>
+    <li>Does not properly handle renaming a file on top of an existing open file- the existing file is removed on rename, and not preserved until last close.</li>
+</ul>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,63 @@
+[Version]
+Signature="$CHICAGO$"
+DriverVer=05/27/2009,1.0
+ClassGUID={00000000-0000-0000-0000-000000000000}
+;Its possible that we should be using:
+;Class=NetService
+;ClassGUID={4d36e974-e325-11ce-bfc1-08002be10318}
+CatalogFile=catalogfile.cat
+Provider=%ProviderName%
+
+[SourceDisksNames]
+1=%Disk%
+
+[SourceDisksFiles]
+nfs41_driver.sys=1,
+nfs41_np.dll=1,
+
+[DestinationDirs]
+DefaultDestDir=10			;%windir%
+nfs41_driver.sysfile=12			;%windir%\system32\drivers
+nfs41_driver.dllfile=11			;%windir%\system32
+
+[DefaultInstall]
+CopyFiles=nfs41_driver.sysfile,nfs41_driver.dllfile
+AddReg=nfs41_np.AddReg
+
+[DefaultInstall.Services]
+AddService=%Nfs41RdrServiceName%,,nfs41rdr.Service
+
+[DefaultUninstall]
+DelFiles=nfs41_driver.sysfile,nfs41_driver.dllfile
+DelReg=nfs41_driver.DelReg
+
+[DefaultUninstall.Services]
+DelService=%Nfs41RdrServiceName%
+
+[nfs41_driver.sysfile]
+nfs41_driver.sys
+
+[nfs41_driver.dllfile]
+nfs41_np.dll
+
+[nfs41rdr.Service]
+DisplayName=%Nfs41RdrServiceName%
+Description=%Nfs41RdrServiceName%
+ServiceType=0x00000002				;SERVICE_FILE_SYSTEM_DRIVER
+StartType=0x00000001				;SERVICE_SYSTEM_START
+ErrorControl=0x00000001				;SERVICE_ERROR_NORMAL
+ServiceBinary=%12%\nfs41_driver.sys
+LoadOrderGroup=Network
+
+[nfs41_np.AddReg]
+HKLM,SYSTEM\CurrentControlSet\Services\nfs41_driver\NetworkProvider,DeviceName,,\Device\nfs41_driver
+HKLM,SYSTEM\CurrentControlSet\Services\nfs41_driver\NetworkProvider,Name,,"NFS41 Network"
+HKLM,SYSTEM\CurrentControlSet\Services\nfs41_driver\NetworkProvider,ProviderPath,,System32\nfs41_np.dll
+
+[nfs41_driver.DelReg]
+HKLM,SYSTEM\CurrentControlSet\Services\nfs41_driver
+
+[Strings]
+Nfs41RdrServiceName="nfs41_driver"
+Disk="Source files"
+ProviderName="NFS41 Provider"
