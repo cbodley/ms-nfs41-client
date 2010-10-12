@@ -52,6 +52,38 @@ bool_t verify_write(
     IN struct __nfs41_write_verf *verf,
     IN OUT enum stable_how4 *stable);
 
+/* bitmap4 */
+static __inline bool_t bitmap_isset(
+    IN const bitmap4 *mask,
+    IN uint32_t word,
+    IN uint32_t flag)
+{
+    return mask->count > word && mask->arr[word] & flag;
+}
+static __inline void bitmap_set(
+    IN bitmap4 *mask,
+    IN uint32_t word,
+    IN uint32_t flag)
+{
+    if (mask->count > word)
+        mask->arr[word] |= flag;
+    else {
+        mask->count = word + 1;
+        mask->arr[word] = flag;
+    }
+}
+static __inline void bitmap_unset(
+    IN bitmap4 *mask,
+    IN uint32_t word,
+    IN uint32_t flag)
+{
+    if (mask->count > word) {
+        mask->arr[word] &= ~flag;
+        while (mask->count && mask->arr[mask->count-1] == 0)
+            mask->count--;
+    }
+}
+
 ULONG nfs_file_info_to_attributes(
     IN const nfs41_file_info *info);
 void nfs_to_basic_info(
