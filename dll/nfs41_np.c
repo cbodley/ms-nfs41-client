@@ -95,10 +95,7 @@ Return Value:
     *phMemory = 0;
     *pMemory = NULL;
 
-    *phMutex = OpenMutex(SYNCHRONIZE,
-                         FALSE,
-                         TEXT(NFS41NP_MUTEX_NAME));
-
+    *phMutex = CreateMutex(NULL, FALSE, TEXT(NFS41NP_MUTEX_NAME));
     if (*phMutex == NULL)
     {
         dwStatus = GetLastError();

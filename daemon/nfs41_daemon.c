@@ -44,19 +44,6 @@ typedef struct _nfs41_process_thread {
     uint32_t tid;
 } nfs41_process_thread;
 
-DWORD InitSharedMemory(
-    OUT PHANDLE phMutex)
-{
-    DWORD status = NO_ERROR;
-
-    *phMutex = CreateMutex(NULL, FALSE, TEXT(NFS41NP_MUTEX_NAME));
-    if (*phMutex == NULL) {
-        status = GetLastError();
-        eprintf("CreateMutex failed with %d\n", status);
-    }
-    return status;
-}
-
 static unsigned int WINAPI thread_main(void *args) 
 {
     DWORD status = 0;
@@ -147,8 +134,6 @@ write_downcall:
 void __cdecl _tmain(int argc, TCHAR *argv[])
 {
     DWORD status = 0, len;
-    // handles related to shared memory
-    HANDLE hSharedMemoryMutex;
     // handle to our drivers
     HANDLE pipe;
     nfs41_process_thread tids[MAX_NUM_THREADS];
@@ -181,10 +166,6 @@ void __cdecl _tmain(int argc, TCHAR *argv[])
         return;
     }
 
-    status = InitSharedMemory(&hSharedMemoryMutex);
-    if (status)
-        goto quit_pipe;
-
     dprintf(1, "starting nfs41 mini redirector\n");
     status = DeviceIoControl(pipe, IOCTL_NFS41_START,
         NULL, 0, NULL, 0, (LPDWORD)&len, NULL);
@@ -200,7 +181,7 @@ void __cdecl _tmain(int argc, TCHAR *argv[])
         if (tids[i].handle == INVALID_HANDLE_VALUE) {
             status = GetLastError();
             eprintf("_beginthreadex failed %d\n", status);
-            goto quit_pipe;
+            goto quit;
         }
     }
     //This can be changed to waiting on an array of handles and using waitformultipleobjects
@@ -210,8 +191,6 @@ void __cdecl _tmain(int argc, TCHAR *argv[])
     dprintf(1, "Parent woke up!!!!\n");
 
 quit:
-    CloseHandle(hSharedMemoryMutex);
-quit_pipe:
     CloseHandle(pipe);
     return;
 }
