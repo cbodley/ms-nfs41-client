@@ -268,7 +268,6 @@ typedef struct _NFS41_MOUNT_CONFIG {
     UNICODE_STRING SrvName;
     WCHAR mntpt_buffer[MAX_PATH];
     UNICODE_STRING MntPt;
-    BOOLEAN Initialized;
 } NFS41_MOUNT_CONFIG, *PNFS41_MOUNT_CONFIG;
 
 typedef struct _NFS41_NETROOT_EXTENSION {
@@ -2007,8 +2006,6 @@ void nfs41_MountConfig_InitDefaults(
     Config->MntPt.Length = MAX_PATH;
     Config->MntPt.MaximumLength = MAX_PATH;
     Config->MntPt.Buffer = Config->mntpt_buffer;
-    Config->Initialized = FALSE;
-
 }
 
 static NTSTATUS nfs41_MountConfig_ParseBoolean(
@@ -2128,9 +2125,6 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
             ((PBYTE)Option + Option->NextEntryOffset);
     }
 
-    if (status == STATUS_SUCCESS)
-        Config->Initialized = TRUE;
-
     DbgEx();
     return status;
 }
@@ -2195,11 +2189,17 @@ NTSTATUS nfs41_CreateVNetRoot(
     pNetRoot->MRxNetRootState = MRX_NET_ROOT_STATE_GOOD;
     pNetRoot->DeviceType = FILE_DEVICE_DISK;
 
+    if (pNetRootContext->session) {
+        /* already established a session for this net root */
+        pVNetRootContext->session = pNetRootContext->session;
+        DbgP("Using existing session 0x%x\n", pVNetRootContext->session);
+        goto out;
+    }
+
     nfs41_MountConfig_InitDefaults(&pVNetRootContext->Config);
 
     /* parse the extended attributes for mount options */
-    if (pCreateNetRootContext->RxContext->Create.EaLength && 
-            !pNetRootContext->Config.Initialized)
+    if (pCreateNetRootContext->RxContext->Create.EaLength)
     {
         DbgP("EaLength %d\n", pCreateNetRootContext->RxContext->Create.EaLength);
         DbgP("parsing storing into vnetroot\n");
@@ -2207,16 +2207,8 @@ NTSTATUS nfs41_CreateVNetRoot(
             pCreateNetRootContext->RxContext->Create.EaBuffer,
             pCreateNetRootContext->RxContext->Create.EaLength,
             &pVNetRootContext->Config);
-        if (status != STATUS_SUCCESS) {
-            if (pNetRootContext->Config.Initialized) {
-                DbgP("Using values from the NETROOT %p\n", pNetRootContext);
-                status = STATUS_SUCCESS;
-                RtlCopyMemory(&pVNetRootContext->Config, &pNetRootContext->Config, 
-                    sizeof(pNetRootContext->Config));
-                pVNetRootContext->session = pNetRootContext->session;            
-            }
+        if (status != STATUS_SUCCESS)
             goto out;
-        }
 
         // we need to save mount options in netroot not vnetroot!!!!
         nfs41_MountConfig_InitDefaults(&pNetRootContext->Config);
@@ -2237,15 +2229,10 @@ NTSTATUS nfs41_CreateVNetRoot(
         else
             goto out;
     } else {
-        if (pNetRootContext->session == NULL) {
-            DbgP("We dont have a valid existing session and we don't have a mount point!\n");
-            status = STATUS_UNEXPECTED_NETWORK_ERROR;
-            pNetRootContext->session = NULL;
-            goto out;
-        }
-        RtlCopyMemory(&pVNetRootContext->Config, &pNetRootContext->Config, 
-            sizeof(pNetRootContext->Config));
-        pVNetRootContext->session = pNetRootContext->session;
+        DbgP("We dont have a valid existing session and we don't have a mount point!\n");
+        status = STATUS_UNEXPECTED_NETWORK_ERROR;
+        pNetRootContext->session = NULL;
+        goto out;
     }
     DbgP("Saving point to nfs41_session 0x%x\n", pVNetRootContext->session);
 
