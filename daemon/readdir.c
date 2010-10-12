@@ -277,6 +277,7 @@ static int readdir_copy_entry(
     *dst_len -= info->NextEntryOffset;
 
     if (entry->attr_info.rdattr_error == NFS4ERR_MOVED) {
+        entry->attr_info.type = NF4DIR; /* default to dir */
         /* look up attributes for referral entries, but ignore return value;
          * it's okay if lookup fails, we'll just write garbage attributes */
         lookup_entry(args->root, args->state->session,
