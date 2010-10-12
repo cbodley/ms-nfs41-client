@@ -273,7 +273,6 @@ typedef struct _NFS41_MOUNT_CONFIG {
 typedef struct _NFS41_NETROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
-    NFS41_MOUNT_CONFIG      Config;
     HANDLE                  session;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
@@ -282,7 +281,6 @@ typedef struct _NFS41_NETROOT_EXTENSION {
 typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
-    NFS41_MOUNT_CONFIG      Config;
     HANDLE                  session;
 } NFS41_V_NET_ROOT_EXTENSION, *PNFS41_V_NET_ROOT_EXTENSION;
 #define NFS41GetVNetRootExtension(pVNetRoot)      \
@@ -2151,6 +2149,7 @@ NTSTATUS nfs41_CreateVNetRoot(
     IN OUT PMRX_CREATENETROOT_CONTEXT pCreateNetRootContext)
 {
     NTSTATUS        status = STATUS_SUCCESS;
+    NFS41_MOUNT_CONFIG Config;
     PMRX_V_NET_ROOT pVNetRoot = (PMRX_V_NET_ROOT)pCreateNetRootContext->pVNetRoot;
     PMRX_NET_ROOT   pNetRoot = pVNetRoot->pNetRoot;
     PMRX_SRV_CALL   pSrvCall = pNetRoot->pSrvCall;
@@ -2196,34 +2195,23 @@ NTSTATUS nfs41_CreateVNetRoot(
         goto out;
     }
 
-    nfs41_MountConfig_InitDefaults(&pVNetRootContext->Config);
+    nfs41_MountConfig_InitDefaults(&Config);
 
     /* parse the extended attributes for mount options */
     if (pCreateNetRootContext->RxContext->Create.EaLength)
     {
-        DbgP("EaLength %d\n", pCreateNetRootContext->RxContext->Create.EaLength);
-        DbgP("parsing storing into vnetroot\n");
         status = nfs41_MountConfig_ParseOptions(
             pCreateNetRootContext->RxContext->Create.EaBuffer,
             pCreateNetRootContext->RxContext->Create.EaLength,
-            &pVNetRootContext->Config);
+            &Config);
         if (status != STATUS_SUCCESS)
             goto out;
 
-        // we need to save mount options in netroot not vnetroot!!!!
-        nfs41_MountConfig_InitDefaults(&pNetRootContext->Config);
-        DbgP("parsing storing into netroot\n");
-        status = nfs41_MountConfig_ParseOptions(
-            pCreateNetRootContext->RxContext->Create.EaBuffer,
-            pCreateNetRootContext->RxContext->Create.EaLength,
-            &pNetRootContext->Config);
-        if (status != STATUS_SUCCESS)
-            goto out;
-        DbgP("Server Name %wZ Mount Point %wZ\n", &pVNetRootContext->Config.SrvName, 
-            &pVNetRootContext->Config.MntPt);
+        DbgP("Server Name %wZ Mount Point %wZ\n",
+            &Config.SrvName, &Config.MntPt);
         pVNetRootContext->session = pNetRootContext->session = NULL;
-        status = nfs41_mount(&pVNetRootContext->Config.SrvName, 
-                    &pVNetRootContext->Config.MntPt, &pVNetRootContext->session);
+        status = nfs41_mount(&Config.SrvName, &Config.MntPt,
+            &pVNetRootContext->session);
         if (status == STATUS_SUCCESS)
             pNetRootContext->session = pVNetRootContext->session;
         else
