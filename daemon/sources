@@ -4,13 +4,18 @@ SOURCES=nfs41_daemon.c daemon_debug.c nfs41_ops.c nfs41_compound.c nfs41_xdr.c \
 	nfs41_server.c nfs41_client.c nfs41_superblock.c nfs41_session.c lookup.c \
 	mount.c open.c readwrite.c lock.c readdir.c getattr.c setattr.c upcall.c \
 	nfs41_rpc.c util.c pnfs_layout.c pnfs_device.c pnfs_debug.c pnfs_io.c \
-	name_cache.c namespace.c rbtree.c volume.c callback_server.c callback_xdr.c
+	name_cache.c namespace.c rbtree.c volume.c callback_server.c callback_xdr.c \
+	service.c
 UMTYPE=console
 USE_LIBCMT=1
 #USE_MSVCRT=1
+#C_DEFINES=-DSTANDALONE_NFSD -- use this for non-service nfsd
 INCLUDES=..\sys;..\dll;..\libtirpc\tirpc
 TARGETLIBS=$(SDK_LIB_PATH)\ws2_32.lib $(SDK_LIB_PATH)\iphlpapi.lib \
-        ..\libtirpc\src\obj$(BUILD_ALT_DIR)\*\libtirpc.lib
+        ..\libtirpc\src\obj$(BUILD_ALT_DIR)\*\libtirpc.lib \
+		$(SDK_LIB_PATH)\kernel32.lib \
+		$(SDK_LIB_PATH)\advapi32.lib \
+		$(SDK_LIB_PATH)\shell32.lib
 
 !IF 0
 /W3 is default level

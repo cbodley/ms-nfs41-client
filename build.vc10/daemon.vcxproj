@@ -131,7 +131,7 @@
       <CompileAs>CompileAsC</CompileAs>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;iphlpapi.lib;kernel32.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <TargetMachine>MachineX64</TargetMachine>
@@ -217,6 +217,7 @@
     <ClCompile Include="..\daemon\rbtree.c" />
     <ClCompile Include="..\daemon\readdir.c" />
     <ClCompile Include="..\daemon\readwrite.c" />
+    <ClCompile Include="..\daemon\service.c" />
     <ClCompile Include="..\daemon\setattr.c" />
     <ClCompile Include="..\daemon\upcall.c" />
     <ClCompile Include="..\daemon\util.c" />
@@ -236,6 +237,7 @@
     <ClInclude Include="..\daemon\nfs41_xdr.h" />
     <ClInclude Include="..\daemon\pnfs.h" />
     <ClInclude Include="..\daemon\rbtree.h" />
+    <ClInclude Include="..\daemon\service.h" />
     <ClInclude Include="..\daemon\upcall.h" />
     <ClInclude Include="..\daemon\util.h" />
   </ItemGroup>

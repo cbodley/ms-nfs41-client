@@ -35,10 +35,13 @@
 #include "upcall.h"
 #include "util.h"
 
-
 #define MAX_NUM_THREADS 128
 BOOLEAN CREATED_SESSION = FALSE;
 
+#ifndef STANDALONE_NFSD //make sure to define it in "sources" not here
+#include "service.h"
+HANDLE  stop_event = NULL;
+#endif
 typedef struct _nfs41_process_thread {
     HANDLE handle;
     uint32_t tid;
@@ -131,7 +134,19 @@ write_downcall:
     return GetLastError();
 }
 
+#ifndef STANDALONE_NFSD
+VOID ServiceStop()
+{
+   if (stop_event)
+      SetEvent(stop_event);
+}
+#endif
+
+#ifdef STANDALONE_NFSD
 void __cdecl _tmain(int argc, TCHAR *argv[])
+#else
+VOID ServiceStart(DWORD argc, LPTSTR *argv)
+#endif
 {
     DWORD status = 0, len;
     // handle to our drivers
@@ -175,6 +190,12 @@ void __cdecl _tmain(int argc, TCHAR *argv[])
         goto quit;
     }
 
+#ifndef STANDALONE_NFSD
+    stop_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (stop_event == NULL)
+      goto quit;
+#endif
+
     for (i = 0; i < MAX_NUM_THREADS; i++) {
         tids[i].handle = (HANDLE)_beginthreadex(NULL, 0, thread_main, 
                 NULL, 0, &tids[i].tid);
@@ -184,10 +205,17 @@ void __cdecl _tmain(int argc, TCHAR *argv[])
             goto quit;
         }
     }
+#ifndef STANDALONE_NFSD
+    // report the status to the service control manager.
+    if (!ReportStatusToSCMgr(SERVICE_RUNNING, NO_ERROR, 0))
+        goto quit;
+    WaitForSingleObject(stop_event, INFINITE);
+#else
     //This can be changed to waiting on an array of handles and using waitformultipleobjects
     dprintf(1, "Parent waiting for children threads\n");
     for (i = 0; i < MAX_NUM_THREADS; i++)
         WaitForSingleObject(tids[i].handle, INFINITE );
+#endif
     dprintf(1, "Parent woke up!!!!\n");
 
 quit:
