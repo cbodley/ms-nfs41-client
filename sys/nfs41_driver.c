@@ -152,6 +152,7 @@ typedef struct _updowncall_entry {
             HANDLE session;
             HANDLE open_state;
             PUNICODE_STRING filename;
+            UNICODE_STRING symlink;
             ULONG access_mask;
             ULONG access_mode;
             ULONG attrs;
@@ -1344,8 +1345,16 @@ nfs41_downcall (
             buf += sizeof(HANDLE);
             RtlCopyMemory(&cur->u.Open.mode, buf, sizeof(DWORD));
             buf += sizeof(DWORD);
-            RtlCopyMemory(&cur->u.Open.changeattr, buf, sizeof(ULONG));
-            DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n", 
+            RtlCopyMemory(&cur->u.Open.changeattr, buf, sizeof(LONGLONG));
+            buf += sizeof(LONGLONG);
+            if (tmp->errno == ERROR_REPARSE) {
+                RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, buf, sizeof(USHORT));
+                buf += sizeof(USHORT);
+                cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength - sizeof(WCHAR);
+                cur->u.Open.symlink.Buffer = (PWCH)buf;
+                DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
+            }
+            DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
                 cur->u.Open.open_state, cur->u.Open.mode, cur->u.Open.changeattr);
             break;
         case NFS41_DIR_QUERY:
@@ -2457,6 +2466,7 @@ static NTSTATUS map_open_errors(DWORD status, int len)
     case ERROR_NETWORK_ACCESS_DENIED:   return STATUS_NETWORK_ACCESS_DENIED;
     case ERROR_PATH_NOT_FOUND:          return STATUS_OBJECT_PATH_NOT_FOUND;
     case ERROR_SHARING_VIOLATION:       return STATUS_SHARING_VIOLATION;
+    case ERROR_REPARSE:                 return STATUS_REPARSE;
     default:
         DbgP("[ERROR] nfs41_Create: upcall returned %d returning "
             "STATUS_INSUFFICIENT_RESOURCES\n", status);

@@ -328,6 +328,23 @@ int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
     status = safe_write(&buffer, length, &args->mode, sizeof(args->mode));
     if (status) goto out;
     status = safe_write(&buffer, length, &args->changeattr, sizeof(args->changeattr));
+    if (status) goto out;
+    if (upcall->last_error == ERROR_REPARSE) {
+        /* convert args->path to wchar */
+        WCHAR wpath[NFS41_MAX_PATH_LEN];
+        unsigned short len = (unsigned short)MultiByteToWideChar(
+            CP_UTF8, 0, args->path.path, args->path.len, wpath, NFS41_MAX_PATH_LEN);
+        if (len == 0) {
+            status = ERROR_BUFFER_OVERFLOW;
+            goto out;
+        }
+        wpath[len++] = L'\0';
+        len *= sizeof(WCHAR);
+        dprintf(2, "ERROR_REPARSE -> '%S' [%u]\n", wpath, len);
+        status = safe_write(&buffer, length, &len, sizeof(len));
+        if (status) goto out;
+        status = safe_write(&buffer, length, wpath, len);
+    }
     dprintf(2, "NFS41_OPEN: passing open_state=0x%p mode %o changeattr 0x%x\n", 
         args->state, args->mode, args->changeattr);
 out:
