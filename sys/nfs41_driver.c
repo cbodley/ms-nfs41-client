@@ -2570,6 +2570,48 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
+    if (entry->errno == ERROR_REPARSE) {
+        /* symbolic link handling. when attempting to open a symlink when the
+         * FILE_OPEN_REPARSE_POINT flag is not set, replace the filename with
+         * the symlink target's by calling RxPrepareToReparseSymbolicLink()
+         * and returning STATUS_REPARSE. the object manager will attempt to
+         * open the new path, and return its handle for the original open */
+        PMRX_NET_ROOT NetRoot = RxContext->pRelevantSrvOpen->pVNetRoot->pNetRoot;
+        PRDBSS_DEVICE_OBJECT DeviceObject = NetRoot->pSrvCall->RxDeviceObject;
+        UNICODE_STRING AbsPath;
+        PCHAR buf;
+        BOOLEAN ReparseRequired;
+
+        /* allocate the string for RxPrepareToReparseSymbolicLink(), and
+         * format an absolute path "DeviceName+NetRootName+symlink" */
+        AbsPath.Length = DeviceObject->DeviceName.Length +
+            NetRoot->pNetRootName->Length + entry->u.Open.symlink.Length;
+        AbsPath.MaximumLength = AbsPath.Length + sizeof(WCHAR);
+        AbsPath.Buffer = RxAllocatePoolWithTag(NonPagedPool,
+            AbsPath.MaximumLength, NFS41_MM_POOLTAG);
+        if (AbsPath.Buffer == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto out_free;
+        }
+
+        buf = (PCHAR)AbsPath.Buffer;
+        RtlCopyMemory(buf, DeviceObject->DeviceName.Buffer, DeviceObject->DeviceName.Length);
+        buf += DeviceObject->DeviceName.Length;
+        RtlCopyMemory(buf, NetRoot->pNetRootName->Buffer, NetRoot->pNetRootName->Length);
+        buf += NetRoot->pNetRootName->Length;
+        RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, entry->u.Open.symlink.Length);
+
+        status = RxPrepareToReparseSymbolicLink(RxContext,
+            FALSE, &AbsPath, TRUE, &ReparseRequired);
+        DbgP("RxPrepareToReparseSymbolicLink('%wZ') returned %08lX, "
+            "FileName is '%wZ'\n",
+            &AbsPath, status, &RxContext->CurrentIrpSp->FileObject->FileName);
+        if (status == STATUS_SUCCESS)
+            status = ReparseRequired ? STATUS_REPARSE :
+                STATUS_OBJECT_PATH_NOT_FOUND;
+        goto out_free;
+    }
+
     status = map_open_errors(entry->status, SrvOpen->pAlreadyPrefixedName->Length);
     if (status != STATUS_SUCCESS) {
         print_open_error(1, entry->status);
