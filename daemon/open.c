@@ -431,8 +431,7 @@ int handle_close(nfs41_upcall *upcall)
         }
     }
 
-    if (args->state->type == NF4REG || !args->remove)
-        free_open_state(state->session, state);
+    free_open_state(state->session, state);
     if (status || !rm_status)
         return status;
     else

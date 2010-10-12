@@ -3580,29 +3580,11 @@ NTSTATUS nfs41_SetFileInformation (
             (PFILE_DISPOSITION_INFORMATION)RxContext->Info.Buffer;
         if (dinfo->DeleteFile) {
             // we can delete directories right away
-            if (nfs41_fcb->StandardInfo.Directory) {
-                status = nfs41_UpcallCreate(NFS41_CLOSE, &entry);
-                if (status)
-                    goto out;
-                entry->u.Close.open_state = nfs41_fobx->nfs41_open_state;
-                entry->u.Close.session = pVNetRootContext->session;
-                entry->u.Close.remove = 1;
-                entry->u.Close.renamed = nfs41_fcb->Renamed;
-                entry->u.Close.filename = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-
-                if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-                    status = STATUS_INTERNAL_ERROR;
-                    goto out;
-                }
-
-                /* map windows ERRORs to NTSTATUS */
-                status = map_close_errors(entry->status);
-                RxFreePool(entry);
-                goto out;
-            }
+            if (nfs41_fcb->StandardInfo.Directory)
+                break;
             nfs41_fcb->Flags = 0;
             nfs41_fcb->StandardInfo.DeletePending = TRUE;
-            if (RxContext->pFcb->OpenCount > 1 && !nfs41_fcb->StandardInfo.Directory) {
+            if (RxContext->pFcb->OpenCount > 1) {
                 rinfo.ReplaceIfExists = 0;
                 rinfo.RootDirectory = INVALID_HANDLE_VALUE;
                 rinfo.FileNameLength = 0;
