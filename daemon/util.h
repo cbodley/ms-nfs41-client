@@ -33,9 +33,7 @@ enum stable_how4;
 
 int safe_read(unsigned char **pos, uint32_t *remaining, void *dest, uint32_t dest_len);
 int safe_write(unsigned char **pos, uint32_t *remaining, void *dest, uint32_t dest_len);
-int get_name(unsigned char **pos, uint32_t *remaining, char *out_name);
-int get_abs_path(unsigned char **pos, uint32_t *remaining, nfs41_abs_path *path);
-int wchar2asci(WCHAR *src, char **dest, int dest_len);
+int get_name(unsigned char **pos, uint32_t *remaining, const char **out_name);
 
 const char* strip_path(
     IN const char *path,

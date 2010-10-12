@@ -33,7 +33,7 @@
 
 
 static int create_open_state(
-    IN const nfs41_abs_path *path,
+    IN const char *path,
     IN uint32_t open_owner_id,
     OUT nfs41_open_state **state_out)
 {
@@ -47,7 +47,11 @@ static int create_open_state(
     }
 
     InitializeSRWLock(&state->path.lock);
-    abs_path_copy(&state->path, path);
+    if (FAILED(StringCchCopyA(state->path.path, NFS41_MAX_PATH_LEN, path))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out_free;
+    }
+    state->path.len = (unsigned short)strlen(state->path.path);
     path_fh_init(&state->file, &state->path);
     path_fh_init(&state->parent, &state->path);
     last_component(state->path.path, state->file.name.name,
@@ -62,6 +66,10 @@ static int create_open_state(
     status = NO_ERROR;
 out:
     return status;
+
+out_free:
+    free(state);
+    goto out;
 }
 
 static void free_open_state(
@@ -78,8 +86,7 @@ int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     int status;
     open_upcall_args *args = &upcall->args.open;
 
-    ZeroMemory(&args->path, sizeof(nfs41_abs_path));
-    status = get_abs_path(&buffer, &length, &args->path);
+    status = get_name(&buffer, &length, &args->path);
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->access_mask, sizeof(ULONG));
     if (status) goto out;
@@ -101,7 +108,7 @@ int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
         "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
         "(kernel) disposition=%d\n\tsession=%p open_owner_id=%d mode=%o\n", 
-        args->path.path, args->access_mask, args->access_mode, args->file_attrs,
+        args->path, args->access_mask, args->access_mode, args->file_attrs,
         args->create_opts, args->disposition, args->root, args->open_owner_id,
         args->mode);
     print_disposition(2, args->disposition);
@@ -315,7 +322,7 @@ int handle_open(nfs41_upcall *upcall)
     nfs41_open_state *state;
     nfs41_file_info info;
 
-    status = create_open_state(&args->path, args->open_owner_id, &state);
+    status = create_open_state(args->path, args->open_owner_id, &state);
     if (status) {
         eprintf("create_open_state(%u) failed with %d\n",
             args->open_owner_id, status);
@@ -338,7 +345,7 @@ int handle_open(nfs41_upcall *upcall)
             dprintf(2, "handle_nfs41_open: DIRECTORY\n");
             if (args->create_opts & FILE_NON_DIRECTORY_FILE) {
                 eprintf("trying to open directory %s as a file\n", 
-                    args->path.path);
+                    state->path.path);
                 status = ERROR_ACCESS_DENIED;
                 goto out_free_state;
             }
@@ -346,7 +353,7 @@ int handle_open(nfs41_upcall *upcall)
             dprintf(2, "handle nfs41_open: FILE\n");
             if (args->create_opts & FILE_DIRECTORY_FILE) {
                 eprintf("trying to open file %s as a directory\n",
-                    args->path.path);
+                    state->path.path);
 #ifdef NOTEPAD_OPEN_FILE_AS_DIRFILE_FIXED
                 status = ERROR_ACCESS_DENIED;
                 goto out_free_state;
@@ -468,7 +475,7 @@ int cancel_open(IN nfs41_upcall *upcall)
     open_upcall_args *args = &upcall->args.open;
     nfs41_open_state *state = args->state;
 
-    dprintf(1, "--> cancel_open('%s')\n", args->path.path);
+    dprintf(1, "--> cancel_open('%s')\n", args->path);
 
     if (upcall->status)
         goto out; /* if handle_open() failed, the state was already freed */
@@ -507,8 +514,7 @@ int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     status = safe_read(&buffer, &length, &args->remove, sizeof(BOOLEAN));
     if (status) goto out;
     if (args->remove) {
-        ZeroMemory(&args->path, sizeof(nfs41_abs_path));
-        status = get_abs_path(&buffer, &length, &args->path);
+        status = get_name(&buffer, &length, &args->path);
         if (status) goto out;
         status = safe_read(&buffer, &length, &args->renamed, sizeof(BOOLEAN));
         if (status) goto out;
@@ -517,7 +523,7 @@ int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     dprintf(1, "parsing NFS41_CLOSE: close root=0x%p "
         "open_state=0x%p remove=%d renamed=%d filename='%s'\n",
         args->root, args->state, args->remove, args->renamed,
-        args->remove ? args->path.path : "");
+        args->remove ? args->path : "");
 out:
     return status;
 }

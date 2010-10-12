@@ -52,7 +52,7 @@ int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->buf_len, sizeof(args->buf_len));
     if (status) goto out;
-    status = get_name(&buffer, &length, args->filter);
+    status = get_name(&buffer, &length, &args->filter);
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->initial, sizeof(args->initial));
     if (status) goto out;

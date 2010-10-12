@@ -53,41 +53,21 @@ int safe_write(unsigned char **pos, uint32_t *remaining, void *src, uint32_t src
     return 0;
 }
 
-int wchar2asci(WCHAR *src, char **dest, int dest_len)
+int get_name(unsigned char **pos, uint32_t *remaining, const char **out_name)
 {
-    int len = 0;
-    len = WideCharToMultiByte(CP_UTF8, 0, src, -1, NULL, 0,  NULL, NULL);
-    if (*dest == NULL) {
-        *dest = malloc(len + 1);
-        if (*dest == NULL)
-            return ERROR_NOT_ENOUGH_MEMORY;
-    } else if (len > dest_len)
-        return ERROR_BUFFER_OVERFLOW;
-    WideCharToMultiByte(CP_UTF8, 0, src, len, *dest, len + 1, NULL, NULL);
-
-    return 0;
-}
-
-int get_name(unsigned char **pos, uint32_t *remaining, char *out_name)
-{
-    WCHAR name[UPCALL_BUF_SIZE];
-    int status, len = 0;
-
+    int status;
+    USHORT len;
+    
     status = safe_read(pos, remaining, &len, sizeof(USHORT));
     if (status) goto out;
-    status = safe_read(pos, remaining, name, len);
-    if (status) goto out;
-
-    name[len/sizeof(WCHAR)] = L'\0';
-    status = wchar2asci(name, &out_name, UPCALL_BUF_SIZE);
+    if (*remaining < len) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    *out_name = (const char*)*pos;
+    *pos += len;
+    *remaining -= len;
 out:
-    return status;
-}
-
-int get_abs_path(unsigned char **pos, uint32_t *remaining, nfs41_abs_path *path)
-{
-    int status = get_name(pos, remaining, path->path);
-    path->len = status ? 0 : (unsigned short)strlen(path->path);
     return status;
 }
 

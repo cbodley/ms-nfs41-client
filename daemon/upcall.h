@@ -30,8 +30,8 @@
 
 /* structures for upcall arguments */
 typedef struct __mount_upcall_args {
-    char srv_name[UPCALL_BUF_SIZE];
-    nfs41_abs_path path;
+    const char *hostname;
+    const char *path;
     nfs41_root *root;
 } mount_upcall_args;
 
@@ -40,7 +40,7 @@ typedef struct __unmount_upcall_args {
 } unmount_upcall_args;
 
 typedef struct __open_upcall_args {
-    nfs41_abs_path path;
+    const char *path;
     FILE_BASIC_INFO basic_info;
     FILE_STANDARD_INFO std_info;
     nfs41_root *root;
@@ -57,7 +57,7 @@ typedef struct __open_upcall_args {
 } open_upcall_args;
 
 typedef struct __close_upcall_args {
-    nfs41_abs_path path;
+    const char *path;
     nfs41_root *root;
     nfs41_open_state *state;
     BOOLEAN remove;
@@ -102,7 +102,7 @@ typedef struct __getattr_upcall_args {
 } getattr_upcall_args;
 
 typedef struct __setattr_upcall_args {
-    nfs41_abs_path path;
+    const char *path;
     nfs41_root *root;
     nfs41_open_state *state;
     unsigned char *buf;
@@ -120,7 +120,7 @@ typedef struct __setexattr_upcall_args {
 } setexattr_upcall_args;
 
 typedef struct __readdir_upcall_args {
-    char filter[UPCALL_BUF_SIZE];
+    const char *filter;
     nfs41_readdir_cookie *cookie;
     nfs41_root *root;
     nfs41_open_state *state;

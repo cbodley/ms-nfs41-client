@@ -174,7 +174,7 @@ typedef struct __nfs41_root {
 int nfs41_root_create(
     IN const char *hostname,
     IN unsigned short port,
-    IN const nfs41_abs_path *path,
+    IN const char *path,
     IN uint32_t wsize,
     IN uint32_t rsize,
     OUT nfs41_root **root_out);

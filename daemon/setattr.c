@@ -38,8 +38,7 @@ int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     int status;
     setattr_upcall_args *args = &upcall->args.setattr;
 
-    ZeroMemory(&args->path, sizeof(nfs41_abs_path));
-    status = get_abs_path(&buffer, &length, &args->path);
+    status = get_name(&buffer, &length, &args->path);
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->set_class, sizeof(args->set_class));
     if (status) goto out;
@@ -65,7 +64,7 @@ int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 
     dprintf(1, "parsing NFS41_FILE_SET: filename='%s' info_class=%d "
         "buf_len=%d root=%p open_state=%p\nopen_owner_id=%d "
-        "access_mask=%x access_mode=%x\n", args->path.path, args->set_class, 
+        "access_mask=%x access_mode=%x\n", args->path, args->set_class, 
         args->buf_len, args->root, args->state, args->open_owner_id,
         args->access_mask, args->access_mode);
 out:
@@ -213,13 +212,13 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
         /* start from state->path instead of args->path, in case we got
          * the file from a referred server */
         AcquireSRWLockShared(&state->path.lock);
-        abs_path_copy(&args->path, &state->path);
+        abs_path_copy(&dst_path, &state->path);
         ReleaseSRWLockShared(&state->path.lock);
 
-        path_fh_init(&dst_dir, &args->path);
+        path_fh_init(&dst_dir, &dst_path);
         fh_copy(&dst_dir.fh, &state->parent.fh);
 
-        create_silly_rename(&args->path, &state->file.fh, &dst_name);
+        create_silly_rename(&dst_path, &state->file.fh, &dst_name);
         dprintf(1, "silly rename: %s -> %s\n", src_name->name, dst_name.name);
 
         status = nfs41_rename(state->session,
@@ -231,7 +230,7 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
             status = nfs_to_windows_error(status, ERROR_ACCESS_DENIED);
         } else {
             /* rename state->path on success */
-            open_state_rename(state, &args->path);
+            open_state_rename(state, &dst_path);
         }
         goto out;
     }

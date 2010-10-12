@@ -35,14 +35,13 @@ int parse_mount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     int status;
     mount_upcall_args *args = &upcall->args.mount;
 
-    status = get_name(&buffer, &length, args->srv_name);
+    status = get_name(&buffer, &length, &args->hostname);
     if(status) goto out;
-    ZeroMemory(&args->path, sizeof(nfs41_abs_path));
-    status = get_abs_path(&buffer, &length, &args->path);
+    status = get_name(&buffer, &length, &args->path);
     if(status) goto out;
 
     dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s\n",
-        args->srv_name, args->path.path);
+        args->hostname, args->path);
 out:
     return status;
 }
@@ -57,13 +56,13 @@ int handle_mount(nfs41_upcall *upcall)
     nfs41_client *client;
 
     // resolve hostname,port
-    status = nfs41_server_resolve(args->srv_name, port, &addrs);
+    status = nfs41_server_resolve(args->hostname, port, &addrs);
     if (status) {
         eprintf("nfs41_server_resolve() failed with %d\n", status);
         goto out;
     }
     // create root
-    status = nfs41_root_create(args->srv_name, port, &args->path,
+    status = nfs41_root_create(args->hostname, port, &args->path,
         NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
         NFS41_MAX_FILEIO_SIZE + READ_OVERHEAD, &root);
     if (status) {
