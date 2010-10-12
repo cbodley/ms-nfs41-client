@@ -303,9 +303,15 @@ static int follow_link(
     path_offset = (state->parent.name.name + state->parent.name.len) -
         state->path.path;
 
-    /* update the path with the results from link */
-    status = abs_path_link(&args->path,
-        args->path.path + path_offset, link, link_len);
+    /* copy the path and update it with the results from link */
+    args->symlink.len = state->path.len;
+    if (FAILED(StringCchCopyNA(args->symlink.path, NFS41_MAX_PATH_LEN,
+        state->path.path, state->path.len))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    status = abs_path_link(&args->symlink,
+        args->symlink.path + path_offset, link, link_len);
     if (status) {
         eprintf("abs_path_link() failed with %d\n", status);
         status = ERROR_PATH_NOT_FOUND;
@@ -448,20 +454,16 @@ int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
     status = safe_write(&buffer, length, &args->changeattr, sizeof(args->changeattr));
     if (status) goto out;
     if (upcall->last_error == ERROR_REPARSE) {
-        /* convert args->path to wchar */
-        WCHAR wpath[NFS41_MAX_PATH_LEN];
-        unsigned short len = (unsigned short)MultiByteToWideChar(
-            CP_UTF8, 0, args->path.path, args->path.len, wpath, NFS41_MAX_PATH_LEN);
-        if (len == 0) {
+        unsigned short len = (args->symlink.len + 1) * sizeof(WCHAR);
+        status = safe_write(&buffer, length, &len, sizeof(len));
+        if (status) goto out;
+        /* convert args->symlink to wchar */
+        if (*length <= len || !MultiByteToWideChar(CP_UTF8, 0,
+            args->symlink.path, args->symlink.len,
+            (LPWSTR)buffer, len / sizeof(WCHAR))) {
             status = ERROR_BUFFER_OVERFLOW;
             goto out;
         }
-        wpath[len++] = L'\0';
-        len *= sizeof(WCHAR);
-        dprintf(2, "ERROR_REPARSE -> '%S' [%u]\n", wpath, len);
-        status = safe_write(&buffer, length, &len, sizeof(len));
-        if (status) goto out;
-        status = safe_write(&buffer, length, wpath, len);
     }
     dprintf(2, "NFS41_OPEN: passing open_state=0x%p mode %o changeattr 0x%x\n", 
         args->state, args->mode, args->changeattr);

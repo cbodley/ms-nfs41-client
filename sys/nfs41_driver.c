@@ -2568,7 +2568,7 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    if (entry->errno == ERROR_REPARSE) {
+    if (entry->status == NO_ERROR && entry->errno == ERROR_REPARSE) {
         /* symbolic link handling. when attempting to open a symlink when the
          * FILE_OPEN_REPARSE_POINT flag is not set, replace the filename with
          * the symlink target's by calling RxPrepareToReparseSymbolicLink()

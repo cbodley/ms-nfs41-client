@@ -40,9 +40,10 @@ typedef struct __unmount_upcall_args {
 } unmount_upcall_args;
 
 typedef struct __open_upcall_args {
-    const char *path;
+    nfs41_abs_path symlink;
     FILE_BASIC_INFO basic_info;
     FILE_STANDARD_INFO std_info;
+    const char *path;
     nfs41_root *root;
     nfs41_open_state *state;
     ULONG access_mask;
