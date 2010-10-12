@@ -207,15 +207,115 @@ static int check_execute_access(nfs41_open_state *state)
     return status;
 }
 
+int abs_path_link(
+    OUT nfs41_abs_path *path,
+    IN char *path_pos,
+    IN const char *link,
+    IN uint32_t link_len)
+{
+    nfs41_component name;
+    const char *path_max = path->path + NFS41_MAX_PATH_LEN;
+    const char *link_pos = link;
+    const char *link_end = link + link_len;
+    int status = NO_ERROR;
+
+    dprintf(2, "--> abs_path_link('%s', '%s')\n", path->path, link);
+
+    /* if link is an absolute path, start path_pos at the beginning */
+    if (is_delimiter(*link))
+        path_pos = path->path;
+
+    /* eat trailing slashes from the path */
+    path_pos = (char*)prev_non_delimiter(path_pos, path->path);
+    if (path_pos > path->path)
+        path_pos = (char*)next_delimiter(path_pos, path_pos);
+
+    /* copy each component of link into the path */
+    while (next_component(link_pos, link_end, &name)) {
+        link_pos = name.name + name.len;
+
+        /* handle special components . and .. */
+        if (name.len == 1 && name.name[0] == '.')
+            continue;
+        if (name.len == 2 && name.name[0] == '.' && name.name[1] == '.') {
+            /* back path_pos up by one component */
+            if (!last_component(path->path, path_pos, &name)) {
+                eprintf("symlink with .. that points below server root!\n");
+                status = ERROR_BAD_NETPATH;
+                goto out;
+            }
+            path_pos = (char*)prev_delimiter(name.name, path->path);
+            continue;
+        }
+
+        /* add a \ and copy the component */
+        if (FAILED(StringCchCopyNA(path_pos,
+            path_max-path_pos, "\\", 1))) {
+            status = ERROR_BUFFER_OVERFLOW;
+            goto out;
+        }
+        path_pos++;
+        if (FAILED(StringCchCopyNA(path_pos,
+            path_max-path_pos, name.name, name.len))) {
+            status = ERROR_BUFFER_OVERFLOW;
+            goto out;
+        }
+        path_pos += name.len;
+    }
+
+    /* make sure the path is null terminated */
+    if (path_pos == path_max) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    *path_pos = '\0';
+out:
+    path->len = (unsigned short)(path_pos - path->path);
+    dprintf(2, "<-- abs_path_link('%s') returning %d\n", path->path, status);
+    return status;
+}
+
+static int follow_link(
+    IN open_upcall_args *args,
+    IN nfs41_open_state *state)
+{
+    char link[NFS41_MAX_PATH_LEN];
+    ptrdiff_t path_offset;
+    uint32_t link_len;
+    int status;
+
+    /* read the link */
+    status = nfs41_readlink(state->session, &state->file,
+        NFS41_MAX_PATH_LEN, link, &link_len);
+    if (status) {
+        eprintf("nfs41_readlink() failed with %s\n",
+            nfs_error_string(status));
+        status = ERROR_PATH_NOT_FOUND;
+        goto out;
+    }
+
+    /* overwrite the last component of the path; get the starting offset */
+    path_offset = (state->parent.name.name + state->parent.name.len) -
+        state->path.path;
+
+    /* update the path with the results from link */
+    status = abs_path_link(&args->path,
+        args->path.path + path_offset, link, link_len);
+    if (status) {
+        eprintf("abs_path_link() failed with %d\n", status);
+        status = ERROR_PATH_NOT_FOUND;
+        goto out;
+    }
+out:
+    return status;
+}
+
 int handle_open(nfs41_upcall *upcall)
 {
     int status = 0;
     open_upcall_args *args = &upcall->args.open;
     nfs41_open_state *state;
-    bitmap4 attr_request;
     nfs41_file_info info;
-
-    init_getattr_request(&attr_request);
 
     status = create_open_state(&args->path, args->open_owner_id, &state);
     if (status) {
@@ -233,6 +333,7 @@ int handle_open(nfs41_upcall *upcall)
     // always do a lookup
     status = nfs41_lookup(args->root, nfs41_root_session(args->root),
         &state->path, &state->parent, &state->file, &info, &state->session);
+
     // now if file/dir exists, use type returned by lookup
     if (status == NO_ERROR) {
         if (info.type == NF4DIR) {
@@ -253,8 +354,20 @@ int handle_open(nfs41_upcall *upcall)
                 goto out_free_state;
 #endif
             }
+        } else if (info.type == NF4LNK) {
+            dprintf(2, "handle nfs41_open: SYMLINK\n");
+            if (args->create_opts & FILE_OPEN_REPARSE_POINT) {
+                /* continue and open the symlink itself */
+            } else {
+                /* tell the driver to call RxPrepareToReparseSymbolicLink() */
+                upcall->last_error = ERROR_REPARSE;
+
+                /* replace the path with the symlink target */
+                status = follow_link(args, state);
+                goto out_free_state;
+            }
         } else
-            dprintf(2, "handle nfs41_open: is it SYMLINK?\n");
+            dprintf(2, "handle_open(): unsupported type=%d\n", info.type);
         state->type = info.type;
     } else if (status != ERROR_FILE_NOT_FOUND)
         goto out_free_state;
