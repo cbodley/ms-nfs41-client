@@ -98,12 +98,12 @@ static void remove_unsupported_attrs(
 
 static int handle_nfs41_setattr(setattr_upcall_args *args)
 {
-    int status;
     PFILE_BASIC_INFO basic_info = (PFILE_BASIC_INFO)args->buf;
     nfs41_open_state *state = args->state;
     nfs41_superblock *superblock = state->file.fh.superblock;
     stateid4 stateid, *pstateid;
     nfs41_file_info info;
+    int status = NO_ERROR;
 
     pstateid = nfs41_lock_stateid_copy(&state->last_lock, &stateid);
     if (pstateid == NULL)
@@ -115,24 +115,35 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     info.hidden = basic_info->FileAttributes & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
     info.attrmask.arr[0] |= FATTR4_WORD0_HIDDEN;
     info.attrmask.count = 1;
-    /* time_create */
-    if (basic_info->CreationTime.QuadPart > 0) {
-        file_time_to_nfs_time(&basic_info->CreationTime, &info.time_create);
-        info.attrmask.arr[1] |= FATTR4_WORD1_TIME_CREATE;
-        info.attrmask.count = 2;
+
+    if (superblock->cansettime) {
+        /* set the time_delta so xdr_settime4() can decide
+         * whether or not to use SET_TO_SERVER_TIME4 */
+        info.time_delta = &superblock->time_delta;
+
+        /* time_create */
+        if (basic_info->CreationTime.QuadPart > 0) {
+            file_time_to_nfs_time(&basic_info->CreationTime,
+                &info.time_create);
+            info.attrmask.arr[1] |= FATTR4_WORD1_TIME_CREATE;
+            info.attrmask.count = 2;
+        }
+        /* time_access_set */
+        if (basic_info->LastAccessTime.QuadPart > 0) {
+            file_time_to_nfs_time(&basic_info->LastAccessTime,
+                &info.time_access);
+            info.attrmask.arr[1] |= FATTR4_WORD1_TIME_ACCESS_SET;
+            info.attrmask.count = 2;
+        }
+        /* time_modify_set */
+        if (basic_info->LastWriteTime.QuadPart > 0) {
+            file_time_to_nfs_time(&basic_info->LastWriteTime,
+                &info.time_modify);
+            info.attrmask.arr[1] |= FATTR4_WORD1_TIME_MODIFY_SET;
+            info.attrmask.count = 2;
+        }
     }
-    /* time_access_set */
-    if (basic_info->LastAccessTime.QuadPart > 0) {
-        file_time_to_nfs_time(&basic_info->LastAccessTime, &info.time_access);
-        info.attrmask.arr[1] |= FATTR4_WORD1_TIME_ACCESS_SET;
-        info.attrmask.count = 2;
-    }
-    /* time_modify_set */
-    if (basic_info->LastWriteTime.QuadPart > 0) {
-        file_time_to_nfs_time(&basic_info->LastWriteTime, &info.time_modify);
-        info.attrmask.arr[1] |= FATTR4_WORD1_TIME_MODIFY_SET;
-        info.attrmask.count = 2;
-    }
+
     /* mode */
     if (basic_info->FileAttributes & FILE_ATTRIBUTE_READONLY) {
         info.mode = 0444;
@@ -140,19 +151,22 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
         info.attrmask.count = 2;
     }
 
+    /* only ask for attributes that are supported by the filesystem */
     AcquireSRWLockShared(&superblock->lock);
     remove_unsupported_attrs(&superblock->supported_attrs, &info.attrmask);
     ReleaseSRWLockShared(&superblock->lock);
 
     if (!info.attrmask.count)
-        return 0;
+        goto out;
 
     status = nfs41_setattr(state->session, &state->file, pstateid, &info);
-    if (status)
+    if (status) {
         dprintf(1, "nfs41_setattr() failed with error %s.\n",
             nfs_error_string(status));
-
-    return nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+        status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+    }
+out:
+    return status;
 }
 
 static int handle_nfs41_remove(setattr_upcall_args *args)

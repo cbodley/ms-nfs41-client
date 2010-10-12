@@ -27,7 +27,9 @@
 #include "nfs41_compound.h"
 #include "nfs41_ops.h"
 #include "nfs41_xdr.h"
+#include "util.h"
 #include "daemon_debug.h"
+
 
 static bool_t encode_file_attrs(
     fattr4 *attrs,
@@ -95,22 +97,38 @@ static bool_t xdr_nfstime4(
 
 
 /* settime4 */
+static uint32_t settime_how(
+    nfstime4 *newtime,
+    const nfstime4 *time_delta)
+{
+    nfstime4 current;
+    get_nfs_time(&current);
+    /* get the absolute difference between current and newtime */
+    nfstime_diff(&current, newtime, &current);
+    nfstime_abs(&current, &current);
+    /* compare the difference with time_delta */
+    nfstime_diff(time_delta, &current, &current);
+    /* use client time if diff > delta (i.e. time_delta - current < 0) */
+    return current.seconds < 0 ? SET_TO_CLIENT_TIME4 : SET_TO_SERVER_TIME4;
+}
+
 static bool_t xdr_settime4(
     XDR *xdr,
-    nfstime4 *nt)
+    nfstime4 *nt,
+    const nfstime4 *time_delta)
 {
-    if (xdr->x_op == XDR_ENCODE) {
-        uint32_t send_value = SET_TO_CLIENT_TIME4;
-        if (!xdr_u_int32_t(xdr, &send_value))
-            return FALSE;
-    } else if (xdr->x_op == XDR_DECODE) {
-        uint32_t ignored_value;
-        if (!xdr_u_int32_t(xdr, &ignored_value))
-            return FALSE;
-    } else
+    uint32_t how = settime_how(nt, time_delta);
+
+    if (xdr->x_op != XDR_ENCODE) /* not used for decode */
         return FALSE;
 
-    return xdr_nfstime4(xdr, nt);
+    if (!xdr_u_int32_t(xdr, &how))
+        return FALSE;
+
+    if (how == SET_TO_CLIENT_TIME4)
+        return xdr_nfstime4(xdr, nt);
+
+    return TRUE;
 }
 
 /* stateid4 */
@@ -2334,7 +2352,7 @@ static bool_t encode_file_attrs(
             attrs->attrmask.arr[1] |= FATTR4_WORD1_MODE;
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_TIME_ACCESS_SET) {
-            if (!xdr_settime4(&localxdr, &info->time_access))
+            if (!xdr_settime4(&localxdr, &info->time_access, info->time_delta))
                 return FALSE;
             attrs->attrmask.arr[1] |= FATTR4_WORD1_TIME_ACCESS_SET;
         }
@@ -2344,7 +2362,7 @@ static bool_t encode_file_attrs(
             attrs->attrmask.arr[1] |= FATTR4_WORD1_TIME_CREATE;
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_TIME_MODIFY_SET) {
-            if (!xdr_settime4(&localxdr, &info->time_modify))
+            if (!xdr_settime4(&localxdr, &info->time_modify, info->time_delta))
                 return FALSE;
             attrs->attrmask.arr[1] |= FATTR4_WORD1_TIME_MODIFY_SET;
         }
