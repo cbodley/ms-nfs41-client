@@ -315,7 +315,7 @@ static DWORD DoUnmount(
     DWORD result;
 
     /* disconnect the specified local drive */
-    result = WNetCancelConnection2(pLocalName, 0, bForce);
+    result = WNetCancelConnection2(pLocalName, CONNECT_UPDATE_PROFILE, bForce);
     /* TODO: verify that this connection uses the nfs41 provider -cbodley */
     switch (result)
     {
