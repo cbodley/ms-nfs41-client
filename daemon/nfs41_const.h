@@ -39,11 +39,11 @@
 
 #define NFS41_MAX_COMPONENT_SIZE    64
 
-#define UPCALL_BUF_SIZE         1024
+#define UPCALL_BUF_SIZE         2048
 
 /* MaximumComponentNameLength reported for FileFsAttributeInformation */
 #define NFS41_MAX_COMPONENT_LEN     64
-#define NFS41_MAX_PATH_LEN          MAX_PATH
+#define NFS41_MAX_PATH_LEN          1280
 
 #define NFS41_HOSTNAME_LEN          64
 #define NFS41_ADDRS_PER_SERVER      4
