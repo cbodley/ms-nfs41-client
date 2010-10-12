@@ -278,10 +278,17 @@ typedef struct _NFS41_NETROOT_EXTENSION {
 #define NFS41GetNetRootExtension(pNetRoot)      \
         (((pNetRoot) == NULL) ? NULL : (PNFS41_NETROOT_EXTENSION)((pNetRoot)->Context))
 
+/* FileSystemName as reported by FileFsAttributeInfo query */
+#define FS_NAME     L"NFS"
+#define FS_NAME_LEN (sizeof(FS_NAME) - sizeof(WCHAR))
+#define FS_ATTR_LEN (sizeof(FILE_FS_ATTRIBUTE_INFORMATION) + FS_NAME_LEN)
+
 typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
     HANDLE                  session;
+    BYTE                    FsAttrs[FS_ATTR_LEN];
+    LONG                    FsAttrsLen;
 } NFS41_V_NET_ROOT_EXTENSION, *PNFS41_V_NET_ROOT_EXTENSION;
 #define NFS41GetVNetRootExtension(pVNetRoot)      \
         (((pVNetRoot) == NULL) ? NULL :           \
@@ -3039,8 +3046,23 @@ NTSTATUS nfs41_QueryVolumeInformation (
             goto out;
         }
 
-        case FileFsSizeInformation:
         case FileFsAttributeInformation:
+            /* used cached fs attributes if available */
+            if (pVNetRootContext->FsAttrsLen) {
+                const LONG len = pVNetRootContext->FsAttrsLen;
+                if (RxContext->Info.LengthRemaining < len) {
+                    RxContext->InformationToReturn = len;
+                    status = STATUS_BUFFER_TOO_SMALL;
+                    goto out;
+                }
+                RtlCopyMemory(RxContext->Info.Buffer,
+                    pVNetRootContext->FsAttrs, len);
+                RxContext->Info.LengthRemaining -= len;
+                status = STATUS_SUCCESS;
+                goto out;
+            }
+            /* else fall through and send the upcall */
+        case FileFsSizeInformation:
         case FileFsFullSizeInformation:
             break;
 
@@ -3067,6 +3089,28 @@ NTSTATUS nfs41_QueryVolumeInformation (
         RxContext->InformationToReturn = entry->u.Volume.buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
+        if (InfoClass == FileFsAttributeInformation) {
+            /* fill in the FileSystemName */
+            PFILE_FS_ATTRIBUTE_INFORMATION attrs =
+                (PFILE_FS_ATTRIBUTE_INFORMATION)RxContext->Info.Buffer;
+            DECLARE_CONST_UNICODE_STRING(FsName, FS_NAME);
+            entry->u.Volume.buf_len += FsName.Length;
+            if (entry->u.Volume.buf_len > RxContext->Info.LengthRemaining) {
+                RxContext->InformationToReturn = entry->u.Volume.buf_len;
+                status = STATUS_BUFFER_TOO_SMALL;
+                goto out;
+            }
+            RtlCopyMemory(attrs->FileSystemName, FsName.Buffer,
+                FsName.MaximumLength); /* 'MaximumLength' to include null */
+            attrs->FileSystemNameLength = FsName.Length;
+
+            /* save fs attributes with the vnetroot */
+            if (entry->u.Volume.buf_len <= FS_ATTR_LEN) {
+                RtlCopyMemory(&pVNetRootContext->FsAttrs,
+                    RxContext->Info.Buffer, entry->u.Volume.buf_len);
+                pVNetRootContext->FsAttrsLen = entry->u.Volume.buf_len;
+            }
+        }
         RxContext->Info.LengthRemaining -= entry->u.Volume.buf_len;
         status = STATUS_SUCCESS;
     } else {

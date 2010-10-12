@@ -98,7 +98,6 @@ static int handle_volume_attributes(
     bitmap4 attr_request = { 1, { FATTR4_WORD0_CASE_INSENSITIVE |
         FATTR4_WORD0_CASE_PRESERVING } };
     PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
-    size_t max_length;
     int status = NO_ERROR;
 
     status = nfs41_getattr(session, NULL, &attr_request, &info);
@@ -117,27 +116,14 @@ static int handle_volume_attributes(
 
     attr->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
 
-    /* calculate how much space we have for FileSystemName; args.info.buffer
-     * should guarantee us enough room for NFS41_FILESYSTEM_NAME */
-    max_length = sizeof(args->info) -
-        FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName);
+    /* let the driver fill in FileSystemName/Len */
 
-    if (FAILED(StringCbCopyNW(attr->FileSystemName, max_length,
-        NFS41_FILESYSTEM_NAME, NFS41_FILESYSTEM_NAME_LEN))) {
-        status = ERROR_BUFFER_OVERFLOW;
-        eprintf("FileSystemName '%S' truncated to '%S'! returning %d\n",
-            NFS41_FILESYSTEM_NAME, attr->FileSystemName, status);
-        goto out;
-    }
-
-    attr->FileSystemNameLength = NFS41_FILESYSTEM_NAME_LEN;
-    args->len = sizeof(args->info.attribute) + NFS41_FILESYSTEM_NAME_LEN;
+    args->len = sizeof(args->info.attribute);
 
     dprintf(2, "FileFsAttributeInformation: case_preserving %u, "
-        "case_insensitive %u, max component %u, name '%S', length %u\n",
+        "case_insensitive %u, max component %u\n",
         info.case_preserving, info.case_insensitive,
-        attr->MaximumComponentNameLength,
-        attr->FileSystemName, attr->FileSystemNameLength);
+        attr->MaximumComponentNameLength);
 out:
     return status;
 }
