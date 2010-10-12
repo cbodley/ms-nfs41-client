@@ -216,6 +216,40 @@ static void readdir_copy_filename(
     memcpy(name_out, name, name_size);
 }
 
+static int lookup_entry(
+    IN nfs41_root *root,
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    OUT nfs41_readdir_entry *entry)
+{
+    nfs41_abs_path path;
+    nfs41_path_fh file;
+    int status;
+
+    /* format an absolute path 'parent\name' */
+    InitializeSRWLock(&path.lock);
+    abs_path_copy(&path, parent->path);
+    if (path.len + entry->name_len >= NFS41_MAX_PATH_LEN) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    StringCchPrintfA(path.path + path.len,
+        NFS41_MAX_PATH_LEN - path.len, "\\%s", entry->name);
+    path.len += (unsigned short)entry->name_len;
+
+    path_fh_init(&file, &path);
+
+    status = nfs41_lookup(root, session, &path,
+        NULL, NULL, &entry->attr_info, NULL);
+    if (status) {
+        dprintf(1, "nfs41_lookup failed with %s\n", nfs_error_string(status));
+        status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
+        goto out;
+    }
+out:
+    return status;
+}
+
 static int readdir_copy_entry(
     IN readdir_upcall_args *args,
     IN nfs41_readdir_entry *entry,
@@ -365,40 +399,6 @@ int readdir_add_dots(
     if (args->cookie->cookie == COOKIE_DOTDOT ||
         args->cookie->cookie == COOKIE_DOT)
         ZeroMemory(args->cookie, sizeof(nfs41_readdir_cookie));
-out:
-    return status;
-}
-
-static int lookup_entry(
-    IN nfs41_root *root,
-    IN nfs41_session *session,
-    IN nfs41_path_fh *parent,
-    OUT nfs41_readdir_entry *entry)
-{
-    nfs41_abs_path path;
-    nfs41_path_fh file;
-    int status;
-
-    /* format an absolute path 'parent\name' */
-    InitializeSRWLock(&path.lock);
-    abs_path_copy(&path, parent->path);
-    if (path.len + entry->name_len >= NFS41_MAX_PATH_LEN) {
-        status = ERROR_BUFFER_OVERFLOW;
-        goto out;
-    }
-    StringCchPrintfA(path.path + path.len,
-        NFS41_MAX_PATH_LEN - path.len, "\\%s", entry->name);
-    path.len += (unsigned short)entry->name_len;
-
-    path_fh_init(&file, &path);
-
-    status = nfs41_lookup(root, session, &path,
-        NULL, NULL, &entry->attr_info, NULL);
-    if (status) {
-        dprintf(1, "nfs41_lookup failed with %s\n", nfs_error_string(status));
-        status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
-        goto out;
-    }
 out:
     return status;
 }
