@@ -115,7 +115,7 @@ typedef struct _updowncall_entry {
     KEVENT cond;
     DWORD errno;
     BOOLEAN async_op;
-    UNICODE_STRING sid;
+    SECURITY_CLIENT_CONTEXT sec_ctx;
     union {
         struct {
             PUNICODE_STRING srv_name;
@@ -415,8 +415,7 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    header_len = sizeof(entry->xid) + sizeof(entry->opcode) + entry->sid.Length + 
-        sizeof(entry->sid.Length);
+    header_len = sizeof(entry->xid) + sizeof(entry->opcode);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -426,13 +425,8 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->xid, sizeof(entry->xid));
     tmp += sizeof(xid);
     RtlCopyMemory(tmp, &entry->opcode, sizeof(entry->opcode));
-    tmp += sizeof(entry->opcode);
-    RtlCopyMemory(tmp, &entry->sid.Length, sizeof(entry->sid.Length));
-    tmp += sizeof(entry->sid.Length);
-    RtlCopyMemory(tmp, entry->sid.Buffer, entry->sid.Length);
-    DbgP("[upcall] entry=%p xid=%d opcode=%d SID=%wZ\n", entry, entry->xid, 
-        entry->opcode, entry->sid);
-    RtlFreeUnicodeString(&entry->sid);
+
+    DbgP("[upcall] entry=%p xid=%d opcode=%d\n", entry, entry->xid, entry->opcode);
 out:
     return status;
 }
@@ -1047,6 +1041,10 @@ handle_upcall(
     ULONG cbOut = LowIoContext->ParamsFor.IoCtl.OutputBufferLength;
     unsigned char *pbOut = LowIoContext->ParamsFor.IoCtl.pOutputBuffer;
 
+    status = SeImpersonateClientEx(&entry->sec_ctx, NULL);
+    if (status != STATUS_SUCCESS)
+        DbgP("SeImpersonateClientEx failed %x\n", status);
+
     switch(entry->opcode) {
     case NFS41_SHUTDOWN:
         status = marshal_nfs41_shutdown(entry, pbOut, cbOut, len);
@@ -1109,9 +1107,8 @@ NTSTATUS nfs41_UpcallCreate(
 {
     NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry;
-    PACCESS_TOKEN token = NULL;
-    PTOKEN_USER user = NULL;
     SECURITY_SUBJECT_CONTEXT sec_ctx;
+    SECURITY_QUALITY_OF_SERVICE sec_qos;
 
     entry = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
                 NFS41_MM_POOLTAG);
@@ -1129,14 +1126,15 @@ NTSTATUS nfs41_UpcallCreate(
     ExInitializeFastMutex(&entry->lock);
 
     SeCaptureSubjectContext(&sec_ctx);
-    token = SeQuerySubjectContextToken(&sec_ctx);
-    status = SeQueryInformationToken(token, TokenUser, &user);
-    if (status == STATUS_SUCCESS) {        
-        status = RtlConvertSidToUnicodeString(&entry->sid, user->User.Sid, 1);
-        DbgP("[upcall] SID = %wZ", &entry->sid);
-        ExFreePool(user);
-    } else
-        DbgP("SeQueryInformationToken failed %d\n", status);
+    sec_qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+    sec_qos.ImpersonationLevel = SecurityImpersonation;
+    sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    sec_qos.EffectiveOnly = 0;
+    status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &entry->sec_ctx);
+    if (status != STATUS_SUCCESS) {
+        DbgP("SeCreateClientSecurityFromSubjectContext failed with %x\n", status);
+        RxFreePool(entry);
+    }
     SeReleaseSubjectContext(&sec_ctx);
 
     *entry_out = entry;
@@ -1387,6 +1385,7 @@ nfs41_downcall (
         }
     }
     DbgP("[downcall] About to signal waiting IO thread\n");
+    SeDeleteClientSecurity(&cur->sec_ctx);
     ExReleaseFastMutex(&cur->lock);
     if (cur->async_op) {
         if (cur->status == STATUS_SUCCESS) {

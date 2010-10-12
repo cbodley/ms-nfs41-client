@@ -39,7 +39,7 @@
 
 #define NFS41_MAX_COMPONENT_SIZE    64
 
-#define UPCALL_BUF_SIZE         1024 + SECURITY_MAX_SID_SIZE
+#define UPCALL_BUF_SIZE         1024
 
 /* MaximumComponentNameLength reported for FileFsAttributeInformation */
 #define NFS41_MAX_COMPONENT_LEN     64

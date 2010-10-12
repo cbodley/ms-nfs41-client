@@ -123,11 +123,8 @@ int upcall_parse(
     if (status) goto out;
     status = safe_read(&buffer, &length, &upcall->opcode, sizeof(uint32_t));
     if (status) goto out;
-    status = get_name(&buffer, &length, upcall->sid);
-    if (status) goto out;
 
-    dprintf(2, "xid=%d opcode=%s SID=%s\n", upcall->xid, 
-        opcode2string(upcall->opcode), upcall->sid);
+    dprintf(2, "xid=%d opcode=%s\n", upcall->xid, opcode2string(upcall->opcode));
 
     if (upcall->opcode >= g_upcall_op_table_size) {
         status = ERROR_NOT_SUPPORTED;

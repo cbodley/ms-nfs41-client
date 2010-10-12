@@ -165,7 +165,6 @@ typedef struct __nfs41_upcall {
     uint32_t                status;
     uint32_t                last_error;
     upcall_args             args;
-    char                    sid[SECURITY_MAX_SID_SIZE];
 } nfs41_upcall;
 
 
