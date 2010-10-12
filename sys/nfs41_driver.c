@@ -1998,10 +1998,10 @@ void nfs41_MountConfig_InitDefaults(
     Config->ReadSize = MOUNT_CONFIG_RW_SIZE_DEFAULT;
     Config->WriteSize = MOUNT_CONFIG_RW_SIZE_DEFAULT;
     Config->ReadOnly = FALSE;
-    Config->SrvName.Length = SERVER_NAME_BUFFER_SIZE;
+    Config->SrvName.Length = 0;
     Config->SrvName.MaximumLength = SERVER_NAME_BUFFER_SIZE;
     Config->SrvName.Buffer = Config->srv_buffer;
-    Config->MntPt.Length = MAX_PATH;
+    Config->MntPt.Length = 0;
     Config->MntPt.MaximumLength = MAX_PATH;
     Config->MntPt.Buffer = Config->mntpt_buffer;
 }
@@ -2195,35 +2195,37 @@ NTSTATUS nfs41_CreateVNetRoot(
         goto out;
     }
 
+    pVNetRootContext->session = pNetRootContext->session = NULL;
+
     nfs41_MountConfig_InitDefaults(&Config);
 
-    /* parse the extended attributes for mount options */
-    if (pCreateNetRootContext->RxContext->Create.EaLength)
-    {
+    if (pCreateNetRootContext->RxContext->Create.EaLength) {
+        /* parse the extended attributes for mount options */
         status = nfs41_MountConfig_ParseOptions(
             pCreateNetRootContext->RxContext->Create.EaBuffer,
             pCreateNetRootContext->RxContext->Create.EaLength,
             &Config);
         if (status != STATUS_SUCCESS)
             goto out;
-
-        DbgP("Server Name %wZ Mount Point %wZ\n",
-            &Config.SrvName, &Config.MntPt);
-        pVNetRootContext->session = pNetRootContext->session = NULL;
-        status = nfs41_mount(&Config.SrvName, &Config.MntPt,
-            &pVNetRootContext->session);
-        if (status == STATUS_SUCCESS)
-            pNetRootContext->session = pVNetRootContext->session;
-        else
-            goto out;
     } else {
-        DbgP("We dont have a valid existing session and we don't have a mount point!\n");
-        status = STATUS_UNEXPECTED_NETWORK_ERROR;
-        pNetRootContext->session = NULL;
-        goto out;
+        /* use the SRV_CALL name (without leading \) as the hostname */
+        Config.SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
+        Config.SrvName.Length =
+            pSrvCall->pSrvCallName->Length - sizeof(WCHAR);
+        Config.SrvName.MaximumLength =
+            pSrvCall->pSrvCallName->MaximumLength - sizeof(WCHAR);
     }
-    DbgP("Saving point to nfs41_session 0x%x\n", pVNetRootContext->session);
 
+    /* send the mount upcall */
+    DbgP("Server Name %wZ Mount Point %wZ\n",
+        &Config.SrvName, &Config.MntPt);
+    status = nfs41_mount(&Config.SrvName, &Config.MntPt,
+        &pVNetRootContext->session);
+    if (status != STATUS_SUCCESS)
+        goto out;
+
+    pNetRootContext->session = pVNetRootContext->session;
+    DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
 
 out:
     /* AGLO do we need to worry about handling new netroot vs using existing one */
