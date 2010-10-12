@@ -150,6 +150,8 @@ ULONG nfs_file_info_to_attributes(
     ULONG attrs = 0;
     if (info->type == NF4DIR)
         attrs |= FILE_ATTRIBUTE_DIRECTORY;
+    else if (info->type == NF4LNK)
+        attrs |= FILE_ATTRIBUTE_REPARSE_POINT;
     else if (info->type != NF4REG)
         dprintf(1, "unhandled file type %d, defaulting to NF4REG\n",
             info->type);

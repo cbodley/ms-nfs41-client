@@ -108,7 +108,8 @@ static int handle_volume_attributes(
         goto out;
     }
 
-    attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
+    attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE |
+        FILE_SUPPORTS_REPARSE_POINTS;
     if (info.case_preserving)
         attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
     if (!info.case_insensitive)
