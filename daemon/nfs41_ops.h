@@ -683,7 +683,7 @@ typedef struct __nfs41_readlink_res {
     uint32_t                status;
     /* case NFS4_OK: */
     uint32_t                link_len;
-    char                    link[NFS4_OPAQUE_LIMIT];
+    char                    *link;
 } nfs41_readlink_res;
 
 
@@ -1023,7 +1023,9 @@ int nfs41_link(
 int nfs41_readlink(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    OUT nfs41_abs_path *link_out);
+    IN uint32_t max_len,
+    OUT char *link_out,
+    OUT uint32_t *len_out);
 
 int nfs41_access(
     IN nfs41_session *session,

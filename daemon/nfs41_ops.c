@@ -1349,7 +1349,9 @@ out:
 int nfs41_readlink(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    OUT nfs41_abs_path *link_out)
+    IN uint32_t max_len,
+    OUT char *link_out,
+    OUT uint32_t *len_out)
 {
     int status;
     nfs41_compound compound;
@@ -1373,7 +1375,8 @@ int nfs41_readlink(
     putfh_args.in_recovery = 0;
 
     compound_add_op(&compound, OP_READLINK, NULL, &readlink_res);
-    readlink_res.link_len = NFS4_OPAQUE_LIMIT;
+    readlink_res.link_len = max_len - 1;
+    readlink_res.link = link_out;
 
     status = compound_encode_send_decode(session, &compound, 0, 0);
     if (status)
@@ -1382,14 +1385,8 @@ int nfs41_readlink(
     if (compound_error(status = compound.res.status))
         goto out;
 
-    if (readlink_res.link_len >= NFS41_MAX_PATH_LEN) {
-        status = NFS4ERR_REP_TOO_BIG;
-        goto out;
-    }
-    AcquireSRWLockExclusive(&link_out->lock);
-    link_out->len = (unsigned short)readlink_res.link_len;
-    memcpy(link_out->path, readlink_res.link, readlink_res.link_len);
-    ReleaseSRWLockExclusive(&link_out->lock);
+    link_out[readlink_res.link_len] = '\0';
+    *len_out = readlink_res.link_len;
 out:
     return status;
 }
