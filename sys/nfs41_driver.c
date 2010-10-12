@@ -406,6 +406,36 @@ void print_debug_header(PRX_CONTEXT RxContext)
     }
 }
 
+/* convert strings from unicode -> ansi during marshalling to
+ * save space in the upcall buffers and avoid extra copies */
+static INLINE ULONG length_as_ansi(
+    PCUNICODE_STRING str)
+{
+    return sizeof(str->MaximumLength) + RtlUnicodeStringToAnsiSize(str);
+}
+
+static NTSTATUS marshall_unicode_as_ansi(
+    unsigned char **pos,
+    PCUNICODE_STRING str)
+{
+    ANSI_STRING ansi;
+    NTSTATUS status;
+
+    /* convert the string directly into the upcall buffer */
+    ansi.Buffer = (PCHAR)*pos + sizeof(ansi.MaximumLength);
+    ansi.MaximumLength = (USHORT)RtlUnicodeStringToAnsiSize(str);
+    status = RtlUnicodeStringToAnsiString(&ansi, str, FALSE);
+    if (status)
+        goto out;
+
+    RtlCopyMemory(*pos, &ansi.MaximumLength, sizeof(ansi.MaximumLength));
+    *pos += sizeof(ansi.MaximumLength);
+    (*pos)[ansi.Length] = '\0';
+    *pos += ansi.MaximumLength;
+out:
+    return status;
+}
+
 NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
                               unsigned char *buf, 
                               ULONG buf_len, 
@@ -447,23 +477,16 @@ NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + entry->u.Mount.srv_name->Length + 
-        sizeof(entry->u.Mount.srv_name->Length) + entry->u.Mount.root->Length +
-        sizeof(entry->u.Mount.root->Length);
+    header_len = *len + length_as_ansi(entry->u.Mount.srv_name) +
+        length_as_ansi(entry->u.Mount.root);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.Mount.srv_name->Length, 
-                    sizeof(entry->u.Mount.srv_name->Length));
-    tmp += sizeof(entry->u.Mount.srv_name->Length);
-    RtlCopyMemory(tmp, entry->u.Mount.srv_name->Buffer, 
-                    entry->u.Mount.srv_name->Length);
-    tmp += entry->u.Mount.srv_name->Length;
-    RtlCopyMemory(tmp, &entry->u.Mount.root->Length, 
-                    sizeof(entry->u.Mount.root->Length));
-    tmp += sizeof(entry->u.Mount.root->Length);
-    RtlCopyMemory(tmp, entry->u.Mount.root->Buffer, entry->u.Mount.root->Length);
+    status = marshall_unicode_as_ansi(&tmp, entry->u.Mount.srv_name);
+    if (status) goto out;
+    status = marshall_unicode_as_ansi(&tmp, entry->u.Mount.root);
+    if (status) goto out;
 
     *len = header_len;
 
@@ -523,19 +546,14 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + entry->u.Open.filename->Length + 
-        sizeof(entry->u.Open.filename->Length) + 6 * sizeof(ULONG) + sizeof(HANDLE) +
-        sizeof(DWORD);
+    header_len = *len + length_as_ansi(entry->u.Open.filename) +
+        6 * sizeof(ULONG) + sizeof(HANDLE) + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.Open.filename->Length, 
-                    sizeof(entry->u.Open.filename->Length));
-    tmp += sizeof(entry->u.Open.filename->Length);
-    RtlCopyMemory(tmp, entry->u.Open.filename->Buffer, entry->u.Open.filename->Length);
-    tmp += entry->u.Open.filename->Length;
-
+    status = marshall_unicode_as_ansi(&tmp, entry->u.Open.filename);
+    if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.Open.access_mask, sizeof(entry->u.Open.access_mask));
     tmp += sizeof(entry->u.Open.access_mask);
     RtlCopyMemory(tmp, &entry->u.Open.access_mode, sizeof(entry->u.Open.access_mode));
@@ -736,11 +754,9 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
 
 
     header_len = *len + 2 * sizeof(HANDLE) + sizeof(BOOLEAN);
-    if (entry->u.Close.remove) {
-        header_len += entry->u.Close.filename->Length + 
-            sizeof(entry->u.Close.filename->Length) +
+    if (entry->u.Close.remove)
+        header_len += length_as_ansi(entry->u.Close.filename) +
             sizeof(BOOLEAN);
-    }
 
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -753,12 +769,8 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.Close.remove, sizeof(BOOLEAN));
     if (entry->u.Close.remove) {
         tmp += sizeof(BOOLEAN);
-        RtlCopyMemory(tmp, &entry->u.Close.filename->Length,
-                        sizeof(entry->u.Close.filename->Length));
-        tmp += sizeof(entry->u.Close.filename->Length);
-        RtlCopyMemory(tmp, entry->u.Close.filename->Buffer,
-                        entry->u.Close.filename->Length);
-        tmp += entry->u.Close.filename->Length;
+        status = marshall_unicode_as_ansi(&tmp, entry->u.Close.filename);
+        if (status) goto out;
         RtlCopyMemory(tmp, &entry->u.Close.renamed, sizeof(BOOLEAN));
     }
 
@@ -789,8 +801,8 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
 
-    header_len = *len + 2 * sizeof(ULONG) + entry->u.QueryFile.filter->Length +
-        sizeof(entry->u.QueryFile.filter->Length) +
+    header_len = *len + 2 * sizeof(ULONG) +
+        length_as_ansi(entry->u.QueryFile.filter) +
         3 * sizeof(BOOLEAN) + 3 * sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -801,14 +813,8 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.QueryFile.buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
-
-    RtlCopyMemory(tmp, &entry->u.QueryFile.filter->Length, 
-                    sizeof(entry->u.QueryFile.filter->Length));
-    tmp += sizeof(entry->u.QueryFile.filter->Length);
-    RtlCopyMemory(tmp, entry->u.QueryFile.filter->Buffer, 
-                    entry->u.QueryFile.filter->Length);
-    tmp += entry->u.QueryFile.filter->Length;
-
+    status = marshall_unicode_as_ansi(&tmp, entry->u.QueryFile.filter);
+    if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.QueryFile.initial_query, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryFile.restart_scan, sizeof(BOOLEAN));
@@ -887,21 +893,14 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + entry->u.SetFile.filename->Length + 
-        sizeof(entry->u.SetFile.filename->Length) + 5 * sizeof(ULONG) +
-        entry->u.SetFile.buf_len + 2 * sizeof(HANDLE);
+    header_len = *len + length_as_ansi(entry->u.SetFile.filename) +
+        5 * sizeof(ULONG) + entry->u.SetFile.buf_len + 2 * sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-
-    RtlCopyMemory(tmp, &entry->u.SetFile.filename->Length, 
-                    sizeof(entry->u.SetFile.filename->Length));
-    tmp += sizeof(entry->u.SetFile.filename->Length);
-    RtlCopyMemory(tmp, entry->u.SetFile.filename->Buffer, 
-                    entry->u.SetFile.filename->Length);
-    tmp += entry->u.SetFile.filename->Length;
-
+    status = marshall_unicode_as_ansi(&tmp, entry->u.SetFile.filename);
+    if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetFile.InfoClass, sizeof(ULONG));
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.SetFile.buf_len, sizeof(ULONG));
