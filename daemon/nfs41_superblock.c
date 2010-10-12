@@ -87,13 +87,16 @@ static int get_superblock_attrs(
     bitmap4 attr_request;
     nfs41_file_info info;
 
-    attr_request.arr[0] = (uint32_t)(FATTR4_WORD0_SUPPORTED_ATTRS |
-        FATTR4_WORD0_MAXREAD | FATTR4_WORD0_MAXWRITE);
-    attr_request.arr[1] = FATTR4_WORD1_FS_LAYOUT_TYPE;
+    attr_request.arr[0] = FATTR4_WORD0_SUPPORTED_ATTRS |
+        FATTR4_WORD0_CANSETTIME | FATTR4_WORD0_MAXREAD |
+        (uint32_t)(FATTR4_WORD0_MAXWRITE);
+    attr_request.arr[1] = FATTR4_WORD1_FS_LAYOUT_TYPE |
+        FATTR4_WORD1_TIME_DELTA;
     attr_request.count = 2;
 
     ZeroMemory(&info, sizeof(info));
     info.supported_attrs = &superblock->supported_attrs;
+    info.time_delta = &superblock->time_delta;
 
     status = nfs41_getattr(session, file, &attr_request, &info);
     if (status) {
@@ -116,11 +119,22 @@ static int get_superblock_attrs(
 
     superblock->layout_types = info.fs_layout_types;
 
+    if (bitmap_isset(&info.attrmask, 0, FATTR4_WORD0_CANSETTIME))
+        superblock->cansettime = info.cansettime;
+    else /* cansettime is not supported, try setting them anyway */
+        superblock->cansettime = 1;
+
+    /* if time_delta is not supported, default to 1s */
+    if (!bitmap_isset(&info.attrmask, 1, FATTR4_WORD1_TIME_DELTA))
+        superblock->time_delta.seconds = 1;
+
     dprintf(SBLVL, "attributes for fsid(%llu,%llu): "
-        "maxread=%llu, maxwrite=%llu, layout_types: 0x%X\n",
+        "maxread=%llu, maxwrite=%llu, layout_types: 0x%X, "
+        "cansettime=%u, time_delta={%ll,%u}\n",
         superblock->fsid.major, superblock->fsid.minor,
         superblock->maxread, superblock->maxwrite,
-        superblock->layout_types);
+        superblock->layout_types, superblock->cansettime,
+        superblock->time_delta.seconds, superblock->time_delta.nseconds);
 out:
     return status;
 }

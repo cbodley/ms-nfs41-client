@@ -35,9 +35,11 @@ struct __rpc_client;
 typedef struct __nfs41_superblock {
     nfs41_fsid fsid;
     bitmap4 supported_attrs;
+    nfstime4 time_delta;
     uint64_t maxread;
     uint64_t maxwrite;
     uint32_t layout_types;
+    bool_t cansettime;
     struct list_entry entry; /* position in nfs41_server.superblocks */
 
     SRWLOCK lock;

@@ -161,6 +161,7 @@ typedef struct __nfs41_file_info {
     nfstime4                time_access;
     nfstime4                time_create;
     nfstime4                time_modify;
+    nfstime4                *time_delta; /* XXX: per-fs */
     bitmap4                 attrmask;
     bitmap4                 *supported_attrs; /* XXX: per-fs */
     uint64_t                maxread; /* XXX: per-fs */
@@ -180,6 +181,7 @@ typedef struct __nfs41_file_info {
     uint32_t                lease_time; /* XXX: per-server */
     uint32_t                fs_layout_types; /* pnfs, XXX: per-fs */
     bool_t                  hidden;
+    bool_t                  cansettime; /* XXX: per-fs */
     bool_t                  case_insensitive;
     bool_t                  case_preserving;
 } nfs41_file_info;

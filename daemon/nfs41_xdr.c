@@ -1546,6 +1546,10 @@ static bool_t decode_file_attrs(
             if (!xdr_u_int32_t(xdr, &info->rdattr_error))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_CANSETTIME) {
+            if (!xdr_bool(xdr, &info->cansettime))
+                return FALSE;
+        }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_CASE_INSENSITIVE) {
             if (!xdr_bool(xdr, &info->case_insensitive))
                 return FALSE;
@@ -1598,6 +1602,10 @@ static bool_t decode_file_attrs(
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_TIME_CREATE) {
             if (!xdr_nfstime4(xdr, &info->time_create))
+                return FALSE;
+        }
+        if (attrs->attrmask.arr[1] & FATTR4_WORD1_TIME_DELTA) {
+            if (!xdr_nfstime4(xdr, info->time_delta))
                 return FALSE;
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_TIME_MODIFY) {
