@@ -78,8 +78,10 @@ static unsigned int WINAPI thread_main(void *args)
         }
 
         status = upcall_parse(outbuf, (uint32_t)outbuf_len, &upcall);
-        if (status)
+        if (status) {
+            upcall.status = status;
             goto write_downcall;
+        }
 
 #if 1   //AGLO: this is just a placeholder for a real solution. I know this variable needs a lock in a
         //normal case. However, this does not prevent us from receiving an upcall for an old mount

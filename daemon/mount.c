@@ -39,12 +39,11 @@ int parse_mount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     if(status) goto out;
     ZeroMemory(&args->path, sizeof(nfs41_abs_path));
     status = get_abs_path(&buffer, &length, &args->path);
+    if(status) goto out;
+
+    dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s\n",
+        args->srv_name, args->path.path);
 out:
-    if (status)
-        eprintf("parsing of NFS41_MOUNT failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s\n",
-            args->srv_name, args->path.path);
     return status;
 }
 
@@ -110,10 +109,10 @@ int parse_unmount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     unmount_upcall_args *args = &upcall->args.unmount;
 
     status = safe_read(&buffer, &length, &args->root, sizeof(nfs41_session *));
-    if (status)
-        eprintf("parsing NFS41_UNMOUNT failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_UNMOUNT: unmount root=%p\n", args->root);
+    if (status) goto out;
+
+    dprintf(1, "parsing NFS41_UNMOUNT: unmount root=%p\n", args->root);
+out:
     return status;
 }
 

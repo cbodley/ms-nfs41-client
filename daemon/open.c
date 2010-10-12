@@ -96,21 +96,19 @@ int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(DWORD));
+    if (status) goto out;
+
+    dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
+        "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
+        "(kernel) disposition=%d\n\tsession=%p open_owner_id=%d mode=%o\n", 
+        args->path.path, args->access_mask, args->access_mode, args->file_attrs,
+        args->create_opts, args->disposition, args->root, args->open_owner_id,
+        args->mode);
+    print_disposition(2, args->disposition);
+    print_access_mask(2, args->access_mask);
+    print_share_mode(2, args->access_mode);
+    print_create_attributes(2, args->create_opts);
 out:
-    if (status)
-        eprintf("parsing NFS41_OPEN failed with %d\n", status);
-    else {
-        dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
-            "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
-            "(kernel) disposition=%d\n\tsession=%p open_owner_id=%d mode=%o\n", 
-            args->path.path, args->access_mask, args->access_mode, args->file_attrs,
-            args->create_opts, args->disposition, args->root, args->open_owner_id,
-            args->mode);
-        print_disposition(2, args->disposition);
-        print_access_mask(2, args->access_mask);
-        print_share_mode(2, args->access_mode);
-        print_create_attributes(2, args->create_opts);
-    }
     return status;
 }
 
@@ -513,15 +511,14 @@ int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
         status = get_abs_path(&buffer, &length, &args->path);
         if (status) goto out;
         status = safe_read(&buffer, &length, &args->renamed, sizeof(BOOLEAN));
+        if (status) goto out;
     }
+
+    dprintf(1, "parsing NFS41_CLOSE: close root=0x%p "
+        "open_state=0x%p remove=%d renamed=%d filename='%s'\n",
+        args->root, args->state, args->remove, args->renamed,
+        args->remove ? args->path.path : "");
 out:
-    if (status)
-        eprintf("parsing NFS41_CLOSE failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_CLOSE: close root=0x%p "
-            "open_state=0x%p remove=%d renamed=%d filename='%s'\n",
-            args->root, args->state, args->remove, args->renamed,
-            args->remove ? args->path.path : "");
     return status;
 }
 

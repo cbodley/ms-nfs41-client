@@ -104,14 +104,12 @@ int parse_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->blocking, sizeof(BOOLEAN));
     if (status) goto out;
+
+    dprintf(1, "parsing NFS41_LOCK: state=%p root=%p offset=0x%llx "
+        "length=0x%llx exclusive=%u blocking=%u\n",
+        args->state, args->root, args->offset, args->length,
+        args->exclusive, args->blocking);
 out:
-    if (status)
-        eprintf("parsing NFS41_LOCK failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_LOCK: state=%p root=%p offset=0x%llx "
-            "length=0x%llx exclusive=%u blocking=%u\n",
-            args->state, args->root, args->offset, args->length,
-            args->exclusive, args->blocking);
     return status;
 }
 
@@ -196,12 +194,10 @@ int parse_unlock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 
     args->buf = buffer;
     args->buf_len = length;
+
+    dprintf(1, "parsing NFS41_UNLOCK: state=%p root=%p count=%u\n",
+        args->state, args->root, args->count);
 out:
-    if (status)
-        eprintf("parsing NFS41_UNLOCK failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_UNLOCK: state=%p root=%p count=%u\n",
-            args->state, args->root, args->count);
     return status;
 }
 

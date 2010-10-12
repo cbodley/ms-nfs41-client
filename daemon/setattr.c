@@ -61,15 +61,14 @@ int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     status = safe_read(&buffer, &length, &args->access_mask, sizeof(ULONG));
     if (status) goto out_free;
     status = safe_read(&buffer, &length, &args->access_mode, sizeof(ULONG));
+    if (status) goto out_free;
+
+    dprintf(1, "parsing NFS41_FILE_SET: filename='%s' info_class=%d "
+        "buf_len=%d root=%p open_state=%p\nopen_owner_id=%d "
+        "access_mask=%x access_mode=%x\n", args->path.path, args->set_class, 
+        args->buf_len, args->root, args->state, args->open_owner_id,
+        args->access_mask, args->access_mode);
 out:
-    if (status)
-        eprintf("parsing NFS41_FILE_SET failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_FILE_SET: filename='%s' info_class=%d "
-            "buf_len=%d root=%p open_state=%p\nopen_owner_id=%d "
-            "access_mask=%x access_mode=%x\n", args->path.path, args->set_class, 
-            args->buf_len, args->root, args->state, args->open_owner_id,
-            args->access_mask, args->access_mode);
     return status;
 out_free:
     free(args->buf);
@@ -464,12 +463,11 @@ int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall
     status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(args->mode));
+    if (status) goto out;
+
+    dprintf(1, "parsing NFS41_EA_SET: root=%p open_state=%p mode=%o\n", 
+        args->root, args->state, args->mode);
 out:
-    if (status)
-        eprintf("parsing NFS41_EA_SET failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_EA_SET: root=%p open_state=%p mode=%o\n", 
-            args->root, args->state, args->mode);
     return status;
 }
 

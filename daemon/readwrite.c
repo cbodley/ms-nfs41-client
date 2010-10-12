@@ -47,14 +47,12 @@ int parse_rw(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     status = safe_read(&buffer, &length, &args->root, sizeof(args->root));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
+    if (status) goto out;
+
+    dprintf(1, "parsing %s len=%ld offset=%ld buf=%p root=%p "
+        "open_state=0x%p\n", opcode2string(upcall->opcode), args->len,
+        args->offset, args->buffer, args->root, args->state);
 out:
-    if (status)
-        eprintf("parsing %s failed with %d\n",
-            opcode2string(upcall->opcode), status);
-    else
-        dprintf(1, "parsing %s len=%ld offset=%ld buf=%p root=%p "
-            "open_state=0x%p\n", opcode2string(upcall->opcode), args->len,
-            args->offset, args->buffer, args->root, args->state);
     return status;
 }
 

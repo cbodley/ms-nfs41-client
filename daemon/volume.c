@@ -48,13 +48,11 @@ int parse_volume(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->query, sizeof(FS_INFORMATION_CLASS));
+    if (status) goto out;
+
+    dprintf(1, "parsing NFS41_VOLUME_QUERY: root=0x%p, query=%d\n",
+        args->root, args->query);
 out:
-    if (status)
-        eprintf("parsing NFS41_VOLUME_QUERY failed with %d\n",
-            status);
-    else
-        dprintf(1, "parsing NFS41_VOLUME_QUERY: root=0x%p, query=%d\n",
-            args->root, args->query);
     return status;
 }
 

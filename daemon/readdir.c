@@ -70,16 +70,13 @@ int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
         dprintf(1, "upcall passing empty cookie\n");
         args->cookie = NULL;
     }
+    dprintf(1, "parsing NFS41_DIR_QUERY: info_class=%d buf_len=%d "
+        "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d "
+        "root=0x%p state=0x%p cookie=0x%p\n",
+        args->query_class, args->buf_len, args->filter,
+        args->initial, args->restart, args->single,
+        args->root, args->state, args->cookie);
 out:
-    if (status)
-        eprintf("parsing NFS41_DIR_QUERY failed with %d\n", status);
-    else
-        dprintf(1, "parsing NFS41_DIR_QUERY: info_class=%d buf_len=%d "
-            "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d "
-            "root=0x%p state=0x%p cookie=0x%p\n",
-            args->query_class, args->buf_len, args->filter,
-            args->initial, args->restart, args->single,
-            args->root, args->state, args->cookie);
     return status;
 }
 
