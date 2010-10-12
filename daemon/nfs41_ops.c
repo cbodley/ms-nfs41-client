@@ -394,6 +394,7 @@ int nfs41_open(
         info, &open_res.resok4.cinfo);
     ReleaseSRWLockShared(&state->path.lock);
 
+#define RETURN_DELEG_ON_OPEN
 #ifdef RETURN_DELEG_ON_OPEN
     /* if the server gave us a delegation, return it immediately */
     if (open_res.resok4.delegation_type == OPEN_DELEGATE_READ ||
