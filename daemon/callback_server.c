@@ -183,6 +183,7 @@ static unsigned int WINAPI _handle_cb_recall(void *args)
     dprintf(1, "_handle_cb_recall: sending nfs41_delegreturn\n");
     nfs41_delegreturn(cb_args->rpc_clnt->client->session, &path_fh, 
         &cb_args->args->stateid);
+    free(cb_args->args);
     free(cb_args);
     dprintf(1, "_handle_cb_recall: end\n");
     return 1;
@@ -203,7 +204,13 @@ static enum_t handle_cb_recall(
         goto out;
     }
     cb_args->rpc_clnt = rpc_clnt;
-    cb_args->args = args;
+    cb_args->args = calloc(1, sizeof(struct cb_recall_args));
+    if (cb_args->args == NULL) {
+        free(cb_args);
+        res->status = NFS4ERR_RESOURCE;
+        goto out;
+    }
+    memcpy(cb_args->args, args, sizeof(struct cb_recall_args));
     _beginthreadex(NULL, 0, _handle_cb_recall, cb_args, 0, NULL);
 out:
     return res->status;
