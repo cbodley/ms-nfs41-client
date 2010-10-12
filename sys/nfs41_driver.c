@@ -2229,7 +2229,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             goto out;
         DbgP("Server Name %wZ Mount Point %wZ\n", &pVNetRootContext->Config.SrvName, 
             &pVNetRootContext->Config.MntPt);
-        pVNetRootContext->session = pNetRootContext->session = INVALID_HANDLE_VALUE;
+        pVNetRootContext->session = pNetRootContext->session = NULL;
         status = nfs41_mount(&pVNetRootContext->Config.SrvName, 
                     &pVNetRootContext->Config.MntPt, &pVNetRootContext->session);
         if (status == STATUS_SUCCESS)
@@ -2240,7 +2240,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         if (pNetRootContext->session == NULL) {
             DbgP("We dont have a valid existing session and we don't have a mount point!\n");
             status = STATUS_UNEXPECTED_NETWORK_ERROR;
-            pNetRootContext->session = INVALID_HANDLE_VALUE;
+            pNetRootContext->session = NULL;
             goto out;
         }
         RtlCopyMemory(&pVNetRootContext->Config, &pNetRootContext->Config, 
@@ -2344,8 +2344,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }        
 
-    if (pNetRootContext == NULL || pNetRootContext->session == INVALID_HANDLE_VALUE ||
-            pNetRootContext->session == NULL) {
+    if (pNetRootContext == NULL || pNetRootContext->session == NULL) {
         DbgP("No valid session has been established\n");
         goto out;
     }
@@ -2517,7 +2516,7 @@ NTSTATUS nfs41_Create(
         goto out;
     }
     
-    if (pNetRootContext->session == INVALID_HANDLE_VALUE) {
+    if (pNetRootContext->session == NULL) {
         DbgP("No valid session established\n");
         goto out;
     }
