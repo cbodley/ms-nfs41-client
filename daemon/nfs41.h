@@ -166,15 +166,11 @@ typedef struct __nfs41_root {
     struct list_entry clients;
     uint32_t wsize;
     uint32_t rsize;
-    unsigned short port;
 } nfs41_root;
 
 
 /* nfs41_namespace.c */
 int nfs41_root_create(
-    IN const char *hostname,
-    IN unsigned short port,
-    IN const char *path,
     IN uint32_t wsize,
     IN uint32_t rsize,
     OUT nfs41_root **root_out);

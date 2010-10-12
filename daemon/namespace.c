@@ -37,9 +37,6 @@
 
 /* nfs41_root */
 int nfs41_root_create(
-    IN const char *hostname,
-    IN unsigned short port,
-    IN const nfs41_abs_path *path,
     IN uint32_t wsize,
     IN uint32_t rsize,
     OUT nfs41_root **root_out)
@@ -47,8 +44,7 @@ int nfs41_root_create(
     int status = NO_ERROR;
     nfs41_root *root;
 
-    dprintf(NSLVL, "--> nfs41_root_create(%s:%u:%s)\n",
-        hostname, port, path);
+    dprintf(NSLVL, "--> nfs41_root_create()\n");
 
     root = calloc(1, sizeof(nfs41_root));
     if (root == NULL) {
@@ -57,7 +53,6 @@ int nfs41_root_create(
     }
 
     list_init(&root->clients);
-    root->port = port;
     root->wsize = wsize;
     root->rsize = rsize;
     InitializeCriticalSection(&root->lock);

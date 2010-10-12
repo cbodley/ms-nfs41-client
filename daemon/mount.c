@@ -22,6 +22,7 @@
  */
 
 #include <Windows.h>
+#include <strsafe.h>
 #include <stdio.h>
 
 #include "daemon_debug.h"
@@ -50,20 +51,19 @@ int handle_mount(nfs41_upcall *upcall)
 {
     int status;
     mount_upcall_args *args = &upcall->args.mount;
+    nfs41_abs_path path;
     multi_addr4 addrs;
-    const unsigned short port = 2049;
     nfs41_root *root;
     nfs41_client *client;
 
     // resolve hostname,port
-    status = nfs41_server_resolve(args->hostname, port, &addrs);
+    status = nfs41_server_resolve(args->hostname, 2049, &addrs);
     if (status) {
         eprintf("nfs41_server_resolve() failed with %d\n", status);
         goto out;
     }
     // create root
-    status = nfs41_root_create(args->hostname, port, &args->path,
-        NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
+    status = nfs41_root_create(NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
         NFS41_MAX_FILEIO_SIZE + READ_OVERHEAD, &root);
     if (status) {
         eprintf("nfs41_rpc_clnt_create failed %d\n", status);
@@ -75,12 +75,21 @@ int handle_mount(nfs41_upcall *upcall)
         eprintf("nfs41_root_mount() failed with %d\n", status);
         goto out_err;
     }
+
+    // make a copy of the path for nfs41_lookup()
+    InitializeSRWLock(&path.lock);
+    if (FAILED(StringCchCopyA(path.path, NFS41_MAX_PATH_LEN, args->path))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    path.len = (unsigned short)strlen(path.path);
+
     // look up the mount path, and fail if it doesn't exist
     status = nfs41_lookup(root, client->session,
-        &args->path, NULL, NULL, NULL, NULL);
+        &path, NULL, NULL, NULL, NULL);
     if (status) {
         eprintf("nfs41_lookup('%s') failed with %d\n",
-            args->path.path, status);
+            path.path, status);
         goto out_err;
     }
 
