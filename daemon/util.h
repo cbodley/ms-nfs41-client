@@ -93,6 +93,7 @@ void nfs_to_standard_info(
     IN const nfs41_file_info *info,
     OUT PFILE_STANDARD_INFO std_out);
 
+/* nfstime4 */
 void file_time_to_nfs_time(
     IN const PLARGE_INTEGER file_time,
     OUT nfstime4 *nfs_time);
@@ -103,6 +104,37 @@ void get_file_time(
     OUT PLARGE_INTEGER file_time);
 void get_nfs_time(
     OUT nfstime4 *nfs_time);
+
+static __inline void nfstime_normalize(
+    IN OUT nfstime4 *nfstime)
+{
+    /* return time in normalized form (0 <= nsec < 1s) */
+    while ((int32_t)nfstime->nseconds < 0) {
+        nfstime->nseconds += 1000000000;
+        nfstime->seconds--;
+    }
+}
+static __inline void nfstime_diff(
+    IN const nfstime4 *lhs,
+    IN const nfstime4 *rhs,
+    OUT nfstime4 *result)
+{
+    /* result = lhs - rhs */
+    result->seconds = lhs->seconds - rhs->seconds;
+    result->nseconds = lhs->nseconds - rhs->nseconds;
+    nfstime_normalize(result);
+}
+static __inline void nfstime_abs(
+    IN const nfstime4 *nt,
+    OUT nfstime4 *result)
+{
+    if (nt->seconds < 0) {
+        const nfstime4 zero = { 0, 0 };
+        nfstime_diff(&zero, nt, result); /* result = 0 - nt */
+    } else if (result != nt)
+        memcpy(result, nt, sizeof(nfstime4));
+}
+
 
 int create_silly_rename(
     IN nfs41_abs_path *path,
