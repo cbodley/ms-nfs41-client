@@ -38,6 +38,7 @@ DWORD EnumMounts(
 static DWORD DoMount(
     IN LPTSTR pLocalName,
     IN LPTSTR pRemoteName,
+    IN BOOL bPersistent,
     IN PMOUNT_OPTION_LIST pOptions);
 static DWORD DoUnmount(
     IN LPTSTR pLocalName,
@@ -58,6 +59,7 @@ static VOID PrintUsage(LPTSTR pProcess)
         TEXT("\t-h\thelp\n")
         TEXT("\t-d\tunmount\n")
         TEXT("\t-f\tforce unmount if the drive is in use\n")
+        TEXT("\t-p\tmake the mount persist over reboots\n")
         TEXT("\t-o <comma-separated mount options>\n")
         TEXT("Mount options:\n")
         TEXT("\tro\tmount as read-only\n")
@@ -74,6 +76,7 @@ DWORD __cdecl _tmain(DWORD argc, LPTSTR argv[])
     LPTSTR  pRemoteName = NULL;
     BOOL    bUnmount = FALSE;
     BOOL    bForceUnmount = FALSE;
+    BOOL    bPersistent = FALSE;
     MOUNT_OPTION_LIST Options;
 
     if (argc == 1) {
@@ -107,6 +110,10 @@ DWORD __cdecl _tmain(DWORD argc, LPTSTR argv[])
             else if (_tcscmp(argv[i], TEXT("-f")) == 0) /* force unmount */
             {
                 bForceUnmount = TRUE;
+            }
+            else if (_tcscmp(argv[i], TEXT("-p")) == 0) /* persistent */
+            {
+                bPersistent = TRUE;
             }
             else if (_tcscmp(argv[i], TEXT("-o")) == 0) /* mount option */
             {
@@ -176,7 +183,7 @@ DWORD __cdecl _tmain(DWORD argc, LPTSTR argv[])
             goto out_free;
         }
 
-        result = DoMount(szLocalName, pRemoteName, &Options);
+        result = DoMount(szLocalName, pRemoteName, bPersistent, &Options);
         if (result)
             PrintErrorMessage(result);
     }
@@ -249,6 +256,7 @@ out:
 static DWORD DoMount(
     IN LPTSTR pLocalName,
     IN LPTSTR pRemoteName,
+    IN BOOL bPersistent,
     IN PMOUNT_OPTION_LIST pOptions)
 {
     DWORD result = NO_ERROR;
@@ -274,7 +282,7 @@ static DWORD DoMount(
     {
         NETRESOURCE NetResource;
         TCHAR szConnection[MAX_PATH];
-        DWORD ConnectSize = MAX_PATH, ConnectResult;
+        DWORD ConnectSize = MAX_PATH, ConnectResult, Flags = 0;
 
         ZeroMemory(&NetResource, sizeof(NETRESOURCE));
         NetResource.dwType = RESOURCETYPE_DISK;
@@ -291,8 +299,11 @@ static DWORD DoMount(
             NetResource.lpComment = (LPTSTR)pOptions->Buffer;
         }
 
+        if (bPersistent)
+            Flags |= CONNECT_UPDATE_PROFILE;
+
         result = WNetUseConnection(NULL,
-            &NetResource, NULL, NULL, 0,
+            &NetResource, NULL, NULL, Flags,
             szConnection, &ConnectSize, &ConnectResult);
 
         if (result == NO_ERROR)
