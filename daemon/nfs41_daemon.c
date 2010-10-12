@@ -116,7 +116,7 @@ write_downcall:
         inbuf = malloc(inbuf_len);
         status = upcall_marshall(&upcall, inbuf, (uint32_t)inbuf_len, (uint32_t*)&outbuf_len);
 
-        dprintf(2, "making a downcall: outbuf_len %ld\n", outbuf_len);
+        dprintf(2, "making a downcall: outbuf_len %ld\n\n", outbuf_len);
         status = DeviceIoControl(pipe, IOCTL_NFS41_WRITE,
             inbuf, inbuf_len, NULL, 0, (LPDWORD)&outbuf_len, NULL);
         free(inbuf);
@@ -126,8 +126,6 @@ write_downcall:
             status = upcall_cancel(&upcall);
             continue;
         }
-        dprintf(3, "downcall returned %d\n", status);
-        printf("\n");
     }
     CloseHandle(pipe);
 
@@ -160,7 +158,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
     } else if (argc == 2) {
         set_debug_level(_ttoi(argv[1]));
     }
-
+    open_log_files();
 #ifdef _DEBUG
     /* dump memory leaks to stderr on exit; this requires the debug heap,
     /* available only when built in debug mode under visual studio -cbodley */
@@ -220,5 +218,8 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 
 quit:
     CloseHandle(pipe);
+#ifndef STANDALONE_NFSD
+    close_log_files();
+#endif
     return;
 }

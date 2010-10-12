@@ -116,7 +116,7 @@ int upcall_parse(
     }
 
     dprintf(2, "received %d bytes upcall data: processing upcall\n", length);
-    print_hexbuf(3, (unsigned char *)"upcall buffer: ", buffer, length);
+    print_hexbuf(4, (unsigned char *)"upcall buffer: ", buffer, length);
 
     /* parse common elements */
     status = safe_read(&buffer, &length, &upcall->xid, sizeof(uint32_t));

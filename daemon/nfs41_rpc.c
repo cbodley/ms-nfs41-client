@@ -116,7 +116,7 @@ int nfs41_rpc_clnt_create(
     rpc->cond = CreateEvent(NULL, TRUE, FALSE, "rpc_recovery_cond");
     if (rpc->cond == NULL) {
         status = GetLastError();
-        fprintf(stderr, "CreateEvent failed %d\n", status);
+        eprintf("CreateEvent failed %d\n", status);
         goto out_free_rpc_clnt;
     }
 
@@ -136,7 +136,7 @@ int nfs41_rpc_clnt_create(
     }
     if (send_null(client) != RPC_SUCCESS) {
         // XXX Do what here?
-        dprintf(1, " send_null failed\n");
+        eprintf("nfs41_rpc_clnt_create: send_null failed\n");
         status = ERROR_NETWORK_UNREACHABLE;
         goto out_err_auth;
     }

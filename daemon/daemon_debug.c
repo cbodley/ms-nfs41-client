@@ -28,19 +28,57 @@
 #include "from_kernel.h"
 #include "nfs41_driver.h"
 #include "nfs41_ops.h"
-
+#include "service.h"
 
 static int g_debug_level = DEFAULT_DEBUG_LEVEL;
 
 void set_debug_level(int level) { g_debug_level = level; }
+
+FILE *dlog_file, *elog_file;
+
+#ifndef STANDALONE_NFSD
+void open_log_files()
+{
+    const char dfile[] = "nfsddbg.log";
+    const char efile[] = "nfsderr.log";
+    const char mode[] = "w";
+    if (g_debug_level > 0) {
+        dlog_file = fopen(dfile, mode);
+        if (dlog_file == NULL) {
+            ReportStatusToSCMgr(SERVICE_STOPPED, GetLastError(), 0);
+            exit (GetLastError());
+        }
+    }
+    elog_file = fopen(efile, mode);
+    if (elog_file == NULL) {
+        ReportStatusToSCMgr(SERVICE_STOPPED, GetLastError(), 0);
+        exit (GetLastError());
+    }
+}
+
+void close_log_files()
+{
+    if (dlog_file) fclose(dlog_file);
+    if (elog_file) fclose(elog_file);
+}
+#else
+void open_log_files()
+{
+    dlog_file = stdout;
+    elog_file = stderr;
+}
+#endif
 
 void dprintf(int level, LPCSTR format, ...)
 {
     if (level <= g_debug_level) {
         va_list args;
         va_start(args, format);
-        printf("%04x: ", GetCurrentThreadId());
-        vprintf(format, args);
+        fprintf(dlog_file, "%04x: ", GetCurrentThreadId());
+        vfprintf(dlog_file, format, args);
+#ifndef STANDALONE_NFSD
+        fflush(dlog_file);
+#endif
         va_end(args);
     }
 }
@@ -49,8 +87,11 @@ void eprintf(LPCSTR format, ...)
 {
     va_list args;
     va_start(args, format);
-    fprintf(stderr, "%04x: ", GetCurrentThreadId());
-    vfprintf(stderr, format, args);
+    fprintf(elog_file, "%04x: ", GetCurrentThreadId());
+    vfprintf(elog_file, format, args);
+#ifndef STANDALONE_NFSD
+    fflush(elog_file);
+#endif
     va_end(args);
 }
 
@@ -58,137 +99,163 @@ void print_hexbuf(int level, unsigned char *title, unsigned char *buf, int len)
 {
     int j, k;
     if (level > g_debug_level) return;
-    printf("%s", title);
+    fprintf(dlog_file, "%s", title);
     for(j = 0, k = 0; j < len; j++, k++) {
-        printf("%02x '%c' ", buf[j], isascii(buf[j])? buf[j]:' ');
+        fprintf(dlog_file, "%02x '%c' ", buf[j], isascii(buf[j])? buf[j]:' ');
         if (((k+1) % 10 == 0 && k > 0)) {
-            printf("\n");
+            fprintf(dlog_file, "\n");
         }
     }
-    printf("\n");
+    fprintf(dlog_file, "\n");
 }
 
 void print_create_attributes(int level, DWORD create_opts) {
     if (level > g_debug_level) return;
-    printf("create attributes: ");
+    fprintf(dlog_file, "create attributes: ");
     if (create_opts & FILE_DIRECTORY_FILE)
-        printf("DIRECTORY_FILE ");
+        fprintf(dlog_file, "DIRECTORY_FILE ");
     if (create_opts & FILE_NON_DIRECTORY_FILE)
-        printf("NON_DIRECTORY_FILE ");
+        fprintf(dlog_file, "NON_DIRECTORY_FILE ");
     if (create_opts & FILE_WRITE_THROUGH)
-        printf("WRITE_THROUGH ");
+        fprintf(dlog_file, "WRITE_THROUGH ");
     if (create_opts & FILE_SEQUENTIAL_ONLY)
-        printf("SEQUENTIAL_ONLY ");
+        fprintf(dlog_file, "SEQUENTIAL_ONLY ");
     if (create_opts & FILE_RANDOM_ACCESS)
-        printf("RANDOM_ACCESS ");
+        fprintf(dlog_file, "RANDOM_ACCESS ");
     if (create_opts & FILE_NO_INTERMEDIATE_BUFFERING)
-        printf("NO_INTERMEDIATE_BUFFERING ");
+        fprintf(dlog_file, "NO_INTERMEDIATE_BUFFERING ");
     if (create_opts & FILE_SYNCHRONOUS_IO_ALERT)
-        printf("SYNCHRONOUS_IO_ALERT ");
+        fprintf(dlog_file, "SYNCHRONOUS_IO_ALERT ");
     if (create_opts & FILE_SYNCHRONOUS_IO_NONALERT)
-        printf("SYNCHRONOUS_IO_NONALERT ");
+        fprintf(dlog_file, "SYNCHRONOUS_IO_NONALERT ");
     if (create_opts & FILE_CREATE_TREE_CONNECTION)
-        printf("CREATE_TREE_CONNECTION ");
+        fprintf(dlog_file, "CREATE_TREE_CONNECTION ");
     if (create_opts & FILE_COMPLETE_IF_OPLOCKED)
-        printf("COMPLETE_IF_OPLOCKED ");
+        fprintf(dlog_file, "COMPLETE_IF_OPLOCKED ");
     if (create_opts & FILE_NO_EA_KNOWLEDGE)
-        printf("NO_EA_KNOWLEDGE ");
+        fprintf(dlog_file, "NO_EA_KNOWLEDGE ");
     if (create_opts & FILE_OPEN_REPARSE_POINT)
-        printf("OPEN_REPARSE_POINT ");
+        fprintf(dlog_file, "OPEN_REPARSE_POINT ");
     if (create_opts & FILE_DELETE_ON_CLOSE)
-        printf("DELETE_ON_CLOSE ");
+        fprintf(dlog_file, "DELETE_ON_CLOSE ");
     if (create_opts & FILE_OPEN_BY_FILE_ID)
-        printf("OPEN_BY_FILE_ID ");
+        fprintf(dlog_file, "OPEN_BY_FILE_ID ");
     if (create_opts & FILE_OPEN_FOR_BACKUP_INTENT)
-        printf("OPEN_FOR_BACKUP_INTENT ");
+        fprintf(dlog_file, "OPEN_FOR_BACKUP_INTENT ");
     if (create_opts & FILE_RESERVE_OPFILTER)
-        printf("RESERVE_OPFILTER");
-    printf("\n");
+        fprintf(dlog_file, "RESERVE_OPFILTER");
+    fprintf(dlog_file, "\n");
 }
 
 void print_disposition(int level, DWORD disposition) {
     if (level > g_debug_level) return;
-    printf("userland disposition = ");
+    fprintf(dlog_file, "userland disposition = ");
     if (disposition == FILE_SUPERSEDE)
-        printf("FILE_SUPERSEDE\n");
+        fprintf(dlog_file, "FILE_SUPERSEDE\n");
     else if (disposition == FILE_CREATE)
-        printf("FILE_CREATE\n");
+        fprintf(dlog_file, "FILE_CREATE\n");
     else if (disposition == FILE_OPEN)
-        printf("FILE_OPEN\n");
+        fprintf(dlog_file, "FILE_OPEN\n");
     else if (disposition == FILE_OPEN_IF)
-        printf("FILE_OPEN_IF\n");
+        fprintf(dlog_file, "FILE_OPEN_IF\n");
     else if (disposition == FILE_OVERWRITE)
-        printf("FILE_OVERWRITE\n");
+        fprintf(dlog_file, "FILE_OVERWRITE\n");
     else if (disposition == FILE_OVERWRITE_IF)
-        printf("FILE_OVERWRITE_IF\n");
+        fprintf(dlog_file, "FILE_OVERWRITE_IF\n");
 }
 
 void print_access_mask(int level, DWORD access_mask) {
     if (level > g_debug_level) return;
-    printf("access mask: ");
+    fprintf(dlog_file, "access mask: ");
     if (access_mask & FILE_READ_DATA)
-        printf("READ ");
+        fprintf(dlog_file, "READ ");
     if (access_mask & STANDARD_RIGHTS_READ)
-        printf("READ_ACL ");
+        fprintf(dlog_file, "READ_ACL ");
     if (access_mask & FILE_READ_ATTRIBUTES)
-        printf("READ_ATTR ");
+        fprintf(dlog_file, "READ_ATTR ");
     if (access_mask & FILE_READ_EA)
-        printf("READ_EA ");
+        fprintf(dlog_file, "READ_EA ");
     if (access_mask & FILE_WRITE_DATA)
-        printf("WRITE ");
+        fprintf(dlog_file, "WRITE ");
     if (access_mask & STANDARD_RIGHTS_WRITE)
-        printf("WRITE_ACL ");
+        fprintf(dlog_file, "WRITE_ACL ");
     if (access_mask & FILE_WRITE_ATTRIBUTES)
-        printf("WRITE_ATTR ");
+        fprintf(dlog_file, "WRITE_ATTR ");
     if (access_mask & FILE_WRITE_EA)
-        printf("WRITE_EA ");
+        fprintf(dlog_file, "WRITE_EA ");
     if (access_mask & FILE_APPEND_DATA)
-        printf("APPEND ");
+        fprintf(dlog_file, "APPEND ");
     if (access_mask & FILE_EXECUTE)
-        printf("EXECUTE ");
+        fprintf(dlog_file, "EXECUTE ");
     if (access_mask & FILE_LIST_DIRECTORY)
-        printf("LIST ");
+        fprintf(dlog_file, "LIST ");
     if (access_mask & FILE_TRAVERSE)
-        printf("TRAVERSE ");
+        fprintf(dlog_file, "TRAVERSE ");
     if (access_mask & SYNCHRONIZE)
-        printf("SYNC ");
+        fprintf(dlog_file, "SYNC ");
     if (access_mask & FILE_DELETE_CHILD)
-        printf("DELETE_CHILD");
-    printf("\n");
+        fprintf(dlog_file, "DELETE_CHILD");
+    fprintf(dlog_file, "\n");
 }
 
 void print_share_mode(int level, DWORD mode)
 {
     if (level > g_debug_level) return;
-    printf("share mode: ");
+    fprintf(dlog_file, "share mode: ");
     if (mode & FILE_SHARE_READ)
-        printf("READ ");
+        fprintf(dlog_file, "READ ");
     if (mode & FILE_SHARE_WRITE)
-        printf("WRITE ");
+        fprintf(dlog_file, "WRITE ");
     if (mode & FILE_SHARE_DELETE)
-        printf("DELETE");
-    printf("\n");
+        fprintf(dlog_file, "DELETE");
+    fprintf(dlog_file, "\n");
 }
 
 void print_file_id_both_dir_info(int level, FILE_ID_BOTH_DIR_INFO *pboth_dir_info)
 {
     if (level > g_debug_level) return;
-    printf("FILE_ID_BOTH_DIR_INFO %p %d\n", pboth_dir_info, sizeof(unsigned char *));
-    printf("\tNextEntryOffset=%ld %d %d\n", pboth_dir_info->NextEntryOffset, sizeof(pboth_dir_info->NextEntryOffset), sizeof(DWORD));
-    printf("\tFileIndex=%ld  %d\n", pboth_dir_info->FileIndex, sizeof(pboth_dir_info->FileIndex));
-    printf("\tCreationTime=0x%x %d\n", pboth_dir_info->CreationTime.QuadPart, sizeof(pboth_dir_info->CreationTime));
-    printf("\tLastAccessTime=0x%x %d\n", pboth_dir_info->LastAccessTime.QuadPart, sizeof(pboth_dir_info->LastAccessTime));
-    printf("\tLastWriteTime=0x%x %d\n", pboth_dir_info->LastWriteTime.QuadPart, sizeof(pboth_dir_info->LastWriteTime));
-    printf("\tChangeTime=0x%x %d\n", pboth_dir_info->ChangeTime.QuadPart, sizeof(pboth_dir_info->ChangeTime));
-    printf("\tEndOfFile=0x%x %d\n", pboth_dir_info->EndOfFile.QuadPart, sizeof(pboth_dir_info->EndOfFile));
-    printf("\tAllocationSize=0x%x %d\n", pboth_dir_info->AllocationSize.QuadPart, sizeof(pboth_dir_info->AllocationSize));
-    printf("\tFileAttributes=%ld %d\n", pboth_dir_info->FileAttributes, sizeof(pboth_dir_info->FileAttributes));
-    printf("\tFileNameLength=%ld %d\n", pboth_dir_info->FileNameLength, sizeof(pboth_dir_info->FileNameLength));
-    printf("\tEaSize=%ld %d\n", pboth_dir_info->EaSize, sizeof(pboth_dir_info->EaSize));
-    printf("\tShortNameLength=%d %d\n", pboth_dir_info->ShortNameLength, sizeof(pboth_dir_info->ShortNameLength));
-    printf("\tShortName='%S' %d\n", pboth_dir_info->ShortName, sizeof(pboth_dir_info->ShortName));
-    printf("\tFileId=0x%x %d\n", pboth_dir_info->FileId.QuadPart, sizeof(pboth_dir_info->FileId));
-    printf("\tFileName='%S' %p\n", pboth_dir_info->FileName, pboth_dir_info->FileName);
+    fprintf(dlog_file, "FILE_ID_BOTH_DIR_INFO %p %d\n", 
+       pboth_dir_info, sizeof(unsigned char *));
+    fprintf(dlog_file, "\tNextEntryOffset=%ld %d %d\n", 
+        pboth_dir_info->NextEntryOffset, 
+        sizeof(pboth_dir_info->NextEntryOffset), sizeof(DWORD));
+    fprintf(dlog_file, "\tFileIndex=%ld  %d\n", pboth_dir_info->FileIndex, 
+        sizeof(pboth_dir_info->FileIndex));
+    fprintf(dlog_file, "\tCreationTime=0x%x %d\n", 
+        pboth_dir_info->CreationTime.QuadPart, 
+        sizeof(pboth_dir_info->CreationTime));
+    fprintf(dlog_file, "\tLastAccessTime=0x%x %d\n", 
+        pboth_dir_info->LastAccessTime.QuadPart, 
+        sizeof(pboth_dir_info->LastAccessTime));
+    fprintf(dlog_file, "\tLastWriteTime=0x%x %d\n", 
+        pboth_dir_info->LastWriteTime.QuadPart, 
+        sizeof(pboth_dir_info->LastWriteTime));
+    fprintf(dlog_file, "\tChangeTime=0x%x %d\n", 
+        pboth_dir_info->ChangeTime.QuadPart, 
+        sizeof(pboth_dir_info->ChangeTime));
+    fprintf(dlog_file, "\tEndOfFile=0x%x %d\n", 
+        pboth_dir_info->EndOfFile.QuadPart, 
+        sizeof(pboth_dir_info->EndOfFile));
+    fprintf(dlog_file, "\tAllocationSize=0x%x %d\n", 
+        pboth_dir_info->AllocationSize.QuadPart, 
+        sizeof(pboth_dir_info->AllocationSize));
+    fprintf(dlog_file, "\tFileAttributes=%ld %d\n", 
+        pboth_dir_info->FileAttributes, 
+        sizeof(pboth_dir_info->FileAttributes));
+    fprintf(dlog_file, "\tFileNameLength=%ld %d\n", 
+        pboth_dir_info->FileNameLength, 
+        sizeof(pboth_dir_info->FileNameLength));
+    fprintf(dlog_file, "\tEaSize=%ld %d\n", 
+        pboth_dir_info->EaSize, sizeof(pboth_dir_info->EaSize));
+    fprintf(dlog_file, "\tShortNameLength=%d %d\n", 
+        pboth_dir_info->ShortNameLength, 
+        sizeof(pboth_dir_info->ShortNameLength));
+    fprintf(dlog_file, "\tShortName='%S' %d\n", pboth_dir_info->ShortName, 
+        sizeof(pboth_dir_info->ShortName));
+    fprintf(dlog_file, "\tFileId=0x%x %d\n", pboth_dir_info->FileId.QuadPart, 
+        sizeof(pboth_dir_info->FileId));
+    fprintf(dlog_file, "\tFileName='%S' %p\n", pboth_dir_info->FileName, 
+        pboth_dir_info->FileName);
 }
 
 void print_opcode(int level, DWORD opcode) 
@@ -398,43 +465,43 @@ void print_condwait_status(int level, int status)
 {
     if (level > g_debug_level) return;
     switch(status) {
-        case WAIT_ABANDONED: printf("WAIT_ABANDONED\n"); break;
-        case WAIT_OBJECT_0: printf("WAIT_OBJECT_0\n"); break;
-        case WAIT_TIMEOUT: printf("WAIT_TIMEOUT\n"); break;
-        case WAIT_FAILED: printf("WAIT_FAILED %d\n", GetLastError());
-        default: printf("unknown status =%d\n", status);
+        case WAIT_ABANDONED: fprintf(dlog_file, "WAIT_ABANDONED\n"); break;
+        case WAIT_OBJECT_0: fprintf(dlog_file, "WAIT_OBJECT_0\n"); break;
+        case WAIT_TIMEOUT: fprintf(dlog_file, "WAIT_TIMEOUT\n"); break;
+        case WAIT_FAILED: fprintf(dlog_file, "WAIT_FAILED %d\n", GetLastError());
+        default: fprintf(dlog_file, "unknown status =%d\n", status);
     }
 }
 
 void print_sr_status_flags(int level, int flags)
 {
     if (level > g_debug_level) return;
-    printf("%04x: sr_status_flags: ", GetCurrentThreadId());
+    fprintf(dlog_file, "%04x: sr_status_flags: ", GetCurrentThreadId());
     if (flags & SEQ4_STATUS_CB_PATH_DOWN) 
-        printf("SEQ4_STATUS_CB_PATH_DOWN ");
+        fprintf(dlog_file, "SEQ4_STATUS_CB_PATH_DOWN ");
     if (flags & SEQ4_STATUS_CB_GSS_CONTEXTS_EXPIRING) 
-        printf("SEQ4_STATUS_CB_GSS_CONTEXTS_EXPIRING ");
+        fprintf(dlog_file, "SEQ4_STATUS_CB_GSS_CONTEXTS_EXPIRING ");
     if (flags & SEQ4_STATUS_CB_GSS_CONTEXTS_EXPIRED) 
-        printf("SEQ4_STATUS_CB_GSS_CONTEXTS_EXPIRED ");
+        fprintf(dlog_file, "SEQ4_STATUS_CB_GSS_CONTEXTS_EXPIRED ");
     if (flags & SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED) 
-        printf("SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED ");
+        fprintf(dlog_file, "SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED ");
     if (flags & SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED) 
-        printf("SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED ");
+        fprintf(dlog_file, "SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED ");
     if (flags & SEQ4_STATUS_ADMIN_STATE_REVOKED) 
-        printf("SEQ4_STATUS_ADMIN_STATE_REVOKED ");
+        fprintf(dlog_file, "SEQ4_STATUS_ADMIN_STATE_REVOKED ");
     if (flags & SEQ4_STATUS_RECALLABLE_STATE_REVOKED) 
-        printf("SEQ4_STATUS_RECALLABLE_STATE_REVOKED ");
+        fprintf(dlog_file, "SEQ4_STATUS_RECALLABLE_STATE_REVOKED ");
     if (flags & SEQ4_STATUS_LEASE_MOVED) 
-        printf("SEQ4_STATUS_LEASE_MOVED ");
+        fprintf(dlog_file, "SEQ4_STATUS_LEASE_MOVED ");
     if (flags & SEQ4_STATUS_RESTART_RECLAIM_NEEDED) 
-        printf("SEQ4_STATUS_RESTART_RECLAIM_NEEDED ");
+        fprintf(dlog_file, "SEQ4_STATUS_RESTART_RECLAIM_NEEDED ");
     if (flags & SEQ4_STATUS_CB_PATH_DOWN_SESSION) 
-        printf("SEQ4_STATUS_CB_PATH_DOWN_SESSION ");
+        fprintf(dlog_file, "SEQ4_STATUS_CB_PATH_DOWN_SESSION ");
     if (flags & SEQ4_STATUS_BACKCHANNEL_FAULT) 
-        printf("SEQ4_STATUS_BACKCHANNEL_FAULT ");
+        fprintf(dlog_file, "SEQ4_STATUS_BACKCHANNEL_FAULT ");
     if (flags & SEQ4_STATUS_DEVID_CHANGED) 
-        printf("SEQ4_STATUS_DEVID_CHANGED ");
+        fprintf(dlog_file, "SEQ4_STATUS_DEVID_CHANGED ");
     if (flags & SEQ4_STATUS_DEVID_DELETED) 
-        printf("SEQ4_STATUS_DEVID_DELETED ");
-    printf("\n");
+        fprintf(dlog_file, "SEQ4_STATUS_DEVID_DELETED ");
+    fprintf(dlog_file, "\n");
 }

@@ -9,7 +9,7 @@ SOURCES=nfs41_daemon.c daemon_debug.c nfs41_ops.c nfs41_compound.c nfs41_xdr.c \
 UMTYPE=console
 USE_LIBCMT=1
 #USE_MSVCRT=1
-#C_DEFINES=-DSTANDALONE_NFSD -- use this for non-service nfsd
+#C_DEFINES=-DSTANDALONE_NFSD #-- use this for non-service nfsd
 INCLUDES=..\sys;..\dll;..\libtirpc\tirpc
 TARGETLIBS=$(SDK_LIB_PATH)\ws2_32.lib $(SDK_LIB_PATH)\iphlpapi.lib \
         ..\libtirpc\src\obj$(BUILD_ALT_DIR)\*\libtirpc.lib \
