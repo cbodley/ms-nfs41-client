@@ -1287,7 +1287,7 @@ int nfs41_link(
     init_getattr_request(&info[0].attrmask);
     info[0].attrmask.arr[0] |= FATTR4_WORD0_FILEID;
     init_getattr_request(&info[1].attrmask);
-    info[1].attrmask.arr[0] |= FATTR4_WORD0_FILEID;
+    info[1].attrmask.arr[0] |= FATTR4_WORD0_FILEID | FATTR4_WORD0_FSID;
 
     compound_init(&compound, argops, resops);
 
