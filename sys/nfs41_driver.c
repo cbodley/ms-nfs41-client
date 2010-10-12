@@ -115,6 +115,7 @@ typedef struct _updowncall_entry {
     KEVENT cond;
     DWORD errno;
     BOOLEAN async_op;
+    UNICODE_STRING sid;
     union {
         struct {
             PUNICODE_STRING srv_name;
@@ -413,7 +414,8 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    header_len = sizeof(entry->xid) + sizeof(entry->opcode);
+    header_len = sizeof(entry->xid) + sizeof(entry->opcode) + entry->sid.Length + 
+        sizeof(entry->sid.Length);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -423,8 +425,13 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->xid, sizeof(entry->xid));
     tmp += sizeof(xid);
     RtlCopyMemory(tmp, &entry->opcode, sizeof(entry->opcode));
-
-    DbgP("[upcall] entry=%p xid=%d opcode=%d\n", entry, entry->xid, entry->opcode);
+    tmp += sizeof(entry->opcode);
+    RtlCopyMemory(tmp, &entry->sid.Length, sizeof(entry->sid.Length));
+    tmp += sizeof(entry->sid.Length);
+    RtlCopyMemory(tmp, entry->sid.Buffer, entry->sid.Length);
+    DbgP("[upcall] entry=%p xid=%d opcode=%d SID=%wZ\n", entry, entry->xid, 
+        entry->opcode, entry->sid);
+    RtlFreeUnicodeString(&entry->sid);
 out:
     return status;
 }
@@ -1094,12 +1101,16 @@ handle_upcall(
 
     return status;
 }
+
 NTSTATUS nfs41_UpcallCreate(
     IN DWORD opcode,
     OUT nfs41_updowncall_entry **entry_out)
 {
     NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry;
+    PACCESS_TOKEN token = NULL;
+    PTOKEN_USER user = NULL;
+    SECURITY_SUBJECT_CONTEXT sec_ctx;
 
     entry = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
                 NFS41_MM_POOLTAG);
@@ -1115,6 +1126,18 @@ NTSTATUS nfs41_UpcallCreate(
     /*XXX KeInitializeEvent will bugcheck under verifier if allocated from PagedPool? */
     KeInitializeEvent(&entry->cond, SynchronizationEvent, FALSE);
     ExInitializeFastMutex(&entry->lock);
+
+    SeCaptureSubjectContext(&sec_ctx);
+    token = SeQuerySubjectContextToken(&sec_ctx);
+    status = SeQueryInformationToken(token, TokenUser, &user);
+    if (status == STATUS_SUCCESS) {        
+        status = RtlConvertSidToUnicodeString(&entry->sid, user->User.Sid, 1);
+        DbgP("[upcall] SID = %wZ", &entry->sid);
+        ExFreePool(user);
+    } else
+        DbgP("SeQueryInformationToken failed %d\n", status);
+    SeReleaseSubjectContext(&sec_ctx);
+
     *entry_out = entry;
 out:
     return status;
