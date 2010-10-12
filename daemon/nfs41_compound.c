@@ -149,44 +149,43 @@ retry:
     set_expected_res(compound);
     status = nfs41_send_compound(session->client->rpc,
         (char *)&compound->args, (char *)&compound->res);
+    // bump sequence number if sequence op succeeded.
+    if (compound->res.resarray_count > 0 && 
+            compound->res.resarray[0].op == OP_SEQUENCE) {
+        nfs41_sequence_res *seq = 
+            (nfs41_sequence_res *)compound->res.resarray[0].res;
+        if (seq->sr_status == NFS4_OK) {
+            // returned slotid must be the same we sent
+            status = NFS4ERR_IO;
+            if (seq->sr_resok4.sr_slotid != args->sa_slotid) {
+                eprintf("[session] sr_slotid=%d != sa_slotid=%d\n",
+                    seq->sr_resok4.sr_slotid, args->sa_slotid);
+                goto out_free_slot;
+            }
+            // returned sessionid must be the same we sent
+            if (memcmp(seq->sr_resok4.sr_sessionid, args->sa_sessionid, 
+                    NFS4_SESSIONID_SIZE)) {
+                eprintf("[session] sr_sessionid != sa_sessionid\n");
+                print_hexbuf(1, (unsigned char *)"sr_sessionid", 
+                    seq->sr_resok4.sr_sessionid, NFS4_SESSIONID_SIZE);
+                print_hexbuf(1, (unsigned char *)"sa_sessionid", 
+                    args->sa_sessionid, NFS4_SESSIONID_SIZE);
+                goto out_free_slot;
+            }
+            if (seq->sr_resok4.sr_status_flags) 
+                print_sr_status_flags(1, seq->sr_resok4.sr_status_flags);
+
+            status = nfs41_session_bump_seq(session, args->sa_slotid);
+            if (status)
+                goto out_free_slot;
+        }
+    }
 
     if (status) {
         eprintf("nfs41_send_compound failed %d for seqid=%d, slotid=%d\n", 
             status, args->sa_sequenceid, args->sa_slotid);
         status = NFS4ERR_IO;
         goto out_free_slot;
-    } else {
-        // bump sequence number if sequence op succeeded
-        if (compound->res.resarray_count > 0 && 
-                compound->res.resarray[0].op == OP_SEQUENCE) {
-            nfs41_sequence_res *seq = 
-                (nfs41_sequence_res *)compound->res.resarray[0].res;
-            if (seq->sr_status == NFS4_OK) {
-                // returned slotid must be the same we sent
-                status = NFS4ERR_IO;
-                if (seq->sr_resok4.sr_slotid != args->sa_slotid) {
-                    eprintf("[session] sr_slotid=%d != sa_slotid=%d\n",
-                        seq->sr_resok4.sr_slotid, args->sa_slotid);
-                    goto out_free_slot;
-                }
-                // returned sessionid must be the same we sent
-                if (memcmp(seq->sr_resok4.sr_sessionid, args->sa_sessionid, 
-                        NFS4_SESSIONID_SIZE)) {
-                    eprintf("[session] sr_sessionid != sa_sessionid\n");
-                    print_hexbuf(1, (unsigned char *)"sr_sessionid", 
-                        seq->sr_resok4.sr_sessionid, NFS4_SESSIONID_SIZE);
-                    print_hexbuf(1, (unsigned char *)"sa_sessionid", 
-                        args->sa_sessionid, NFS4_SESSIONID_SIZE);
-                    goto out_free_slot;
-                }
-                if (seq->sr_resok4.sr_status_flags) 
-                    print_sr_status_flags(1, seq->sr_resok4.sr_status_flags);
-
-                status = nfs41_session_bump_seq(session, args->sa_slotid);
-                if (status)
-                    goto out_free_slot;
-            }
-        }
     }
 
     if (compound->res.status != NFS4_OK)
