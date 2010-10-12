@@ -369,24 +369,17 @@ out:
     return status;
 }
 
-static int single_lookup(
+static int lookup_entry(
     IN nfs41_root *root,
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
-    IN const char *filter,
-    IN bitmap4 *attr_request,
     OUT nfs41_readdir_entry *entry)
 {
     nfs41_abs_path path;
     nfs41_path_fh file;
     int status;
 
-    entry->cookie = 0;
-    entry->name_len = (uint32_t)strlen(filter) + 1;
-    StringCbCopyA(entry->name, entry->name_len, filter);
-    entry->next_entry_offset = 0;
-
-    /* format an absolute path 'parent\filter' */
+    /* format an absolute path 'parent\name' */
     InitializeSRWLock(&path.lock);
     abs_path_copy(&path, parent->path);
     if (path.len + entry->name_len >= NFS41_MAX_PATH_LEN) {
@@ -400,7 +393,7 @@ static int single_lookup(
     path_fh_init(&file, &path);
 
     status = nfs41_lookup(root, session, &path,
-        NULL, &file, &entry->attr_info, NULL);
+        NULL, NULL, &entry->attr_info, NULL);
     if (status) {
         dprintf(1, "nfs41_lookup failed with %s\n", nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
@@ -508,8 +501,8 @@ fetch_entries:
         StringCbCopyA(entry->name, entry->name_len, args->filter);
         entry->next_entry_offset = 0;
 
-        status = single_lookup(args->root, state->session,
-            &state->file, args->filter, &attr_request, entry);
+        status = lookup_entry(args->root,
+             state->session, &state->file, entry);
         if (status) {
             dprintf(1, "single_lookup failed with %d\n", status);
             goto out_free_cookie;
