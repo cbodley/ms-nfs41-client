@@ -2617,7 +2617,7 @@ NTSTATUS nfs41_Create(
         // we current CANT turn on write-only caching because RDBSS translates a write
         // into a read first which leads to a NFS4ERR_IO error from the server because 
         // the file was opened read-only.
-        if ((params.DesiredAccess & FILE_READ_DATA) && 
+        if (/*(params.DesiredAccess & FILE_READ_DATA) && */
                 (params.DesiredAccess & FILE_WRITE_DATA || 
                 params.DesiredAccess & FILE_APPEND_DATA))
             SrvOpen->BufferingFlags |= 
@@ -3707,11 +3707,11 @@ NTSTATUS nfs41_ComputeNewBufferingState(
         pSrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
         break;
     case ENABLE_READ_CACHING:
-        pSrvOpen->BufferingFlags = 
+        pSrvOpen->BufferingFlags |= 
             (FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED);
         break;
     case ENABLE_WRITE_CACHING:
-        pSrvOpen->BufferingFlags = 
+        pSrvOpen->BufferingFlags |= 
             (FCB_STATE_WRITECACHING_ENABLED | FCB_STATE_WRITEBUFFERING_ENABLED);
         break;
     case ENABLE_READWRITE_CACHING:
