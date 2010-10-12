@@ -30,6 +30,8 @@
 #include "daemon_debug.h"
 #include "util.h"
 
+stateid4 special_read_stateid = {0xffffffff, 
+    {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
 
 int parse_rw(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
@@ -81,10 +83,14 @@ static int read_from_mds(
 
         status = nfs41_read(session, file, stateid,
             offset + reloffset, chunk, p, &bytes_read, &eof);
-        if (status && !len) {
+        if (status == NFS4ERR_OPENMODE && !len) {
+            stateid = &special_read_stateid;
+            continue;
+        } else if (status && !len) {
             status = nfs_to_windows_error(status, ERROR_NET_WRITE_FAULT);
             goto out;
         }
+
         p += bytes_read;
         to_rcv -= bytes_read;
         len += bytes_read;
