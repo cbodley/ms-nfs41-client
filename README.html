@@ -39,13 +39,14 @@
 <h2>1. <a name="build">Building</a></h2>
 <h3>Requirements</h3>
 <ul>
+    <li>Windows Vista x64, Windows Server 2008 R2 x64, or Windows 7 x64. (Windows XP and previous versions are not supported. 32-bit builds have not been tested.)</li>
     <li>ms-nfs41-client source code:
     <br/><span class="code">&gt; git clone git://citi.umich.edu/projects/ms-nfs41-client.git</span></li>
     <li>Windows Driver Development Kit (WinDDK 6000 or later)</li>
 </ul>
 <h3>Instructions</h3>
 <ol>
-    <li>Open the WinDDK build environment for the target platform.</li>
+    <li>Open the WinDDK 'x64 Checked Build Environment' for the target platform.</li>
     <li>Change directory to <span class="filename">ms-nfs41-client</span> and type <span class="code">build</span>. The project should build without errors.</li>
 </ol>
 <h2>2. <a name="install">Installation</a></h2>
@@ -53,13 +54,17 @@
 <ul>
     <li>ms-nfs41-client binaries: <span class="filename">nfs41_driver.sys</span>, <span class="filename">nfs41_np.dll</span>, <span class="filename">libtirpc.dll</span>, <span class="filename">nfs_install.exe</span>, <span class="filename">nfsd.exe</span>, <span class="filename">nfs_mount.exe</span></li>
     <li>ms-nfs41-client configuration files: <span class="filename">nfs41rdr.inf</span>, <span class="filename">install.bat</span>, <span class="filename">uninstall.bat</span>, <span class="filename">etc_netconfig</span></li>
-    <li>a certificate for test signing (<a href="http://msdn.microsoft.com/en-us/library/aa906283.aspx" title="Test-Signing a Driver File">http://msdn.microsoft.com/en-us/library/aa906283.aspx</a>)</li>
 </ul>
 <h3>Instructions</h3>
 <ol>
     <li>Copy or extract all ms-nfs41-client binaries and configuration files into a directory that's convenient for testing.</li>
-    <li>Open an Administrator command prompt in this directory.</li>
-    <li>Test sign <span class="filename">nfs41_driver.sys</span>.</li>
+    <li>Open a WinDDK 'x64 Checked Build Environment' as Administrator in this directory (right click and 'Run as administrator').</li>
+    <li>Create a certificate for test-signing the driver (<a href="http://msdn.microsoft.com/en-us/library/ff540213%28VS.85%29.aspx" title="msdn.microsoft.com">Creating Test Certificates</a>):
+    <br/><span class="code">&gt; makecert /pe /ss PrivateCertStore /n CN=nfs41_test nfs41_test.cer</span></li>
+    <li>Use the certificate to sign <span class="filename">nfs41_driver.sys</span> (<a href="http://msdn.microsoft.com/en-us/library/ff553467%28VS.85%29.aspx" title="msdn.microsoft.com">Test-Signing a Driver File</a>):
+    <br/><span class="code">&gt; signtool sign /v /s PrivateCertStore /n nfs41_test /t http://timestamp.verisign.com/scripts/timestamp.dll nfs41_driver.sys</span></li>
+    <li>Install the certificate to the 'Trusted Root Certificate Authorities' store:
+    <br/><span class="code">&gt; certmgr /add /c nfs41_test.cer /s /r localMachine root</span></li>
     <li>Install the driver and update the registry:
     <br/><span class="code">&gt; install.bat</span></li>
     <li>Copy the libtirpc configuration:
@@ -67,15 +72,13 @@
     <br/><span class="code">&gt; copy etc_netconfig C:\etc\netconfig</span></li>
     <li>Allow windows to load test-signed drivers:
     <br/><span class="code">&gt; bcdedit /set testsigning on</span></li>
-    <li>Install the certificate used for test signing to the 'Trusted Root Certificate Authorities' store.</li>
-    <li>Open the Control Panel, navigate to User Accounts, and disable User Account Control (see <a href="#issues">5. Known Issues</a>).</li>
     <li>Reboot.</li>
 </ol>
 <h2>3. <a name="mount">Mounting</a></h2>
 <h3>Instructions</h3>
 <ol>
-    <li>Run <span class="filename">nfsd.exe</span></li>
-    <li>Open a command prompt and run <span class="filename">nfs_mount.exe</span> to mount a share:
+    <li>From a Windows command prompt, run <span class="filename">nfsd.exe</span>.</li>
+    <li>Open a new Windows command prompt and run <span class="filename">nfs_mount.exe</span> to mount a share:
     <br/><span class="code">&gt; nfs_mount.exe Z: nfs.citi.umich.edu:\</span></li>
     <li>You can later unmount with:
     <br/><span class="code">&gt; nfs_mount.exe -d Z</span></li>
@@ -83,23 +86,32 @@
 <h2>4. <a name="cthon">Connectathon</a></h2>
 <h3>Requirements</h3>
 <ul>
-    <li><a href="http://www.cygwin.com" title="www.cygwin.com">Cygwin</a>, including packages gcc-core, make, sunrpc, time</li>
-    <li>ms-nfs41-client source code (ported tests are located in <span class="filename">ms-nfs41-client\tests\cthon04</span>)</li>
+    <li><a href="http://www.cygwin.com" title="www.cygwin.com">Cygwin</a>, including packages gcc-core, make, time, tirpc, git</li>
+    <li><a href="http://www.connectathon.org/nfstests.html" title="www.connectathon.org">Connectathon Test Suite</a></li>
+    <li>ms-nfs41-client source code (patches for connectathon are located in <span class="filename">ms-nfs41-client\tests</span>)</li>
 </ul>
 <h3>Instructions</h3>
 <ol>
-    <li>Copy <span class="filename">ms-nfs41-client\tests\cthon04</span> into a directory that's convenient for testing.</li>
-    <li>Open a cygwin shell, and change directory to cthon04.</li>
+    <li>Extract <span class="filename">nfstests.zip</span> into a directory that's convenient for testing (i.e. <span class="filename">cthon04</span>).</li>
+    <li>Open a Cygwin shell, and change directory to <span class="filename">cthon04</span>.</li>
+    <li>Create a git repository to track changes:
+    <br/><span class="code">&gt; git init</span>
+    <br/><span class="code">&gt; git add *</span>
+    <br/><span class="code">&gt; git commit -m "files from nfstests.zip"</span></li>
+    <li>Apply all cthon patches:
+    <br/><span class="code">&gt; git am /path/to/ms-nfs41-client/tests/*.patch</span></li>
+    <li>Build the tests:
+    <br/><span class="code">&gt; make</span></li>
     <li>Run the test suite on a mounted directory:
     <br/><span class="code">&gt; ./runtests -a -t z:/testdir</span></li>
 </ol>
 <h2>5. <a name="issues">Known Issues</a></h2>
 <ul>
-    <li>Mounts must be obtained through nfs_mount.exe, and not via 'net use' or 'Map Network Drive'.</li>
+    <li>AUTH_SYS is not fully implemented, and uses a fake uid=666 and gid=777.  Keep this in mind when setting up exports.</li>
     <li>When nfs_mount.exe is run without arguments, it does not properly list mounted drives.</li>
     <li>If nfsd.exe is restarted while a drive is mapped, that drive needs to be remounted before further use.</li>
-    <li>Symbolic links are not supported. Connectathon's basic test8 will not pass.</li>
-    <li>Does not properly handle renaming a file on top of an existing open file- the existing file is removed on rename, and not preserved until last close.</li>
+    <li>Symbolic links are not supported in Cygwin. Connectathon's basic test8 and special test nfsidem have been commented out.</li>
+    <li>Does not properly handle renaming a file on top of an existing open file- the existing file is removed on rename, and not preserved until last close. Connectathon's special test op_ren has been commented out.</li>
 </ul>
 </div>
 </div>
