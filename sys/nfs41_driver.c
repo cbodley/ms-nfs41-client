@@ -4290,6 +4290,7 @@ static NTSTATUS nfs41_SetReparsePoint(
     nfs41_updowncall_entry *entry;
     NTSTATUS status;
 
+    DbgEn();
     print_reparse_buffer(Reparse);
 
     if (Reparse->ReparseTag != IO_REPARSE_TAG_SYMLINK) {
@@ -4319,6 +4320,7 @@ static NTSTATUS nfs41_SetReparsePoint(
     status = map_symlink_errors(entry->status);
     RxFreePool(entry);
 out:
+    DbgEx();
     return status;
 }
 
@@ -4335,6 +4337,7 @@ static NTSTATUS nfs41_GetReparsePoint(
         SymbolicLinkReparseBuffer.PathBuffer);
     NTSTATUS status;
 
+    DbgEn();
     if (FsCtl->OutputBufferLength < HeaderLen) {
         RxContext->InformationToReturn = HeaderLen;
         status = STATUS_BUFFER_TOO_SMALL;
@@ -4381,6 +4384,7 @@ static NTSTATUS nfs41_GetReparsePoint(
     }
     RxFreePool(entry);
 out:
+    DbgEx();
     return status;
 }
 
