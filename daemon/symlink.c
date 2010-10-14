@@ -2,14 +2,13 @@
  * The Regents of the University of Michigan
  * All Rights Reserved
  *
- * Permission is granted to use, copy, create derivative works, and
- * redistribute this software and such derivative works for any purpose,
- * so long as the name of the University of Michigan is not used in
- * any advertising or publicity pertaining to the use or distribution
- * of this software without specific, written prior authorization. If
- * the above copyright notice or any other identification of the
- * University of Michigan is included in any copy of any portion of
- * this software, then the disclaimer below must also be included.
+ * Permission is granted to use, copy and redistribute this software
+ * for noncommercial education and research purposes, so long as no
+ * fee is charged, and so long as the name of the University of Michigan
+ * is not used in any advertising or publicity pertaining to the use
+ * or distribution of this software without specific, written prior
+ * authorization.  Permission to modify or otherwise create derivative
+ * works of this software is not granted.
  *
  * This software is provided as is, without representation or warranty
  * of any kind either express or implied, including without limitation
