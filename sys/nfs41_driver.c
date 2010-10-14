@@ -1012,8 +1012,9 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x set=0x%x\n",
-        entry->u.SetEa.session, entry->u.SetEa.open_state, entry->u.SetEa.mode);
+    DbgP("session=0x%x open_state=0x%x symlink name %wZ symlink target %wZ\n",
+        entry->u.Symlink.session, entry->u.Symlink.open_state, 
+        entry->u.Symlink.filename, entry->u.Symlink.set?entry->u.Symlink.target : NULL);
 out:
     DbgEx();
     return status;
