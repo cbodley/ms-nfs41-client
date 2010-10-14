@@ -93,6 +93,14 @@ int handle_getattr(nfs41_upcall *upcall)
         goto out;
     }
 
+    if (info.type == NF4LNK) {
+        nfs41_file_info target_info;
+        int target_status = nfs41_symlink_follow(args->root,
+            state->session, &state->file, &target_info);
+        if (target_status == NO_ERROR && target_info.type == NF4DIR)
+            info.symlink_dir = TRUE;
+    }
+
     switch (args->query_class) {
     case FileBasicInformation:
         nfs_to_basic_info(&info, &args->basic_info);

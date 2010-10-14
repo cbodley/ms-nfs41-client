@@ -170,10 +170,6 @@ static void readdir_copy_dir_info(
             entry->attr_info.size;
     info->fdi.FileAttributes = nfs_file_info_to_attributes(
         &entry->attr_info);
-
-    /* use cansettime to flag the symlink target as a directory */
-    if (entry->attr_info.cansettime)
-        info->fdi.FileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
 }
 
 static void readdir_copy_shortname(
@@ -249,7 +245,7 @@ static int lookup_entry(
     int status;
 
     name.name = entry->name;
-    name.len = (unsigned short)entry->name_len;
+    name.len = (unsigned short)entry->name_len - 1;
 
     status = format_abs_path(parent->path, &name, &path);
     if (status) goto out;
@@ -269,7 +265,7 @@ static int lookup_symlink(
     OUT nfs41_file_info *info_out)
 {
     nfs41_abs_path path;
-    nfs41_path_fh link_parent, file;
+    nfs41_path_fh file;
     nfs41_file_info info;
     int status;
 
@@ -277,28 +273,15 @@ static int lookup_symlink(
     if (status) goto out;
 
     file.path = &path;
-    /* get a filehandle for the symlink */
-    status = nfs41_lookup(root, session, &path, NULL, &file, &info, NULL);
+    status = nfs41_lookup(root, session, &path, NULL, &file, &info, &session);
     if (status) goto out;
 
-    link_parent.path = &path;
     last_component(path.path, path.path + path.len, &file.name);
-    last_component(path.path, file.name.name, &link_parent.name);
 
-    /* attempt to follow the symlink */
-    status = nfs41_symlink_follow(session, &file, &path);
+    status = nfs41_symlink_follow(root, session, &file, &info);
     if (status) goto out;
 
-    /* get attributes for the target */
-    status = nfs41_lookup(root, session, &path, &link_parent, NULL, &info, NULL);
-    if (status) goto out;
-
-    if (info.type == NF4LNK) {
-        status = lookup_symlink(root, session, &link_parent, &file.name, &info);
-        if (status) goto out;
-        info_out->cansettime = info.cansettime;
-    } else if (info.type == NF4DIR)
-        info_out->cansettime = 1;
+    info_out->symlink_dir = info.type == NF4DIR;
 out:
     return status;
 }

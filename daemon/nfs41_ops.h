@@ -1022,10 +1022,16 @@ int nfs41_link(
     OUT OPTIONAL nfs41_path_fh *link_out);
 
 /* symlink.c */
-int nfs41_symlink_follow(
+int nfs41_symlink_target(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
     OUT nfs41_abs_path *target);
+
+int nfs41_symlink_follow(
+    IN nfs41_root *root,
+    IN nfs41_session *session,
+    IN nfs41_path_fh *symlink,
+    OUT nfs41_file_info *info);
 
 int nfs41_readlink(
     IN nfs41_session *session,

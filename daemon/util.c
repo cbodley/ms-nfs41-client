@@ -130,9 +130,11 @@ ULONG nfs_file_info_to_attributes(
     ULONG attrs = 0;
     if (info->type == NF4DIR)
         attrs |= FILE_ATTRIBUTE_DIRECTORY;
-    else if (info->type == NF4LNK)
+    else if (info->type == NF4LNK) {
         attrs |= FILE_ATTRIBUTE_REPARSE_POINT;
-    else if (info->type != NF4REG)
+        if (info->symlink_dir)
+            attrs |= FILE_ATTRIBUTE_DIRECTORY;
+    } else if (info->type != NF4REG)
         dprintf(1, "unhandled file type %d, defaulting to NF4REG\n",
             info->type);
 
@@ -162,11 +164,13 @@ void nfs_to_standard_info(
     IN const nfs41_file_info *info,
     OUT PFILE_STANDARD_INFO std_out)
 {
+    const ULONG FileAttributes = nfs_file_info_to_attributes(info);
+
     std_out->AllocationSize.QuadPart =
         std_out->EndOfFile.QuadPart = (LONGLONG)info->size;
     std_out->NumberOfLinks = info->numlinks;
     std_out->DeletePending = FALSE;
-    std_out->Directory = info->type == NF4DIR ? TRUE : FALSE;
+    std_out->Directory = FileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 }
 
 

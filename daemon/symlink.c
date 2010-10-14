@@ -42,8 +42,6 @@ static int abs_path_link(
     const char *link_end = link + link_len;
     int status = NO_ERROR;
 
-    dprintf(2, "--> abs_path_link('%s', '%s')\n", path->path, link);
-
     /* if link is an absolute path, start path_pos at the beginning */
     if (is_delimiter(*link))
         path_pos = path->path;
@@ -91,11 +89,10 @@ static int abs_path_link(
     *path_pos = '\0';
 out:
     path->len = (unsigned short)(path_pos - path->path);
-    dprintf(2, "<-- abs_path_link('%s') returning %d\n", path->path, status);
     return status;
 }
 
-int nfs41_symlink_follow(
+int nfs41_symlink_target(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
     OUT nfs41_abs_path *target)
@@ -114,6 +111,8 @@ int nfs41_symlink_follow(
         goto out;
     }
 
+    dprintf(2, "--> nfs41_symlink_target('%s', '%s')\n", path->path, link);
+
     /* overwrite the last component of the path; get the starting offset */
     path_offset = file->name.name - path->path;
 
@@ -127,7 +126,6 @@ int nfs41_symlink_follow(
     status = abs_path_link(target, target->path + path_offset, link, link_len);
     if (status) {
         eprintf("abs_path_link() failed with %d\n", status);
-        status = ERROR_PATH_NOT_FOUND;
         goto out;
     }
 
@@ -139,6 +137,44 @@ int nfs41_symlink_follow(
     }
     target->len = (unsigned short)strlen(target->path);
 out:
+    dprintf(2, "<-- nfs41_symlink_target('%s') returning %d\n",
+        target->path, status);
+    return status;
+}
+
+int nfs41_symlink_follow(
+    IN nfs41_root *root,
+    IN nfs41_session *session,
+    IN nfs41_path_fh *symlink,
+    OUT nfs41_file_info *info)
+{
+    nfs41_abs_path path;
+    nfs41_path_fh file;
+    int status = NO_ERROR;
+
+    file.path = &path;
+    InitializeSRWLock(&path.lock);
+
+    dprintf(2, "--> nfs41_symlink_follow('%s')\n", symlink->path->path);
+
+    do {
+        /* construct the target path */
+        status = nfs41_symlink_target(session, symlink, &path);
+        if (status) goto out;
+
+        dprintf(2, "looking up '%s'\n", path.path);
+
+        last_component(path.path, path.path + path.len, &file.name);
+
+        /* get attributes for the target */
+        status = nfs41_lookup(root, session, &path,
+            NULL, &file, info, &session);
+        if (status) goto out;
+
+        symlink = &file;
+    } while (info->type == NF4LNK);
+out:
+    dprintf(2, "<-- nfs41_symlink_follow() returning %d\n", status);
     return status;
 }
 

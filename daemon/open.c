@@ -217,7 +217,7 @@ int handle_open(nfs41_upcall *upcall)
     int status = 0;
     open_upcall_args *args = &upcall->args.open;
     nfs41_open_state *state;
-    nfs41_file_info info;
+    nfs41_file_info info = { 0 };
 
     status = create_open_state(args->path, args->open_owner_id, &state);
     if (status) {
@@ -242,7 +242,7 @@ int handle_open(nfs41_upcall *upcall)
         args->symlink_embedded = TRUE;
 
         /* replace the path with the symlink target */
-        status = nfs41_symlink_follow(state->session,
+        status = nfs41_symlink_target(state->session,
             &state->parent, &args->symlink);
         goto out_free_state;
     }
@@ -270,14 +270,20 @@ int handle_open(nfs41_upcall *upcall)
         } else if (info.type == NF4LNK) {
             dprintf(2, "handle nfs41_open: SYMLINK\n");
             if (args->create_opts & FILE_OPEN_REPARSE_POINT) {
-                /* continue and open the symlink itself */
+                /* continue and open the symlink itself, but we need to
+                 * know if the target is a regular file or directory */
+                nfs41_file_info target_info;
+                int target_status = nfs41_symlink_follow(args->root,
+                    state->session, &state->file, &target_info);
+                if (target_status == NO_ERROR && target_info.type == NF4DIR)
+                    info.symlink_dir = TRUE;
             } else {
                 /* tell the driver to call RxPrepareToReparseSymbolicLink() */
                 upcall->last_error = ERROR_REPARSE;
                 args->symlink_embedded = FALSE;
 
                 /* replace the path with the symlink target */
-                status = nfs41_symlink_follow(state->session,
+                status = nfs41_symlink_target(state->session,
                     &state->file, &args->symlink);
                 goto out_free_state;
             }
@@ -286,7 +292,7 @@ int handle_open(nfs41_upcall *upcall)
         state->type = info.type;
     } else if (status != ERROR_FILE_NOT_FOUND)
         goto out_free_state;
-    
+
     /* XXX: this is a hard-coded check for the open arguments we see from
      * the CreateSymbolicLink() system call.  we respond to this by deferring
      * the CREATE until we get the upcall to set the symlink.  this approach

@@ -184,6 +184,7 @@ typedef struct __nfs41_file_info {
     bool_t                  cansettime; /* XXX: per-fs */
     bool_t                  case_insensitive;
     bool_t                  case_preserving;
+    bool_t                  symlink_dir;
 } nfs41_file_info;
 
 #endif /* !__NFS41_DAEMON_TYPES_H__ */
