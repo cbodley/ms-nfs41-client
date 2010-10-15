@@ -1362,6 +1362,7 @@ nfs41_downcall (
     cur->state = NFS41_DONE_PROCESSING;
     cur->status = tmp->status;
     cur->errno = tmp->errno;
+    status = STATUS_SUCCESS;
 
     if (!tmp->status) {
         switch (tmp->opcode) {
@@ -1405,7 +1406,14 @@ nfs41_downcall (
                 RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, buf, sizeof(USHORT));
                 buf += sizeof(USHORT);
                 cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength - sizeof(WCHAR);
-                cur->u.Open.symlink.Buffer = (PWCH)buf;
+                cur->u.Open.symlink.Buffer = RxAllocatePoolWithTag(NonPagedPool, 
+                    cur->u.Open.symlink.MaximumLength, NFS41_MM_POOLTAG);
+                if (cur->u.Open.symlink.Buffer == NULL) {
+                    cur->status = STATUS_INSUFFICIENT_RESOURCES;
+                    status = STATUS_UNSUCCESSFUL;
+                    break;
+                }
+                RtlCopyMemory(cur->u.Open.symlink.Buffer, buf, cur->u.Open.symlink.MaximumLength);
                 DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
             }
             DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
@@ -1467,8 +1475,7 @@ nfs41_downcall (
         nfs41_RemoveEntry(downcallLock, downcall, cur);
         RxLowIoCompletion(cur->u.ReadWrite.rxcontext);
     } else
-        KeSetEvent(&cur->cond, 0, FALSE);
-    status = STATUS_SUCCESS;
+        KeSetEvent(&cur->cond, 0, FALSE);    
 
 out_free:
     RxFreePool(tmp);
@@ -2669,6 +2676,7 @@ NTSTATUS nfs41_Create(
         RtlCopyMemory(buf, VNetRootPrefix->Buffer, VNetRootPrefix->Length);
         buf += VNetRootPrefix->Length;
         RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, entry->u.Open.symlink.Length);
+        RxFreePool(entry->u.Open.symlink.Buffer);
         buf += entry->u.Open.symlink.Length;
         *(PWCHAR)buf = UNICODE_NULL;
 
