@@ -327,11 +327,10 @@ int handle_open(nfs41_upcall *upcall)
         args->access_mode == 0 &&
         args->create_opts & FILE_OPEN_REPARSE_POINT) {
         /* fail if the file already exists */
-        uint32_t create;
-        status = map_disposition_2_nfsopen(args->disposition, status,
-            &create, &upcall->last_error);
-        if (status)
+        if (status == NO_ERROR) {
+            status = ERROR_FILE_EXISTS;
             goto out_free_state;
+        }
 
         /* defer the call to CREATE until we get the symlink set upcall */
         dprintf(1, "trying to create a symlink, deferring create\n");
@@ -339,6 +338,8 @@ int handle_open(nfs41_upcall *upcall)
         /* because of WRITE_ATTR access, be prepared for a setattr upcall;
          * will crash if the superblock is null, so use the parent's */
         state->file.fh.superblock = state->parent.fh.superblock;
+
+        status = NO_ERROR;
     } else if (do_lookup(state->type, args->access_mask, args->disposition)) {
         if (status) {
             dprintf(1, "nfs41_lookup failed with %d\n", status);
