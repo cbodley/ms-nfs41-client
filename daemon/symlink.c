@@ -152,6 +152,7 @@ int nfs41_symlink_follow(
 {
     nfs41_abs_path path;
     nfs41_path_fh file;
+    uint32_t depth = 0;
     int status = NO_ERROR;
 
     file.path = &path;
@@ -160,6 +161,11 @@ int nfs41_symlink_follow(
     dprintf(2, "--> nfs41_symlink_follow('%s')\n", symlink->path->path);
 
     do {
+        if (++depth > NFS41_MAX_SYMLINK_DEPTH) {
+            status = ERROR_TOO_MANY_LINKS;
+            goto out;
+        }
+
         /* construct the target path */
         status = nfs41_symlink_target(session, symlink, &path);
         if (status) goto out;

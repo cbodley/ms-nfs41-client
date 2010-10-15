@@ -55,6 +55,10 @@
 /* "udp" "tcp" "udp6" "tcp6" */
 #define NFS41_NETWORK_ID_LEN        4
 
+/* msdn: There is a maximum of 31 reparse points (and
+ * therefore symbolic links) allowed in a particular path. */
+#define NFS41_MAX_SYMLINK_DEPTH     31
+
 
 /* 424 bytes: max rpc header for reply with data */
 /* 32 bytes: max COMPOUND response */

@@ -204,6 +204,7 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
     nfs41_abs_path dst_path;
     nfs41_path_fh dst_dir;
     nfs41_component dst_name, *src_name;
+    uint32_t depth = 0;
     int status;
 
     ZeroMemory(&dst_path, sizeof(dst_path));
@@ -252,8 +253,17 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
         &dst_path, &dst_dir, NULL, NULL, &dst_session);
 
     while (status == ERROR_REPARSE) {
+        if (++depth > NFS41_MAX_SYMLINK_DEPTH) {
+            status = ERROR_TOO_MANY_LINKS;
+            goto out;
+        }
+
         /* replace the path with the symlink target's */
         status = nfs41_symlink_target(dst_session, &dst_dir, &dst_path);
+        if (status) {
+            eprintf("nfs41_symlink_target() failed with %d\n", status);
+            goto out;
+        }
 
         /* redo the lookup until it doesn't return REPARSE */
         status = nfs41_lookup(args->root, dst_session,
@@ -336,6 +346,7 @@ int handle_nfs41_link(setattr_upcall_args *args)
     nfs41_abs_path dst_path;
     nfs41_path_fh dst_dir;
     nfs41_component dst_name;
+    uint32_t depth = 0;
     int status;
 
     ZeroMemory(&dst_path, sizeof(dst_path));
@@ -356,8 +367,17 @@ int handle_nfs41_link(setattr_upcall_args *args)
         &dst_path, &dst_dir, NULL, NULL, &dst_session);
 
     while (status == ERROR_REPARSE) {
+        if (++depth > NFS41_MAX_SYMLINK_DEPTH) {
+            status = ERROR_TOO_MANY_LINKS;
+            goto out;
+        }
+
         /* replace the path with the symlink target's */
         status = nfs41_symlink_target(dst_session, &dst_dir, &dst_path);
+        if (status) {
+            eprintf("nfs41_symlink_target() failed with %d\n", status);
+            goto out;
+        }
 
         /* redo the lookup until it doesn't return REPARSE */
         status = nfs41_lookup(args->root, dst_session,

@@ -237,11 +237,22 @@ int handle_open(nfs41_upcall *upcall)
         &state->path, &state->parent, &state->file, &info, &state->session);
 
     if (status == ERROR_REPARSE) {
+        uint32_t depth = 0;
         /* one of the parent components was a symlink */
         do {
+            if (++depth > NFS41_MAX_SYMLINK_DEPTH) {
+                status = ERROR_TOO_MANY_LINKS;
+                goto out_free_state;
+            }
+
             /* replace the path with the symlink target's */
             status = nfs41_symlink_target(state->session,
                 &state->parent, &state->path);
+            if (status) {
+                /* can't do the reparse if we can't get the target */
+                eprintf("nfs41_symlink_target() failed with %d\n", status);
+                goto out_free_state;
+            }
 
             /* redo the lookup until it doesn't return REPARSE */
             status = nfs41_lookup(args->root, state->session,
