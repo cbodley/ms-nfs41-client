@@ -2542,6 +2542,7 @@ static NTSTATUS map_open_errors(DWORD status, int len)
     case ERROR_PATH_NOT_FOUND:          return STATUS_OBJECT_PATH_NOT_FOUND;
     case ERROR_SHARING_VIOLATION:       return STATUS_SHARING_VIOLATION;
     case ERROR_REPARSE:                 return STATUS_REPARSE;
+    case ERROR_TOO_MANY_LINKS:          return STATUS_TOO_MANY_LINKS;
     default:
         DbgP("[ERROR] nfs41_Create: upcall returned %d returning "
             "STATUS_INSUFFICIENT_RESOURCES\n", status);
