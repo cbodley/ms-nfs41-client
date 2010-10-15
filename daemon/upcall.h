@@ -137,7 +137,7 @@ typedef struct __readdir_upcall_args {
 
 typedef struct __symlink_upcall_args {
     nfs41_abs_path target_get;
-    const char *target_set;
+    char *target_set;
     nfs41_root *root;
     nfs41_open_state *state;
     const char *path;

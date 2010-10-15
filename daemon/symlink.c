@@ -225,6 +225,10 @@ int handle_symlink(nfs41_upcall *upcall)
     int status = NO_ERROR;
 
     if (args->set) {
+        /* don't send windows slashes to the server */
+        char *p;
+        for (p = args->target_set; *p; p++) if (*p == '\\') *p = '/';
+
         if (state->file.fh.len) {
             /* the check in handle_open() didn't catch that we're creating
              * a symlink, so we have to remove the file it already created */
