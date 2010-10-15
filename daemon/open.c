@@ -238,12 +238,20 @@ int handle_open(nfs41_upcall *upcall)
 
     if (status == ERROR_REPARSE) {
         /* one of the parent components was a symlink */
+        do {
+            /* replace the path with the symlink target's */
+            status = nfs41_symlink_target(state->session,
+                &state->parent, &state->path);
+
+            /* redo the lookup until it doesn't return REPARSE */
+            status = nfs41_lookup(args->root, state->session,
+                &state->path, &state->parent, NULL, NULL, &state->session);
+        } while (status == ERROR_REPARSE);
+
+        abs_path_copy(&args->symlink, &state->path);
+        status = NO_ERROR;
         upcall->last_error = ERROR_REPARSE;
         args->symlink_embedded = TRUE;
-
-        /* replace the path with the symlink target */
-        status = nfs41_symlink_target(state->session,
-            &state->parent, &args->symlink);
         goto out_free_state;
     }
 

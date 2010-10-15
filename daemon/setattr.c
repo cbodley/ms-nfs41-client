@@ -199,6 +199,7 @@ static void open_state_rename(
 static int handle_nfs41_rename(setattr_upcall_args *args)
 {
     nfs41_open_state *state = args->state;
+    nfs41_session *dst_session;
     PFILE_RENAME_INFO rename = (PFILE_RENAME_INFO)args->buf;
     nfs41_abs_path dst_path;
     nfs41_path_fh dst_dir;
@@ -248,7 +249,16 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
 
     /* the destination path is absolute, so start from the root session */
     status = nfs41_lookup(args->root, nfs41_root_session(args->root),
-        &dst_path, &dst_dir, NULL, NULL, NULL);
+        &dst_path, &dst_dir, NULL, NULL, &dst_session);
+
+    while (status == ERROR_REPARSE) {
+        /* replace the path with the symlink target's */
+        status = nfs41_symlink_target(dst_session, &dst_dir, &dst_path);
+
+        /* redo the lookup until it doesn't return REPARSE */
+        status = nfs41_lookup(args->root, dst_session,
+            &dst_path, &dst_dir, NULL, NULL, &dst_session);
+    }
 
     /* get the components after lookup in case a referral changed its path */
     last_component(dst_path.path, dst_path.path + dst_path.len, &dst_name);
@@ -322,6 +332,7 @@ int handle_nfs41_link(setattr_upcall_args *args)
 {
     nfs41_open_state *state = args->state;
     PFILE_LINK_INFORMATION link = (PFILE_LINK_INFORMATION)args->buf;
+    nfs41_session *dst_session;
     nfs41_abs_path dst_path;
     nfs41_path_fh dst_dir;
     nfs41_component dst_name;
@@ -342,7 +353,16 @@ int handle_nfs41_link(setattr_upcall_args *args)
 
     /* the destination path is absolute, so start from the root session */
     status = nfs41_lookup(args->root, nfs41_root_session(args->root),
-        &dst_path, &dst_dir, NULL, NULL, NULL);
+        &dst_path, &dst_dir, NULL, NULL, &dst_session);
+
+    while (status == ERROR_REPARSE) {
+        /* replace the path with the symlink target's */
+        status = nfs41_symlink_target(dst_session, &dst_dir, &dst_path);
+
+        /* redo the lookup until it doesn't return REPARSE */
+        status = nfs41_lookup(args->root, dst_session,
+            &dst_path, &dst_dir, NULL, NULL, &dst_session);
+    }
 
     /* get the components after lookup in case a referral changed its path */
     last_component(dst_path.path, dst_path.path + dst_path.len, &dst_name);

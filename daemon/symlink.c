@@ -113,29 +113,31 @@ int nfs41_symlink_target(
 
     dprintf(2, "--> nfs41_symlink_target('%s', '%s')\n", path->path, link);
 
+    /* append any components after the symlink */
+    if (FAILED(StringCchCatA(link, NFS41_MAX_PATH_LEN,
+        file->name.name + file->name.len))) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    link_len = (uint32_t)strlen(link);
+
     /* overwrite the last component of the path; get the starting offset */
     path_offset = file->name.name - path->path;
 
     /* copy the path and update it with the results from link */
-    target->len = path->len;
-    if (FAILED(StringCchCopyNA(target->path, NFS41_MAX_PATH_LEN,
-        path->path, path->len))) {
-        status = ERROR_BUFFER_OVERFLOW;
-        goto out;
+    if (target != path) {
+        target->len = path->len;
+        if (FAILED(StringCchCopyNA(target->path, NFS41_MAX_PATH_LEN,
+            path->path, path->len))) {
+            status = ERROR_BUFFER_OVERFLOW;
+            goto out;
+        }
     }
     status = abs_path_link(target, target->path + path_offset, link, link_len);
     if (status) {
         eprintf("abs_path_link() failed with %d\n", status);
         goto out;
     }
-
-    /* append any components after the symlink */
-    if (FAILED(StringCchCopyA(target->path + target->len,
-        NFS41_MAX_PATH_LEN - target->len, file->name.name + file->name.len))) {
-        status = ERROR_BUFFER_OVERFLOW;
-        goto out;
-    }
-    target->len = (unsigned short)strlen(target->path);
 out:
     dprintf(2, "<-- nfs41_symlink_target('%s') returning %d\n",
         target->path, status);
