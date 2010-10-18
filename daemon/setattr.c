@@ -261,7 +261,8 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
         /* replace the path with the symlink target's */
         status = nfs41_symlink_target(dst_session, &dst_dir, &dst_path);
         if (status) {
-            eprintf("nfs41_symlink_target() failed with %d\n", status);
+            eprintf("nfs41_symlink_target() for %s failed with %d\n", 
+                dst_dir.path->path, status);
             goto out;
         }
 
@@ -375,7 +376,8 @@ int handle_nfs41_link(setattr_upcall_args *args)
         /* replace the path with the symlink target's */
         status = nfs41_symlink_target(dst_session, &dst_dir, &dst_path);
         if (status) {
-            eprintf("nfs41_symlink_target() failed with %d\n", status);
+            eprintf("nfs41_symlink_target() for %s failed with %d\n", 
+                dst_dir.path->path, status);
             goto out;
         }
 

@@ -106,7 +106,8 @@ int nfs41_symlink_target(
     /* read the link */
     status = nfs41_readlink(session, file, NFS41_MAX_PATH_LEN, link, &link_len);
     if (status) {
-        eprintf("nfs41_readlink() failed with %s\n", nfs_error_string(status));
+        eprintf("nfs41_readlink() for %s failed with %s\n", file->path->path, 
+            nfs_error_string(status));
         status = ERROR_PATH_NOT_FOUND;
         goto out;
     }
@@ -115,7 +116,7 @@ int nfs41_symlink_target(
 
     /* append any components after the symlink */
     if (FAILED(StringCchCatA(link, NFS41_MAX_PATH_LEN,
-        file->name.name + file->name.len))) {
+            file->name.name + file->name.len))) {
         status = ERROR_BUFFER_OVERFLOW;
         goto out;
     }
@@ -135,7 +136,8 @@ int nfs41_symlink_target(
     }
     status = abs_path_link(target, target->path + path_offset, link, link_len);
     if (status) {
-        eprintf("abs_path_link() failed with %d\n", status);
+        eprintf("abs_path_link() for path %s with link %s failed with %d\n", 
+            target->path, link, status);
         goto out;
     }
 out:
@@ -238,6 +240,9 @@ int handle_symlink(nfs41_upcall *upcall)
         if (state->file.fh.len) {
             /* the check in handle_open() didn't catch that we're creating
              * a symlink, so we have to remove the file it already created */
+            eprintf("handle_symlink: attempting to create a symlink when "
+                "the file=%s was already created on open; sending REMOVE "
+                "first\n", state->file.path->path);
             nfs41_remove(state->session, &state->parent, &state->file.name);
         }
 
@@ -245,8 +250,8 @@ int handle_symlink(nfs41_upcall *upcall)
         status = nfs41_create(state->session, NF4LNK, 0777,
             args->target_set, &state->parent, &state->file);
         if (status) {
-            eprintf("nfs41_create() failed with %s\n",
-                nfs_error_string(status));
+            eprintf("nfs41_create() for symlink=%s failed with %s\n",
+                args->target_set, nfs_error_string(status));
             status = map_symlink_errors(status);
             goto out;
         }
@@ -257,8 +262,8 @@ int handle_symlink(nfs41_upcall *upcall)
         status = nfs41_readlink(state->session, &state->file,
             NFS41_MAX_PATH_LEN, args->target_get.path, &len);
         if (status) {
-            eprintf("nfs41_readlink() failed with %s\n",
-                nfs_error_string(status));
+            eprintf("nfs41_readlink() for filename=%s failed with %s\n",
+                state->file.path->path, nfs_error_string(status));
             status = map_symlink_errors(status);
             goto out;
         }

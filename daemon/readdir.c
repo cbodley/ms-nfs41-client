@@ -190,6 +190,11 @@ static void readdir_copy_full_dir_info(
     IN PFILE_DIR_INFO_UNION info)
 {
     readdir_copy_dir_info(entry, info);
+    /* for files with the FILE_ATTRIBUTE_REPARSE_POINT attribute, 
+     * EaSize is used instead to specify its reparse tag. this makes 
+     * the 'dir' command to show files as <SYMLINK>, and triggers a 
+     * FSCTL_GET_REPARSE_POINT to query the symlink target 
+     */
     info->fifdi.EaSize = entry->attr_info.type == NF4LNK ?
         IO_REPARSE_TAG_SYMLINK : 0;
 }
