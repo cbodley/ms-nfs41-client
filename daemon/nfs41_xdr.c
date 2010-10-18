@@ -2182,7 +2182,7 @@ static bool_t decode_op_readlink(
 
     if (res->status == NFS4_OK) {
         char *link = res->link;
-        return xdr_bytes(xdr, &link, &res->link_len, NFS4_OPAQUE_LIMIT);
+        return xdr_bytes(xdr, &link, &res->link_len, res->link_len);
     }
 
     return TRUE;
