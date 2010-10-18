@@ -12,4 +12,4 @@ as well as the following warnings:
 4100 - unused function call arguments (we have lots of stubs)
 4127 - constant conditional (I like to use if(0) or if(1))
 !ENDIF
-MSC_WARNING_LEVEL=/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 /wd4201 /wd4214
+MSC_WARNING_LEVEL=/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 /wd4201 /wd4214 /wd4711
