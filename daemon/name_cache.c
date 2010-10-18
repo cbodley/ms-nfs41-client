@@ -283,7 +283,7 @@ static void attr_cache_update(
     /* update the attributes present in mask */
     if (info->attrmask.count >= 1) {
         if (info->attrmask.arr[0] & FATTR4_WORD0_TYPE)
-            entry->type = info->type & NFS_FTYPE_MASK;
+            entry->type = (unsigned char)(info->type & NFS_FTYPE_MASK);
         if (info->attrmask.arr[0] & FATTR4_WORD0_CHANGE) {
             entry->change = info->change;
             /* revalidate whenever we get a change attribute */

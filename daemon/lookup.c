@@ -429,7 +429,7 @@ static int referral_resolve(
     AcquireSRWLockExclusive(&path_out->lock);
     abs_path_copy(path_out, &location->path);
     StringCchCatA(path_out->path, NFS41_MAX_PATH_LEN, rest_of_path);
-    path_out->len += (unsigned short)strlen(rest_of_path);
+    path_out->len = path_out->len + (unsigned short)strlen(rest_of_path);
     ReleaseSRWLockExclusive(&path_out->lock);
 
     if (session_out) *session_out = client->session;

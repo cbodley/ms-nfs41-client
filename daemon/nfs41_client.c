@@ -26,6 +26,7 @@
 #include <time.h>
 #include <winsock2.h>
 #include <iphlpapi.h> /* for GetAdaptersAddresses() */
+#include <wincrypt.h> /* for Crypt*() functions */
 
 #include "rbtree.h"
 #include "daemon_debug.h"

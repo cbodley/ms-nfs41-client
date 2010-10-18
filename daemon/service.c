@@ -20,9 +20,9 @@ FUNCTIONS:
   ControlHandler ( DWORD dwCtrlType );
   GetLastErrorText( LPTSTR lpszBuf, DWORD dwSize );
 
----------------------------------------------------------------------------*/
-#ifndef STANDALONE_NFSD
+  ---------------------------------------------------------------------------*/
 #include <windows.h>
+#ifndef STANDALONE_NFSD
 #include <stdio.h>
 #include <stdlib.h>
 #include <process.h>

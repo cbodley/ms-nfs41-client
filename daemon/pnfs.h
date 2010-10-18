@@ -316,7 +316,7 @@ __inline uint32_t stripe_index(
     IN uint64_t sui,
     IN uint32_t stripe_count)
 {
-    return (sui + layout->first_index) % stripe_count;
+    return (uint32_t)((sui + layout->first_index) % stripe_count);
 }
 __inline uint32_t data_server_index(
     IN pnfs_file_device *device,

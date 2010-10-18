@@ -170,7 +170,8 @@ void nfs_to_standard_info(
         std_out->EndOfFile.QuadPart = (LONGLONG)info->size;
     std_out->NumberOfLinks = info->numlinks;
     std_out->DeletePending = FALSE;
-    std_out->Directory = FileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+    std_out->Directory = FileAttributes & FILE_ATTRIBUTE_DIRECTORY ?
+        TRUE : FALSE;
 }
 
 
@@ -430,8 +431,8 @@ int create_silly_rename(
     for (i = 0; i < fh->len; i++, tmp += 2)
         StringCchPrintf(tmp, end - tmp, "%02x", fh->fh[i]);
 
-    path->len += extra_len;
-    silly->len += extra_len;
+    path->len = path->len + extra_len;
+    silly->len = silly->len + extra_len;
 out:
     return status;
 }

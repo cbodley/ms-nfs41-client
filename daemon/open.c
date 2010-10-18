@@ -368,7 +368,7 @@ int handle_open(nfs41_upcall *upcall)
             status = nfs41_create(state->session, NF4DIR, args->mode,
                 NULL, &state->parent, &state->file);
             args->std_info.Directory = 1;
-            args->created = status == NFS4_OK;
+            args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
             status = nfs41_open(state->session, allow, deny, create,
                 args->mode, state, &info);
