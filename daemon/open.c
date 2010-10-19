@@ -259,10 +259,12 @@ int handle_open(nfs41_upcall *upcall)
                 &state->path, &state->parent, NULL, NULL, &state->session);
         } while (status == ERROR_REPARSE);
 
-        abs_path_copy(&args->symlink, &state->path);
-        status = NO_ERROR;
-        upcall->last_error = ERROR_REPARSE;
-        args->symlink_embedded = TRUE;
+        if (status == NO_ERROR || status == ERROR_FILE_NOT_FOUND) {
+            abs_path_copy(&args->symlink, &state->path);
+            status = NO_ERROR;
+            upcall->last_error = ERROR_REPARSE;
+            args->symlink_embedded = TRUE;
+        }
         goto out_free_state;
     }
 
@@ -297,13 +299,17 @@ int handle_open(nfs41_upcall *upcall)
                 if (target_status == NO_ERROR && target_info.type == NF4DIR)
                     info.symlink_dir = TRUE;
             } else {
-                /* tell the driver to call RxPrepareToReparseSymbolicLink() */
-                upcall->last_error = ERROR_REPARSE;
-                args->symlink_embedded = FALSE;
-
                 /* replace the path with the symlink target */
                 status = nfs41_symlink_target(state->session,
                     &state->file, &args->symlink);
+                if (status) {
+                    eprintf("nfs41_symlink_target() for %s failed with %d\n",
+                        args->path, status);
+                } else {
+                    /* tell the driver to call RxPrepareToReparseSymbolicLink() */
+                    upcall->last_error = ERROR_REPARSE;
+                    args->symlink_embedded = FALSE;
+                }
                 goto out_free_state;
             }
         } else
