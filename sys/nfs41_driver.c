@@ -3295,7 +3295,9 @@ void print_nfs3_attrs(nfs3_attrs *attrs)
 void create_nfs3_attrs(nfs3_attrs *attrs, PNFS41_FCB nfs41_fcb)
 {
     RtlZeroMemory(attrs, sizeof(nfs3_attrs));
-    if (nfs41_fcb->StandardInfo.Directory)
+    if (nfs41_fcb->BasicInfo.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+        attrs->type = NF3LNK;
+    else if (nfs41_fcb->StandardInfo.Directory)
         attrs->type = NF3DIR;
     else
         attrs->type = NF3REG;
