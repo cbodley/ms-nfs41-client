@@ -11,11 +11,14 @@ USE_LIBCMT=1
 #USE_MSVCRT=1
 C_DEFINES=-DSTANDALONE_NFSD #-- use this for non-service nfsd
 INCLUDES=..\sys;..\dll;..\libtirpc\tirpc
+# Use the following for "service" version of nfsd
+#TARGETLIBS=$(SDK_LIB_PATH)\ws2_32.lib $(SDK_LIB_PATH)\iphlpapi.lib \
+#        ..\libtirpc\src\obj$(BUILD_ALT_DIR)\*\libtirpc.lib \
+#		$(SDK_LIB_PATH)\kernel32.lib \
+#		$(SDK_LIB_PATH)\advapi32.lib \
+#		$(SDK_LIB_PATH)\shell32.lib
 TARGETLIBS=$(SDK_LIB_PATH)\ws2_32.lib $(SDK_LIB_PATH)\iphlpapi.lib \
-        ..\libtirpc\src\obj$(BUILD_ALT_DIR)\*\libtirpc.lib \
-		$(SDK_LIB_PATH)\kernel32.lib \
-		$(SDK_LIB_PATH)\advapi32.lib \
-		$(SDK_LIB_PATH)\shell32.lib
+        ..\libtirpc\src\obj$(BUILD_ALT_DIR)\*\libtirpc.lib
 
 !IF 0
 /W3 is default level
