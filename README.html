@@ -18,8 +18,6 @@
     h1 { font-size: 2em; text-align: center; background: none; }
     h2 { margin: 24px 0 8px 0; font-variant: small-caps; border-bottom: 1px dashed #88A; }
     h3 { margin-left: 8px; }
-    span.filename { font-weight: bold; }
-    span.code { font-family: Courier; }
     /*]]>*/
     </style>
 </head>
@@ -40,70 +38,70 @@
 <h3>Requirements</h3>
 <ul>
     <li>Windows Vista x64, Windows Server 2008 R2 x64, or Windows 7 x64. (Windows XP and previous versions are not supported. 32-bit builds have not been tested.)</li>
-    <li>ms-nfs41-client source code:
-    <br/><span class="code">&gt; git clone git://citi.umich.edu/projects/ms-nfs41-client.git</span></li>
     <li>Windows Driver Development Kit (WinDDK 6000 or later)</li>
+    <li>ms-nfs41-client source code:
+    <br/><code>&gt; git clone git://citi.umich.edu/projects/ms-nfs41-client.git</code></li>
 </ul>
 <h3>Instructions</h3>
 <ol>
-    <li>Open the WinDDK 'x64 Checked Build Environment' for the target platform.</li>
-    <li>Change directory to <span class="filename">ms-nfs41-client</span> and type <span class="code">build</span>. The project should build without errors.</li>
+    <li>From the Start menu, open the WinDDK 'x64 Checked Build Environment' for the target platform.</li>
+    <li>Change directory to <strong>ms-nfs41-client</strong> and type <code>build</code>. The project should build without errors.</li>
 </ol>
 <h2>2. <a name="install">Installation</a></h2>
 <h3>Requirements</h3>
 <ul>
-    <li>ms-nfs41-client binaries: <span class="filename">nfs41_driver.sys</span>, <span class="filename">nfs41_np.dll</span>, <span class="filename">libtirpc.dll</span>, <span class="filename">nfs_install.exe</span>, <span class="filename">nfsd.exe</span>, <span class="filename">nfs_mount.exe</span></li>
-    <li>ms-nfs41-client configuration files: <span class="filename">nfs41rdr.inf</span>, <span class="filename">install.bat</span>, <span class="filename">uninstall.bat</span>, <span class="filename">etc_netconfig</span></li>
+    <li>ms-nfs41-client binaries: <strong>nfs41_driver.sys</strong>, <strong>nfs41_np.dll</strong>, <strong>libtirpc.dll</strong>, <strong>nfs_install.exe</strong>, <strong>nfsd.exe</strong>, <strong>nfs_mount.exe</strong></li>
+    <li>ms-nfs41-client configuration files: <strong>nfs41rdr.inf</strong>, <strong>install.bat</strong>, <strong>uninstall.bat</strong>, <strong>etc_netconfig</strong></li>
 </ul>
 <h3>Instructions</h3>
 <ol>
     <li>Copy or extract all ms-nfs41-client binaries and configuration files into a directory that's convenient for testing.</li>
     <li>Open a WinDDK 'x64 Checked Build Environment' as Administrator in this directory (right click and 'Run as administrator').</li>
     <li>Create a certificate for test-signing the driver (<a href="http://msdn.microsoft.com/en-us/library/ff540213%28VS.85%29.aspx" title="msdn.microsoft.com">Creating Test Certificates</a>):
-    <br/><span class="code">&gt; makecert /pe /ss PrivateCertStore /n CN=nfs41_test nfs41_test.cer</span></li>
-    <li>Use the certificate to sign <span class="filename">nfs41_driver.sys</span> (<a href="http://msdn.microsoft.com/en-us/library/ff553467%28VS.85%29.aspx" title="msdn.microsoft.com">Test-Signing a Driver File</a>):
-    <br/><span class="code">&gt; signtool sign /v /s PrivateCertStore /n nfs41_test /t http://timestamp.verisign.com/scripts/timestamp.dll nfs41_driver.sys</span></li>
+    <br/><code>&gt; makecert /pe /ss PrivateCertStore /n CN=nfs41_test nfs41_test.cer</code></li>
+    <li>Use the certificate to sign <strong>nfs41_driver.sys</strong> (<a href="http://msdn.microsoft.com/en-us/library/ff553467%28VS.85%29.aspx" title="msdn.microsoft.com">Test-Signing a Driver File</a>):
+    <br/><code>&gt; signtool sign /v /s PrivateCertStore /n nfs41_test /t http://timestamp.verisign.com/scripts/timestamp.dll nfs41_driver.sys</code></li>
     <li>Install the certificate to the 'Trusted Root Certificate Authorities' store:
-    <br/><span class="code">&gt; certmgr /add /c nfs41_test.cer /s /r localMachine root</span></li>
+    <br/><code>&gt; certmgr /add /c nfs41_test.cer /s /r localMachine root</code></li>
     <li>Install the driver and update the registry:
-    <br/><span class="code">&gt; install.bat</span></li>
+    <br/><code>&gt; install.bat</code></li>
     <li>Copy the libtirpc configuration:
-    <br/><span class="code">&gt; mkdir C:\etc</span>
-    <br/><span class="code">&gt; copy etc_netconfig C:\etc\netconfig</span></li>
+    <br/><code>&gt; mkdir C:\etc</code>
+    <br/><code>&gt; copy etc_netconfig C:\etc\netconfig</code></li>
     <li>Allow windows to load test-signed drivers:
-    <br/><span class="code">&gt; bcdedit /set testsigning on</span></li>
+    <br/><code>&gt; bcdedit /set testsigning on</code></li>
     <li>Reboot.</li>
 </ol>
 <h2>3. <a name="mount">Mounting</a></h2>
 <h3>Instructions</h3>
 <ol>
-    <li>From a Windows command prompt, run <span class="filename">nfsd.exe</span>.</li>
-    <li>Open a new Windows command prompt and run <span class="filename">nfs_mount.exe</span> to mount a share:
-    <br/><span class="code">&gt; nfs_mount.exe Z: nfs.citi.umich.edu:\</span></li>
+    <li>From a Windows command prompt, run <strong>nfsd.exe</strong>.</li>
+    <li>Open a new Windows command prompt and run <strong>nfs_mount.exe</strong> to mount a share:
+    <br/><code>&gt; nfs_mount.exe Z: nfs.citi.umich.edu:\</code></li>
     <li>You can later unmount with:
-    <br/><span class="code">&gt; nfs_mount.exe -d Z</span></li>
+    <br/><code>&gt; nfs_mount.exe -d Z</code></li>
 </ol>
 <h2>4. <a name="cthon">Connectathon</a></h2>
 <h3>Requirements</h3>
 <ul>
     <li><a href="http://www.cygwin.com" title="www.cygwin.com">Cygwin</a>, including packages gcc-core, make, time, tirpc, git</li>
     <li><a href="http://www.connectathon.org/nfstests.html" title="www.connectathon.org">Connectathon Test Suite</a></li>
-    <li>ms-nfs41-client source code (patches for connectathon are located in <span class="filename">ms-nfs41-client\tests</span>)</li>
+    <li>ms-nfs41-client source code (patches for connectathon are located in <strong>ms-nfs41-client\tests</strong>)</li>
 </ul>
 <h3>Instructions</h3>
 <ol>
-    <li>Extract <span class="filename">nfstests.zip</span> into a directory that's convenient for testing (i.e. <span class="filename">cthon04</span>).</li>
-    <li>Open a Cygwin shell, and change directory to <span class="filename">cthon04</span>.</li>
+    <li>Extract <strong>nfstests.zip</strong> into a directory that's convenient for testing (i.e. <strong>cthon04</strong>).</li>
+    <li>Open a Cygwin shell, and change directory to <strong>cthon04</strong>.</li>
     <li>Create a git repository to track changes:
-    <br/><span class="code">&gt; git init</span>
-    <br/><span class="code">&gt; git add *</span>
-    <br/><span class="code">&gt; git commit -m "files from nfstests.zip"</span></li>
+    <br/><code>&gt; git init</code>
+    <br/><code>&gt; git add *</code>
+    <br/><code>&gt; git commit -m "files from nfstests.zip"</code></li>
     <li>Apply all cthon patches:
-    <br/><span class="code">&gt; git am /path/to/ms-nfs41-client/tests/*.patch</span></li>
+    <br/><code>&gt; git am /path/to/ms-nfs41-client/tests/*.patch</code></li>
     <li>Build the tests:
-    <br/><span class="code">&gt; make</span></li>
+    <br/><code>&gt; make</code></li>
     <li>Run the test suite on a mounted directory:
-    <br/><span class="code">&gt; ./runtests -a -t z:/testdir</span></li>
+    <br/><code>&gt; ./runtests -a -t z:/testdir</code></li>
 </ol>
 <h2>5. <a name="issues">Known Issues</a></h2>
 <ul>
