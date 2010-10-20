@@ -1254,18 +1254,11 @@ process_upcall:
         entry = (nfs41_updowncall_entry *)CONTAINING_RECORD(pEntry, 
                     nfs41_updowncall_entry, next);
         ExAcquireFastMutex(&entry->lock);
-        if (entry->state == NFS41_WAITING_FOR_UPCALL) {
-            nfs41_AddEntry(downcallLock, downcall, entry);
-            status = handle_upcall(RxContext, entry, &len);
-            if (status == STATUS_SUCCESS)
-                entry->state = NFS41_WAITING_FOR_DOWNCALL;
-        } else if (entry->state == NFS41_NOT_WAITING) {
-            DbgP("[upcall] Canceling %s upcall entry %p xid %d\n", 
-                opcode2string(entry->opcode), entry, entry->xid);
-            ExReleaseFastMutex(&entry->lock);
-            RxFreePool(entry);
-            goto process_upcall;
-        }
+        nfs41_AddEntry(downcallLock, downcall, entry);
+        status = handle_upcall(RxContext, entry, &len);
+        if (status == STATUS_SUCCESS && 
+                entry->state == NFS41_WAITING_FOR_UPCALL)
+            entry->state = NFS41_WAITING_FOR_DOWNCALL;
         ExReleaseFastMutex(&entry->lock);
         if (status == STATUS_INSUFFICIENT_RESOURCES) {
             DbgP("upcall buffer is too small\n");
