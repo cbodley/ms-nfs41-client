@@ -63,7 +63,8 @@ int handle_mount(nfs41_upcall *upcall)
         goto out;
     }
     // create root
-    status = nfs41_root_create(NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
+    status = nfs41_root_create(args->hostname,
+        NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
         NFS41_MAX_FILEIO_SIZE + READ_OVERHEAD, &root);
     if (status) {
         eprintf("nfs41_rpc_clnt_create failed %d\n", status);

@@ -37,6 +37,7 @@
 
 /* nfs41_root */
 int nfs41_root_create(
+    IN const char *name,
     IN uint32_t wsize,
     IN uint32_t rsize,
     OUT nfs41_root **root_out)
@@ -58,7 +59,7 @@ int nfs41_root_create(
     InitializeCriticalSection(&root->lock);
 
     /* generate a unique client_owner */
-    status = nfs41_client_owner(&root->client_owner);
+    status = nfs41_client_owner(name, &root->client_owner);
     if (status) {
         eprintf("nfs41_client_owner() failed with %d\n", status);
         goto out;

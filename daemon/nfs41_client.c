@@ -379,6 +379,7 @@ out:
 }
 
 int nfs41_client_owner(
+    IN const char *name,
     OUT client_owner4 *owner)
 {
     HCRYPTPROV context;
@@ -403,6 +404,12 @@ int nfs41_client_owner(
         status = GetLastError();
         eprintf("CryptCreateHash() failed with %d\n", status);
         goto out_context;
+    }
+
+    if (!CryptHashData(hash, (const BYTE*)name, (DWORD)strlen(name), 0)) {
+        status = GetLastError();
+        eprintf("CryptHashData() failed with %d\n", status);
+        goto out_hash;
     }
 
     /* add the mac address from each applicable adapter to the hash */
