@@ -51,8 +51,8 @@ int nfs41_exchange_id(
     nfs_resop4 resop;
 
     /* set compound_args.tag, compound_args.tag_len */
-    compound_args.tag_len = 8;
-    memcpy(compound_args.tag, "ms-nfs41", 8);
+    compound_args.tag_len = 11;
+    memcpy(compound_args.tag, "exchange_id", 11);
     compound_args.minorversion = 1;
     compound_args.argarray_count = 1;
     compound_args.argarray = &argop;
@@ -126,8 +126,8 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session)
 
     dprintf(2, "nfs41_create_session begin\n");
     /* set compound_args.tag, compound_args.tag_len */
-    compound_args.tag_len = 8;
-    memcpy(compound_args.tag, "ms-nfs41", 8);
+    compound_args.tag_len = 14;
+    memcpy(compound_args.tag, "create_session", 14);
     compound_args.minorversion = 1;
     compound_args.argarray_count = 1;
     compound_args.argarray = &argop;
@@ -213,7 +213,7 @@ enum nfsstat4 nfs41_bind_conn_to_session(
     nfs41_bind_conn_to_session_args bind_args;
     nfs41_bind_conn_to_session_res bind_res;
 
-    compound_init(&compound, &argop, &resop);
+    compound_init(&compound, &argop, &resop, "bind_conn_to_session");
 
     compound_add_op(&compound, OP_BIND_CONN_TO_SESSION, &bind_args, &bind_res);
     bind_args.sessionid = (unsigned char *)sessionid;
@@ -241,7 +241,7 @@ int nfs41_destroy_session(
     nfs41_destroy_session_args ds_args;
     nfs41_destroy_session_res ds_res;
 
-    compound_init(&compound, &argop, &resop);
+    compound_init(&compound, &argop, &resop, "destroy_session");
 
     compound_add_op(&compound, OP_DESTROY_SESSION, &ds_args, &ds_res);
     ds_args.dsa_sessionid = session->session_id;
@@ -269,7 +269,7 @@ enum nfsstat4 nfs41_reclaim_complete(
     nfs41_sequence_res sequence_res;
     nfs41_reclaim_complete_res reclaim_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "reclaim_complete");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -317,7 +317,7 @@ int nfs41_open(
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_FSID | FATTR4_WORD0_FILEID;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "open");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -436,7 +436,7 @@ int nfs41_create(
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_FILEID;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "create");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -526,7 +526,7 @@ int nfs41_close(
 
     init_getattr_request(&attr_request);
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "close");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -590,7 +590,7 @@ int nfs41_write(
 
     init_getattr_request(&attr_request);
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "write");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -667,7 +667,7 @@ int nfs41_read(
     nfs41_read_args read_args;
     nfs41_read_res read_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "read");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -728,7 +728,7 @@ int nfs41_commit(
     bitmap4 attr_request;
     nfs41_file_info info;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "commit");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -792,7 +792,7 @@ int nfs41_lock(
     nfs41_lock_args lock_args;
     nfs41_lock_res lock_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "lock");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -849,7 +849,7 @@ int nfs41_test_lock(
     nfs41_lockt_args lockt_args;
     nfs41_lockt_res lockt_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "test_lock");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -894,7 +894,7 @@ int nfs41_unlock(
     nfs41_locku_args locku_args;
     nfs41_locku_res locku_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "unlock");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -942,7 +942,7 @@ int nfs41_readdir(
     nfs41_readdir_args readdir_args;
     nfs41_readdir_res readdir_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "readdir");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1006,7 +1006,7 @@ int nfs41_getattr(
     nfs41_getattr_args getattr_args;
     nfs41_getattr_res getattr_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "getattr");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1066,7 +1066,7 @@ int nfs41_remove(
 
     init_getattr_request(&attr_request);
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "remove");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -1135,7 +1135,7 @@ int nfs41_rename(
 
     init_getattr_request(&attr_request);
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "rename");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -1230,7 +1230,7 @@ int nfs41_setattr(
     nfs41_setattr_args setattr_args;
     nfs41_setattr_res setattr_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "setattr");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1294,7 +1294,7 @@ int nfs41_link(
     init_getattr_request(&info[1].attrmask);
     info[1].attrmask.arr[0] |= FATTR4_WORD0_FILEID | FATTR4_WORD0_FSID;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "link");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
@@ -1385,7 +1385,7 @@ int nfs41_readlink(
     nfs41_putfh_res putfh_res;
     nfs41_readlink_res readlink_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "readlink");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1431,7 +1431,7 @@ int nfs41_access(
     nfs41_access_args access_args;
     nfs41_access_res access_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "access");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1470,7 +1470,7 @@ int nfs41_send_sequence(
     nfs41_sequence_args sequence_args;
     nfs41_sequence_res sequence_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "sequence");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1503,7 +1503,7 @@ int nfs41_delegreturn(
     nfs41_delegreturn_args dr_args;
     nfs41_delegreturn_res dr_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "delegreturn");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1547,7 +1547,7 @@ enum nfsstat4 nfs41_fs_locations(
     bitmap4 attr_request = { 1, { FATTR4_WORD0_FS_LOCATIONS } };
     nfs41_file_info info;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "fs_locations");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1597,7 +1597,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     pnfs_layoutget_res layoutget_res;
     uint32_t i;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "layoutget");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1658,7 +1658,7 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
 
     init_getattr_request(&attr_request);
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "layoutcommit");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1713,7 +1713,7 @@ enum nfsstat4 pnfs_rpc_layoutreturn(
     pnfs_layoutreturn_args layoutreturn_args;
     pnfs_layoutreturn_res layoutreturn_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "layoutreturn");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -1766,7 +1766,7 @@ enum nfsstat4 pnfs_rpc_getdeviceinfo(
     pnfs_getdeviceinfo_args getdeviceinfo_args;
     pnfs_getdeviceinfo_res getdeviceinfo_res;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "get_deviceinfo");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);

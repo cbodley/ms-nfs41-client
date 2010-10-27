@@ -130,7 +130,7 @@ static int lookup_rpc(
     nfs_argop4 argops[4+MAX_LOOKUP_COMPONENTS*3];
     nfs_resop4 resops[4+MAX_LOOKUP_COMPONENTS*3];
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "lookup");
 
     compound_add_op(&compound, OP_SEQUENCE, &args->sequence, &res->sequence);
     status = nfs41_session_sequence(&args->sequence, session, 0);

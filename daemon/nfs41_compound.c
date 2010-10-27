@@ -42,10 +42,11 @@ int compound_error(int status)
 
 static void compound_args_init(
     nfs41_compound_args *compound,
-    nfs_argop4 *argarray)
+    nfs_argop4 *argarray,
+    const char *tag)
 {
-    compound->tag_len = 8;
-    memcpy(compound->tag, "ms-nfs41", 8);
+    compound->tag_len = (uint32_t)strlen(tag);
+    memcpy(compound->tag, tag, compound->tag_len);
     compound->minorversion = 1;
     compound->argarray_count = 0;
     compound->argarray = argarray;
@@ -81,9 +82,10 @@ static void compound_res_add_op(
 void compound_init(
     nfs41_compound *compound,
     nfs_argop4 *argops,
-    nfs_resop4 *resops)
+    nfs_resop4 *resops,
+    const char *tag)
 {
-    compound_args_init(&compound->args, argops);
+    compound_args_init(&compound->args, argops, tag);
     compound_res_init(&compound->res, resops);
 }
 

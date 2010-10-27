@@ -1172,7 +1172,7 @@ static int rpc_array_putfh(
 
     *valid_out = 0;
 
-    compound_init(&compound, argops, resops);
+    compound_init(&compound, argops, resops, "array_putfh");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
