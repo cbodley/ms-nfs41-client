@@ -33,7 +33,8 @@
 #include "daemon_debug.h"
 
 
-int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+/* NFS41_FILE_SET */
+static int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     setattr_upcall_args *args = &upcall->args.setattr;
@@ -339,7 +340,7 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
     return status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
 }
 
-int handle_nfs41_link(setattr_upcall_args *args)
+static int handle_nfs41_link(setattr_upcall_args *args)
 {
     nfs41_open_state *state = args->state;
     PFILE_LINK_INFORMATION link = (PFILE_LINK_INFORMATION)args->buf;
@@ -432,7 +433,7 @@ out:
     return status;
 }
 
-int handle_setattr(nfs41_upcall *upcall)
+static int handle_setattr(nfs41_upcall *upcall)
 {
     setattr_upcall_args *args = &upcall->args.setattr;
     nfs41_open_state *state = args->state;
@@ -489,12 +490,9 @@ out:
     return status;
 }
 
-int marshall_setattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
-{
-    return NO_ERROR;
-}
 
-int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+/* NFS41_EA_SET */
+static int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     setexattr_upcall_args *args = &upcall->args.setexattr;
@@ -512,7 +510,7 @@ out:
     return status;
 }
 
-int handle_setexattr(nfs41_upcall *upcall)
+static int handle_setexattr(nfs41_upcall *upcall)
 {
     int status;
     setexattr_upcall_args *args = &upcall->args.setexattr;
@@ -539,7 +537,12 @@ int handle_setexattr(nfs41_upcall *upcall)
     return nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
 }
 
-int marshall_setexattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
-{
-    return NO_ERROR;
-}
+
+const nfs41_upcall_op nfs41_op_setattr = {
+    parse_setattr,
+    handle_setattr
+};
+const nfs41_upcall_op nfs41_op_setexattr = {
+    parse_setexattr,
+    handle_setexattr
+};

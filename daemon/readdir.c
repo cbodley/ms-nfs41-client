@@ -43,7 +43,7 @@ typedef union _FILE_DIR_INFO_UNION {
 
 
 /* NFS41_DIR_QUERY */
-int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     readdir_upcall_args *args = &upcall->args.readdir;
@@ -372,7 +372,7 @@ out:
 #define COOKIE_DOT      ((uint64_t)-2)
 #define COOKIE_DOTDOT   ((uint64_t)-1)
 
-int readdir_add_dots(
+static int readdir_add_dots(
     IN readdir_upcall_args *args,
     IN OUT unsigned char *entry_buf,
     IN uint32_t entry_buf_len,
@@ -453,7 +453,7 @@ out:
     return status;
 }
 
-int handle_readdir(nfs41_upcall *upcall)
+static int handle_readdir(nfs41_upcall *upcall)
 {
     int status;
     readdir_upcall_args *args = &upcall->args.readdir;
@@ -649,7 +649,7 @@ out_free_cookie:
     goto out_free_entry;
 }
 
-int marshall_readdir(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_readdir(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status;
     readdir_upcall_args *args = &upcall->args.readdir;
@@ -661,3 +661,10 @@ out:
     free(args->buf);
     return status;
 }
+
+
+const nfs41_upcall_op nfs41_op_readdir = {
+    parse_readdir,
+    handle_readdir,
+    marshall_readdir
+};

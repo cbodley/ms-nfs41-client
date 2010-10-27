@@ -183,13 +183,15 @@ typedef struct __nfs41_upcall {
 typedef int (*upcall_parse_proc)(unsigned char*, uint32_t, nfs41_upcall*);
 typedef int (*upcall_handle_proc)(nfs41_upcall*);
 typedef int (*upcall_marshall_proc)(unsigned char*, uint32_t*, nfs41_upcall*);
-typedef int (*upcall_cancel_proc)(nfs41_upcall*);
+typedef void (*upcall_cancel_proc)(nfs41_upcall*);
+typedef void (*upcall_cleanup_proc)(nfs41_upcall*);
 
 typedef struct __nfs41_upcall_op {
     upcall_parse_proc       parse;
     upcall_handle_proc      handle;
     upcall_marshall_proc    marshall;
     upcall_cancel_proc      cancel;
+    upcall_cleanup_proc     cleanup;
 } nfs41_upcall_op;
 
 
@@ -208,7 +210,10 @@ int upcall_marshall(
     IN uint32_t length,
     OUT uint32_t *length_out);
 
-int upcall_cancel(
+void upcall_cancel(
+    IN nfs41_upcall *upcall);
+
+void upcall_cleanup(
     IN nfs41_upcall *upcall);
 
 #endif /* !__NFS41_DAEMON_UPCALL_H__ */

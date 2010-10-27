@@ -87,7 +87,7 @@ static void update_last_lock_state(
 
 
 /* NFS41_LOCK */
-int parse_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     lock_upcall_args *args = &upcall->args.lock;
@@ -120,7 +120,7 @@ static __inline uint32_t get_lock_type(BOOLEAN exclusive, BOOLEAN blocking)
         : ( exclusive == 0 ? READW_LT : WRITEW_LT );
 }
 
-int handle_lock(nfs41_upcall *upcall)
+static int handle_lock(nfs41_upcall *upcall)
 {
     int status;
     lock_upcall_args *args = &upcall->args.lock;
@@ -144,12 +144,7 @@ out:
     return status;
 }
 
-int marshall_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
-{
-    return NO_ERROR;
-}
-
-int cancel_lock(IN nfs41_upcall *upcall)
+static void cancel_lock(IN nfs41_upcall *upcall)
 {
     int status = NO_ERROR;
     lock_upcall_args *args = &upcall->args.lock;
@@ -175,12 +170,11 @@ int cancel_lock(IN nfs41_upcall *upcall)
     update_last_lock_state(&state->last_lock, &stateid);
 out:
     dprintf(1, "<-- cancel_lock() returning %d\n", status);
-    return status;
 }
 
 
 /* NFS41_UNLOCK */
-int parse_unlock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_unlock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     unlock_upcall_args *args = &upcall->args.unlock;
@@ -201,7 +195,7 @@ out:
     return status;
 }
 
-int handle_unlock(nfs41_upcall *upcall)
+static int handle_unlock(nfs41_upcall *upcall)
 {
     int status;
     unlock_upcall_args *args = &upcall->args.unlock;
@@ -242,7 +236,14 @@ out:
     return status;
 }
 
-int marshall_unlock(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
-{
-    return NO_ERROR;
-}
+
+const nfs41_upcall_op nfs41_op_lock = {
+    parse_lock,
+    handle_lock,
+    NULL,
+    cancel_lock
+};
+const nfs41_upcall_op nfs41_op_unlock = {
+    parse_unlock,
+    handle_unlock
+};

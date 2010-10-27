@@ -41,7 +41,8 @@
 #define TO_UNITS(bytes) (bytes / BYTES_PER_UNIT)
 
 
-int parse_volume(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+/* NFS41_VOLUME_QUERY */
+static int parse_volume(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     volume_upcall_args *args = &upcall->args.volume;
@@ -127,7 +128,7 @@ out:
     return status;
 }
 
-int handle_volume(nfs41_upcall *upcall)
+static int handle_volume(nfs41_upcall *upcall)
 {
     volume_upcall_args *args = &upcall->args.volume;
     nfs41_session *session = nfs41_root_session(args->root);
@@ -168,7 +169,7 @@ int handle_volume(nfs41_upcall *upcall)
     return status;
 }
 
-int marshall_volume(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_volume(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status;
     volume_upcall_args *args = &upcall->args.volume;
@@ -179,3 +180,10 @@ int marshall_volume(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcal
 out:
     return status;
 }
+
+
+const nfs41_upcall_op nfs41_op_volume = {
+    parse_volume,
+    handle_volume,
+    marshall_volume
+};

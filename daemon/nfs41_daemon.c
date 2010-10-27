@@ -125,9 +125,9 @@ write_downcall:
         if (!status) {
             eprintf("IOCTL_NFS41_WRITE failed with %d xid=%d opcode=%s\n", 
                 GetLastError(), upcall.xid, opcode2string(upcall.opcode));
-            status = upcall_cancel(&upcall);
-            continue;
+            upcall_cancel(&upcall);
         }
+        upcall_cleanup(&upcall);
     }
     CloseHandle(pipe);
 

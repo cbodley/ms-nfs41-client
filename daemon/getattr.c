@@ -57,7 +57,8 @@ int nfs41_cached_getattr(
     return status;
 }
 
-int parse_getattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+/* NFS41_FILE_QUERY */
+static int parse_getattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     getattr_upcall_args *args = &upcall->args.getattr;
@@ -78,7 +79,7 @@ out:
     return status;
 }
 
-int handle_getattr(nfs41_upcall *upcall)
+static int handle_getattr(nfs41_upcall *upcall)
 {
     int status;
     getattr_upcall_args *args = &upcall->args.getattr;
@@ -122,7 +123,7 @@ out:
     return status;
 }
 
-int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status;
     getattr_upcall_args *args = &upcall->args.getattr;
@@ -158,3 +159,10 @@ int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upca
 out:
     return status;
 }
+
+
+const nfs41_upcall_op nfs41_op_getattr = {
+    parse_getattr,
+    handle_getattr,
+    marshall_getattr
+};

@@ -30,8 +30,9 @@
 #include "upcall.h"
 #include "util.h"
 
+
 /* NFS41_MOUNT */
-int parse_mount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall) 
+static int parse_mount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall) 
 {
     int status;
     mount_upcall_args *args = &upcall->args.mount;
@@ -47,7 +48,7 @@ out:
     return status;
 }
 
-int handle_mount(nfs41_upcall *upcall)
+static int handle_mount(nfs41_upcall *upcall)
 {
     int status;
     mount_upcall_args *args = &upcall->args.mount;
@@ -103,16 +104,22 @@ out_err:
     goto out;
 }
 
-int marshall_mount(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_mount(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     mount_upcall_args *args = &upcall->args.mount;
     dprintf(2, "NFS41_MOUNT: writing pointer to nfs41_root %p\n", args->root);
     return safe_write(&buffer, length, &args->root, sizeof(args->root));
 }
 
+const nfs41_upcall_op nfs41_op_mount = {
+    parse_mount,
+    handle_mount,
+    marshall_mount
+};
+
 
 /* NFS41_UNMOUNT */
-int parse_unmount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall) 
+static int parse_unmount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall) 
 {
     int status;
     unmount_upcall_args *args = &upcall->args.unmount;
@@ -125,7 +132,7 @@ out:
     return status;
 }
 
-int handle_unmount(nfs41_upcall *upcall)
+static int handle_unmount(nfs41_upcall *upcall)
 {
     int status = NO_ERROR;
     unmount_upcall_args *args = &upcall->args.unmount;
@@ -133,7 +140,7 @@ int handle_unmount(nfs41_upcall *upcall)
     return status;
 }
 
-int marshall_unmount(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
-{
-    return NO_ERROR;
-}
+const nfs41_upcall_op nfs41_op_unmount = {
+    parse_unmount,
+    handle_unmount
+};

@@ -30,10 +30,11 @@
 #include "daemon_debug.h"
 #include "util.h"
 
+
 stateid4 special_read_stateid = {0xffffffff, 
     {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
 
-int parse_rw(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_rw(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     readwrite_upcall_args *args = &upcall->args.rw;
@@ -144,7 +145,7 @@ out:
     return status;
 }
 
-int handle_read(nfs41_upcall *upcall)
+static int handle_read(nfs41_upcall *upcall)
 {
     stateid4 stateid, *pstateid;
     readwrite_upcall_args *args = &upcall->args.rw;
@@ -180,6 +181,7 @@ int handle_read(nfs41_upcall *upcall)
 out:
     return status;
 }
+
 
 /* NFS41_WRITE */
 static int write_to_mds(
@@ -267,7 +269,7 @@ out:
     return status;
 }
 
-int handle_write(nfs41_upcall *upcall)
+static int handle_write(nfs41_upcall *upcall)
 {
     stateid4 stateid, *pstateid = NULL;
     readwrite_upcall_args *args = &upcall->args.rw;
@@ -304,8 +306,20 @@ out:
     return status;
 }
 
-int marshall_rw(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_rw(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     readwrite_upcall_args *args = &upcall->args.rw;
     return safe_write(&buffer, length, &args->out_len, sizeof(args->out_len));
 }
+
+
+const nfs41_upcall_op nfs41_op_read = {
+    parse_rw,
+    handle_read,
+    marshall_rw
+};
+const nfs41_upcall_op nfs41_op_write = {
+    parse_rw,
+    handle_write,
+    marshall_rw
+};

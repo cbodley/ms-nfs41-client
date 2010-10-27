@@ -81,7 +81,7 @@ static void free_open_state(
 
 
 /* NFS41_OPEN */
-int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     open_upcall_args *args = &upcall->args.open;
@@ -212,7 +212,7 @@ static int check_execute_access(nfs41_open_state *state)
     return status;
 }
 
-int handle_open(nfs41_upcall *upcall)
+static int handle_open(nfs41_upcall *upcall)
 {
     int status = 0;
     open_upcall_args *args = &upcall->args.open;
@@ -402,7 +402,7 @@ out_free_state:
     goto out;
 }
 
-int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status;
     open_upcall_args *args = &upcall->args.open;
@@ -437,7 +437,7 @@ out:
     return status;
 }
 
-int cancel_open(IN nfs41_upcall *upcall)
+static void cancel_open(IN nfs41_upcall *upcall)
 {
     int status = NFS4_OK;
     open_upcall_args *args = &upcall->args.open;
@@ -465,12 +465,11 @@ int cancel_open(IN nfs41_upcall *upcall)
 out:
     status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
     dprintf(1, "<-- cancel_open() returning %d\n", status);
-    return status;
 }
 
 
 /* NFS41_CLOSE */
-int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     int status;
     close_upcall_args *args = &upcall->args.close;
@@ -496,7 +495,7 @@ out:
     return status;
 }
 
-int handle_close(nfs41_upcall *upcall)
+static int handle_close(nfs41_upcall *upcall)
 {
     int status = NFS4_OK, rm_status = NFS4_OK;
     close_upcall_args *args = &upcall->args.close;
@@ -539,7 +538,14 @@ int handle_close(nfs41_upcall *upcall)
         return rm_status;
 }
 
-int marshall_close(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
-{
-    return NO_ERROR;
-}
+
+const nfs41_upcall_op nfs41_op_open = {
+    parse_open,
+    handle_open,
+    marshall_open,
+    cancel_open
+};
+const nfs41_upcall_op nfs41_op_close = {
+    parse_close,
+    handle_close
+};

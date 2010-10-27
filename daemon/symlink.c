@@ -190,7 +190,7 @@ out:
 
 
 /* NFS41_SYMLINK */
-int parse_symlink(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+static int parse_symlink(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
     symlink_upcall_args *args = &upcall->args.symlink;
     int status;
@@ -226,7 +226,7 @@ static int map_symlink_errors(int status)
     }
 }
 
-int handle_symlink(nfs41_upcall *upcall)
+static int handle_symlink(nfs41_upcall *upcall)
 {
     symlink_upcall_args *args = &upcall->args.symlink;
     nfs41_open_state *state = args->state;
@@ -274,7 +274,7 @@ out:
     return status;
 }
 
-int marshall_symlink(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+static int marshall_symlink(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     symlink_upcall_args *args = &upcall->args.symlink;
     unsigned short len = (args->target_get.len + 1) * sizeof(WCHAR);
@@ -295,3 +295,10 @@ int marshall_symlink(unsigned char *buffer, uint32_t *length, nfs41_upcall *upca
 out:
     return status;
 }
+
+
+const nfs41_upcall_op nfs41_op_symlink = {
+    parse_symlink,
+    handle_symlink,
+    marshall_symlink
+};
