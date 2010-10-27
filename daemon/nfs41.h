@@ -72,6 +72,12 @@ typedef struct __nfs41_lock_state {
     SRWLOCK lock;
 } nfs41_lock_state;
 
+/* nfs41_open_state reference counting:
+ * one reference is held implicitly by the driver (initialized to 1 on
+ * OPEN and released on CLOSE). other references must be held during
+ * upcalls to prevent a parallel CLOSE from freeing it prematurely. by
+ * calling upcall_open_state_ref() when parsing the upcall, you are
+ * guaranteed a matching dereference on upcall_cleanup() */
 typedef struct __nfs41_open_state {
     nfs41_abs_path path;
     nfs41_path_fh parent;
@@ -85,6 +91,7 @@ typedef struct __nfs41_open_state {
     nfs41_lock_state last_lock;
     struct __pnfs_file_layout *layout;
     SRWLOCK lock;
+    LONG ref_count;
 } nfs41_open_state;
 
 typedef struct __nfs41_rpc_clnt {
@@ -354,5 +361,13 @@ static __inline netaddr4* nfs41_rpc_netaddr(
 }
 
 bool_t nfs41_renew_in_progress(nfs41_client *client, bool_t *value);
+
+
+/* open.c */
+void nfs41_open_state_ref(
+    IN nfs41_open_state *state);
+
+void nfs41_open_state_deref(
+    IN nfs41_open_state *state);
 
 #endif /* __NFS41__ */

@@ -56,6 +56,7 @@ static int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     if (status) goto out_free;
     status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
     if (status) goto out_free;
+    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
     if (status) goto out_free;
     status = safe_read(&buffer, &length, &args->access_mask, sizeof(ULONG));
@@ -501,6 +502,7 @@ static int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall 
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
     if (status) goto out;
+    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->mode, sizeof(args->mode));
     if (status) goto out;
 

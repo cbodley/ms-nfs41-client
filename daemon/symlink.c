@@ -199,6 +199,7 @@ static int parse_symlink(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->state, sizeof(nfs41_open_state *));
     if (status) goto out;
+    upcall_open_state_ref(upcall, args->state);
     status = get_name(&buffer, &length, &args->path);
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->set, sizeof(BOOLEAN));

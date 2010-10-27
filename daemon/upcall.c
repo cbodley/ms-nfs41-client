@@ -181,4 +181,9 @@ void upcall_cleanup(
     const nfs41_upcall_op *op = g_upcall_op_table[upcall->opcode];
     if (op && op->cleanup)
         op->cleanup(upcall);
+
+    if (upcall->state_ref) {
+        nfs41_open_state_deref(upcall->state_ref);
+        upcall->state_ref = NULL;
+    }
 }

@@ -61,6 +61,7 @@ static int create_open_state(
         "%u", open_owner_id);
     state->owner.owner_len = (uint32_t)strlen(
         (const char*)state->owner.owner);
+    state->ref_count = 1;
 
     *state_out = state;
     status = NO_ERROR;
@@ -73,10 +74,30 @@ out_free:
 }
 
 static void free_open_state(
-    IN nfs41_session *session,
     IN nfs41_open_state *state)
 {
     free(state);
+}
+
+
+void nfs41_open_state_ref(
+    IN nfs41_open_state *state)
+{
+    const LONG count = InterlockedIncrement(&state->ref_count);
+
+    dprintf(2, "nfs41_open_state_ref(%s) count %d\n",
+        state->path.path, count);
+}
+
+void nfs41_open_state_deref(
+    IN nfs41_open_state *state)
+{
+    const LONG count = InterlockedDecrement(&state->ref_count);
+
+    dprintf(2, "nfs41_open_state_deref(%s) count %d\n",
+        state->path.path, count);
+    if (count == 0)
+        free_open_state(state);
 }
 
 
@@ -398,7 +419,7 @@ static int handle_open(nfs41_upcall *upcall)
 out:
     return status;
 out_free_state:
-    free(state);
+    nfs41_open_state_deref(state);
     goto out;
 }
 
@@ -461,7 +482,7 @@ static void cancel_open(IN nfs41_upcall *upcall)
                 nfs_error_string(status));
     }
 
-    free_open_state(state->session, state);
+    nfs41_open_state_deref(state);
 out:
     status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
     dprintf(1, "<-- cancel_open() returning %d\n", status);
@@ -531,11 +552,18 @@ static int handle_close(nfs41_upcall *upcall)
         }
     }
 
-    free_open_state(state->session, state);
     if (status || !rm_status)
         return status;
     else
         return rm_status;
+}
+
+static void cleanup_close(nfs41_upcall *upcall)
+{
+    close_upcall_args *args = &upcall->args.close;
+
+    /* release the initial reference from create_open_state() */
+    nfs41_open_state_deref(args->state);
 }
 
 
@@ -547,5 +575,8 @@ const nfs41_upcall_op nfs41_op_open = {
 };
 const nfs41_upcall_op nfs41_op_close = {
     parse_close,
-    handle_close
+    handle_close,
+    NULL,
+    NULL,
+    cleanup_close
 };

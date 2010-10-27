@@ -176,6 +176,11 @@ typedef struct __nfs41_upcall {
     uint32_t                status;
     uint32_t                last_error;
     upcall_args             args;
+
+    /* store referenced pointers with the upcall for
+     * automatic dereferencing on upcall_cleanup();
+     * see upcall_root_ref() and upcall_open_state_ref() */
+    nfs41_open_state        *state_ref;
 } nfs41_upcall;
 
 
@@ -215,5 +220,14 @@ void upcall_cancel(
 
 void upcall_cleanup(
     IN nfs41_upcall *upcall);
+
+
+static __inline void upcall_open_state_ref(
+    IN nfs41_upcall *upcall,
+    IN nfs41_open_state *state)
+{
+    nfs41_open_state_ref(state);
+    upcall->state_ref = state;
+}
 
 #endif /* !__NFS41_DAEMON_UPCALL_H__ */
