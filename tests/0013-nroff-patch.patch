@@ -1,0 +1,26 @@
+From 343a7ad0eae100b833f2aeed5ca2406427304254 Mon Sep 17 00:00:00 2001
+From: Olga Kornievskaia <aglo@citi.umich.edu>
+Date: Wed, 13 Oct 2010 19:45:31 -0400
+Subject: [PATCH 2/3] nroff patch
+
+---
+ general/runtests.wrk |    3 +++
+ 1 files changed, 3 insertions(+), 0 deletions(-)
+
+diff --git a/general/runtests.wrk b/general/runtests.wrk
+index 83f3124..9dda456 100644
+--- a/general/runtests.wrk
++++ b/general/runtests.wrk
+@@ -89,6 +89,9 @@ $TIME nroff < nroff.tbl > nroff.out 2>> nroff.time || cat nroff.time
+ $TIME nroff < nroff.tbl > nroff.out 2>> nroff.time || cat nroff.time
+ rm nroff.out nroff.tbl
+ set -e
++#remove nroff warnings from nroff.time
++egrep -v '^warning:.*$' <nroff.time >nroff.new
++mv -f nroff.new nroff.time
+ ./stat.exe nroff.time
+ set +e
+ 
+-- 
+1.6.4.msysgit.0
+

@@ -1,0 +1,51 @@
+From 5d35b0e608f386be69b9c7a2f4e136a892d9f0bb Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@citi.umich.edu>
+Date: Wed, 27 Oct 2010 12:57:37 -0400
+Subject: [PATCH] cthon: enabled basic test4a, 5a, 5b, and 7a
+
+---
+ basic/runtests |   16 ++++++++--------
+ 1 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/basic/runtests b/basic/runtests
+index 0b2f205..9567e1a 100644
+--- a/basic/runtests
++++ b/basic/runtests
+@@ -39,17 +39,17 @@ echo ""
+ echo ""
+ ./test4 $TESTARG
+ # Getattr and lookup tests
+-# echo ""
+-# ./test4a $TESTARG
++echo ""
++./test4a $TESTARG
+ 
+ # Write and read tests
+ echo ""
+ ./test5 $TESTARG
+ # Test 5a and 5b separate out the read and write tests into simpler components.
+-# echo ""
+-# ./test5a $TESTARG
+-# echo ""
+-# ./test5b $TESTARG
++echo ""
++./test5a $TESTARG
++echo ""
++./test5b $TESTARG
+ 
+ # Read Directory test
+ echo ""
+@@ -64,8 +64,8 @@ else
+ 	./test7a $TESTARG
+ fi
+ # Link Test
+-# echo ""
+-# ./test7b $TESTARG
++echo ""
++./test7b $TESTARG
+ 
+ # Symlink and readlink test
+ echo ""
+-- 
+1.6.4.msysgit.0
+

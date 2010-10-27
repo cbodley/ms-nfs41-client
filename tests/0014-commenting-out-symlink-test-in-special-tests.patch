@@ -1,0 +1,35 @@
+From cf3f18a335525c4da01c85d58b46653e9c7605ec Mon Sep 17 00:00:00 2001
+From: Olga Kornievskaia <aglo@citi.umich.edu>
+Date: Thu, 14 Oct 2010 11:29:28 -0400
+Subject: [PATCH 3/3] commenting out symlink test in special tests
+
+---
+ special/runtests.wrk |   12 ++++++------
+ 1 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/special/runtests.wrk b/special/runtests.wrk
+index 9543761..bd528c2 100644
+--- a/special/runtests.wrk
++++ b/special/runtests.wrk
+@@ -64,12 +64,12 @@ echo ""
+ echo "test holey file support"
+ ./holey
+ 
+-if [ "$HARDLINKS"o != no ]
+-then
+-	echo ""
+-	echo "second check for lost reply on non-idempotent requests"
+-	./nfsidem 50 testdir
+-fi
++#if [ "$HARDLINKS"o != no ]
++#then
++#	echo ""
++#	echo "second check for lost reply on non-idempotent requests"
++#	./nfsidem 50 testdir
++#fi
+ 
+ echo ""
+ echo "test rewind support"
+-- 
+1.6.4.msysgit.0
+
