@@ -76,6 +76,7 @@ typedef struct __nfs41_open_state {
     nfs41_abs_path path;
     nfs41_path_fh parent;
     nfs41_path_fh file;
+    nfs41_readdir_cookie cookie;
     struct __nfs41_session *session;
     uint32_t type;
     bool_t do_close;

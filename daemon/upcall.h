@@ -123,7 +123,6 @@ typedef struct __setexattr_upcall_args {
 
 typedef struct __readdir_upcall_args {
     const char *filter;
-    nfs41_readdir_cookie *cookie;
     nfs41_root *root;
     nfs41_open_state *state;
     unsigned char *buf;

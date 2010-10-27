@@ -173,7 +173,6 @@ typedef struct _updowncall_entry {
             BOOLEAN renamed;
         } Close;
         struct {
-            HANDLE readdir_cookie;
             HANDLE open_state;
             HANDLE session;
             PUNICODE_STRING filter;
@@ -330,7 +329,6 @@ typedef struct _NFS41_FOBX {
     NODE_BYTE_SIZE          NodeByteSize;
 
     HANDLE nfs41_open_state;
-    HANDLE nfs41_readdir_cookie;
 } NFS41_FOBX, *PNFS41_FOBX;
 #define NFS41GetFileObjectExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
@@ -812,7 +810,7 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
 
     header_len = *len + 2 * sizeof(ULONG) +
         length_as_ansi(entry->u.QueryFile.filter) +
-        3 * sizeof(BOOLEAN) + 3 * sizeof(HANDLE);
+        3 * sizeof(BOOLEAN) + 2 * sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -833,17 +831,15 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.QueryFile.session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.QueryFile.open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.readdir_cookie, sizeof(HANDLE));
 
     *len = header_len;
 
     DbgP("filter='%wZ' class=%d\n\t1st\\restart\\single=%d\\%d\\%d "
-        "session=0x%x open_state=0x%x readdir_cookie=0x%x\n",
+        "session=0x%x open_state=0x%x\n",
         entry->u.QueryFile.filter, entry->u.QueryFile.InfoClass,
         entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan,
         entry->u.QueryFile.return_single, entry->u.QueryFile.session,
-        entry->u.QueryFile.open_state, entry->u.QueryFile.readdir_cookie);
+        entry->u.QueryFile.open_state);
 out:
     DbgEx();
     return status;
@@ -1424,10 +1420,6 @@ nfs41_downcall (
             }
             cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
             RtlCopyMemory(cur->u.QueryFile.buf, buf, tmp->u.QueryFile.buf_len);
-            if (tmp->opcode == NFS41_DIR_QUERY) {
-                buf += tmp->u.QueryFile.buf_len;
-                RtlCopyMemory(&cur->u.QueryFile.readdir_cookie, buf, sizeof(HANDLE));
-            }
             break;
         case NFS41_SYMLINK:
             if (cur->u.Symlink.set)
@@ -2705,7 +2697,6 @@ NTSTATUS nfs41_Create(
     print_fobx(1, RxContext->pFobx);
     nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     nfs41_fobx->nfs41_open_state = entry->u.Open.open_state;
-    nfs41_fobx->nfs41_readdir_cookie = INVALID_HANDLE_VALUE;
 
     // we get attributes only for data access and file (not directories)
     if (Fcb->OpenCount > 0)
@@ -3074,7 +3065,6 @@ NTSTATUS nfs41_QueryDirectory (
     if (status)
         goto out;
     entry->u.QueryFile.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.QueryFile.readdir_cookie = nfs41_fobx->nfs41_readdir_cookie;
     entry->u.QueryFile.InfoClass = InfoClass;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
@@ -3089,14 +3079,12 @@ NTSTATUS nfs41_QueryDirectory (
         goto out;
     }
 
-    nfs41_fobx->nfs41_readdir_cookie = INVALID_HANDLE_VALUE;
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
         DbgP("ERROR: buffer too small provided %d need %d\n", 
             RxContext->Info.LengthRemaining, entry->u.QueryFile.buf_len);
         RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
-        nfs41_fobx->nfs41_readdir_cookie = entry->u.QueryFile.readdir_cookie;
         RtlCopyMemory(RxContext->Info.Buffer, entry->u.QueryFile.buf, 
             entry->u.QueryFile.buf_len);
         RxContext->Info.LengthRemaining -= entry->u.QueryFile.buf_len;

@@ -64,18 +64,13 @@ int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
     if (status) goto out;
-    status = safe_read(&buffer, &length, &args->cookie, sizeof(args->cookie));
-    if (status) goto out;
-    if (args->cookie == INVALID_HANDLE_VALUE) {
-        dprintf(1, "upcall passing empty cookie\n");
-        args->cookie = NULL;
-    }
+
     dprintf(1, "parsing NFS41_DIR_QUERY: info_class=%d buf_len=%d "
         "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d "
-        "root=0x%p state=0x%p cookie=0x%p\n",
+        "root=0x%p state=0x%p\n",
         args->query_class, args->buf_len, args->filter,
         args->initial, args->restart, args->single,
-        args->root, args->state, args->cookie);
+        args->root, args->state);
 out:
     return status;
 }
@@ -391,7 +386,7 @@ int readdir_add_dots(
 
     *len_out = 0;
     *last_offset = NULL;
-    switch (args->cookie->cookie) {
+    switch (state->cookie.cookie) {
     case 0:
         if (entry_buf_len < entry_len + 2) {
             status = ERROR_BUFFER_OVERFLOW;
@@ -451,9 +446,9 @@ int readdir_add_dots(
         *last_offset = &entry->next_entry_offset;
         break;
     }
-    if (args->cookie->cookie == COOKIE_DOTDOT ||
-        args->cookie->cookie == COOKIE_DOT)
-        ZeroMemory(args->cookie, sizeof(nfs41_readdir_cookie));
+    if (state->cookie.cookie == COOKIE_DOTDOT ||
+        state->cookie.cookie == COOKIE_DOT)
+        ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
 out:
     return status;
 }
@@ -474,26 +469,22 @@ int handle_readdir(nfs41_upcall *upcall)
     args->buf = NULL;
     args->query_reply_len = 0;
 
-    if (args->cookie) { /* cookie exists */
+    if (state->cookie.cookie) { /* cookie exists */
         if (args->restart) {
-            dprintf(1, "restarting; clearing previous cookie (%d %p)\n",
-                args->cookie->cookie, args->cookie);
-            ZeroMemory(args->cookie, sizeof(nfs41_readdir_cookie));
+            dprintf(1, "restarting; clearing previous cookie %llu\n",
+                state->cookie.cookie);
+            ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
         } else if (args->initial) { /* shouldn't happen */
-            dprintf(1, "*** initial; clearing previous cookie (%d %p)!\n",
-                args->cookie->cookie, args->cookie);
-            ZeroMemory(args->cookie, sizeof(nfs41_readdir_cookie));
+            dprintf(1, "*** initial; clearing previous cookie %llu!\n",
+                state->cookie.cookie);
+            ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
         } else
-            dprintf(1, "resuming enumeration with cookie %d.\n",
-                args->cookie->cookie);
+            dprintf(1, "resuming enumeration with cookie %llu.\n",
+                state->cookie.cookie);
     } else { /* cookie is null */
         if (args->initial || args->restart) {
-            dprintf(1, "allocating memory for the 1st readdir cookie\n");
-            args->cookie = calloc(1, sizeof(nfs41_readdir_cookie));
-            if (args->cookie == NULL) {
-                status = GetLastError();
-                goto out;
-            }
+            dprintf(1, "initializing the 1st readdir cookie\n");
+            ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
         } else {
             dprintf(1, "handle_nfs41_readdir: EOF\n");
             status = ERROR_NO_MORE_FILES;
@@ -532,10 +523,10 @@ fetch_entries:
             entry_buf_len = 0;
             eof = 0;
         } else {
-            dprintf(2, "calling nfs41_readdir with cookie %d %p \n",
-                args->cookie->cookie, args->cookie);
+            dprintf(2, "calling nfs41_readdir with cookie %llu\n",
+                state->cookie.cookie);
             status = nfs41_readdir(state->session, &state->file,
-                &attr_request, args->cookie, entry_buf + dots_len,
+                &attr_request, &state->cookie, entry_buf + dots_len,
                 &entry_buf_len, &eof);
             if (status) {
                 dprintf(1, "nfs41_readdir failed with %s\n",
@@ -602,7 +593,7 @@ fetch_entries:
                 last_offset = offset;
                 status = NO_ERROR;
             }
-            args->cookie->cookie = entry->cookie;
+            state->cookie.cookie = entry->cookie;
 
             /* last entry we got from the server */
             if (!entry->next_entry_offset)
@@ -628,7 +619,7 @@ fetch_entries:
         dprintf(1, "we don't need to save a cookie\n");
         goto out_free_cookie;
     } else
-        dprintf(1, "saving cookie %d %p\n", args->cookie->cookie, args->cookie);
+        dprintf(1, "saving cookie %llu\n", state->cookie.cookie);
 
 out_free_entry:
     free(entry_buf);
@@ -654,8 +645,7 @@ out:
     }
     return status;
 out_free_cookie:
-    free(args->cookie);
-    args->cookie = NULL;
+    state->cookie.cookie = 0;
     goto out_free_entry;
 }
 
@@ -667,8 +657,6 @@ int marshall_readdir(unsigned char *buffer, uint32_t *length, nfs41_upcall *upca
     status = safe_write(&buffer, length, &args->query_reply_len, sizeof(args->query_reply_len));
     if (status) goto out;
     status = safe_write(&buffer, length, args->buf, args->query_reply_len);
-    if (status) goto out;
-    status = safe_write(&buffer, length, &args->cookie, sizeof(args->cookie));
 out:
     free(args->buf);
     return status;

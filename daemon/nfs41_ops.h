@@ -643,11 +643,6 @@ typedef struct __nfs41_read_res {
 
 
 /* OP_READDIR */
-typedef struct __nfs41_readdir_cookie {
-    uint64_t                cookie;
-    unsigned char           verf[NFS4_VERIFIER_SIZE];
-} nfs41_readdir_cookie;
-
 typedef struct __nfs41_readdir_args {
     nfs41_readdir_cookie    cookie;
     uint32_t                dircount;

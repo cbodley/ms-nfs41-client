@@ -69,6 +69,11 @@ typedef struct __nfs41_fsid {
     uint64_t        minor;
 } nfs41_fsid;
 
+typedef struct __nfs41_readdir_cookie {
+    uint64_t        cookie;
+    unsigned char   verf[NFS4_VERIFIER_SIZE];
+} nfs41_readdir_cookie;
+
 typedef struct __netaddr4 {
     char            netid[NFS41_NETWORK_ID_LEN+1];
     char            uaddr[NFS41_UNIVERSAL_ADDR_LEN+1];
