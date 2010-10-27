@@ -168,12 +168,18 @@ typedef struct __nfs41_session {
     nfs41_cb_session cb_session;
 } nfs41_session;
 
+/* nfs41_root reference counting:
+ * similar to nfs41_open_state, the driver holds an implicit reference
+ * between MOUNT and UNMOUNT. all other upcalls use upcall_root_ref() on
+ * upcall_parse(), which prevents the root/clients from being freed and
+ * guarantees a matching deref on upcall_cleanup() */
 typedef struct __nfs41_root {
     client_owner4 client_owner;
     CRITICAL_SECTION lock;
     struct list_entry clients;
     uint32_t wsize;
     uint32_t rsize;
+    LONG ref_count;
 } nfs41_root;
 
 
@@ -184,7 +190,10 @@ int nfs41_root_create(
     IN uint32_t rsize,
     OUT nfs41_root **root_out);
 
-void nfs41_root_free(
+void nfs41_root_ref(
+    IN nfs41_root *root);
+
+void nfs41_root_deref(
     IN nfs41_root *root);
 
 int nfs41_root_mount_addrs(

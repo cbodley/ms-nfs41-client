@@ -97,6 +97,7 @@ static int parse_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
+    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->offset, sizeof(LONGLONG));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->length, sizeof(LONGLONG));
@@ -185,6 +186,7 @@ static int parse_unlock(unsigned char *buffer, uint32_t length, nfs41_upcall *up
     upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
+    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->count, sizeof(ULONG));
     if (status) goto out;
 

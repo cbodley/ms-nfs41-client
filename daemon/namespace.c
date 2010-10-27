@@ -57,6 +57,7 @@ int nfs41_root_create(
     root->wsize = wsize;
     root->rsize = rsize;
     InitializeCriticalSection(&root->lock);
+    root->ref_count = 1;
 
     /* generate a unique client_owner */
     status = nfs41_client_owner(name, &root->client_owner);
@@ -71,7 +72,7 @@ out:
     return status;
 }
 
-void nfs41_root_free(
+static void root_free(
     IN nfs41_root *root)
 {
     struct list_entry *entry, *tmp;
@@ -85,6 +86,25 @@ void nfs41_root_free(
 
     dprintf(NSLVL, "<-- nfs41_root_free()\n");
 }
+
+void nfs41_root_ref(
+    IN nfs41_root *root)
+{
+    const LONG count = InterlockedIncrement(&root->ref_count);
+
+    dprintf(2, "nfs41_root_ref() count %d\n", count);
+}
+
+void nfs41_root_deref(
+    IN nfs41_root *root)
+{
+    const LONG count = InterlockedDecrement(&root->ref_count);
+
+    dprintf(2, "nfs41_root_deref() count %d\n", count);
+    if (count == 0)
+        root_free(root);
+}
+
 
 /* root_client_find_addrs() */
 struct cl_addr_info {

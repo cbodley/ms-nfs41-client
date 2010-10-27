@@ -121,6 +121,7 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
+    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(DWORD));
@@ -497,6 +498,7 @@ static int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
 
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
+    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->state, sizeof(nfs41_open_state *));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->remove, sizeof(BOOLEAN));

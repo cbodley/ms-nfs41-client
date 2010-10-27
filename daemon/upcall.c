@@ -186,4 +186,8 @@ void upcall_cleanup(
         nfs41_open_state_deref(upcall->state_ref);
         upcall->state_ref = NULL;
     }
+    if (upcall->root_ref) {
+        nfs41_root_deref(upcall->root_ref);
+        upcall->root_ref = NULL;
+    }
 }

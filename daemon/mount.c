@@ -100,7 +100,7 @@ out:
     return status;
 
 out_err:
-    nfs41_root_free(root);
+    nfs41_root_deref(root);
     goto out;
 }
 
@@ -136,7 +136,8 @@ static int handle_unmount(nfs41_upcall *upcall)
 {
     int status = NO_ERROR;
     unmount_upcall_args *args = &upcall->args.unmount;
-    nfs41_root_free(args->root);
+    /* release the original reference from nfs41_root_create() */
+    nfs41_root_deref(args->root);
     return status;
 }
 

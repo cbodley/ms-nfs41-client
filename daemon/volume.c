@@ -48,6 +48,7 @@ static int parse_volume(unsigned char *buffer, uint32_t length, nfs41_upcall *up
     volume_upcall_args *args = &upcall->args.volume;
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
+    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->query, sizeof(FS_INFORMATION_CLASS));
     if (status) goto out;
 
