@@ -85,8 +85,9 @@ typedef struct _nfs3_attrs {
         DWORD specdata2;
     } rdev;
     LONGLONG fsid, fileid;
-    LARGE_INTEGER atime, mtime, ctime;
+    LONGLONG atime, mtime, ctime;
 } nfs3_attrs;
+LARGE_INTEGER unix_time_diff; //needed to convert windows time to unix
 
 enum ftype3 {
     NF3REG = 1,
@@ -3285,6 +3286,16 @@ void print_nfs3_attrs(nfs3_attrs *attrs)
         attrs->type, attrs->mode, attrs->nlink, attrs->size, attrs->atime,
         attrs->mtime, attrs->ctime);
 }
+
+void file_time_to_nfs_time(
+    IN const PLARGE_INTEGER file_time,
+    OUT LONGLONG *nfs_time)
+{
+    LARGE_INTEGER diff = unix_time_diff;
+    diff.QuadPart = file_time->QuadPart - diff.QuadPart;
+    *nfs_time = diff.QuadPart / 10000000;
+}
+
 void create_nfs3_attrs(nfs3_attrs *attrs, PNFS41_FCB nfs41_fcb)
 {
     RtlZeroMemory(attrs, sizeof(nfs3_attrs));
@@ -3298,9 +3309,9 @@ void create_nfs3_attrs(nfs3_attrs *attrs, PNFS41_FCB nfs41_fcb)
     attrs->nlink = nfs41_fcb->StandardInfo.NumberOfLinks;
     attrs->size.QuadPart = attrs->used.QuadPart = 
         nfs41_fcb->StandardInfo.EndOfFile.QuadPart;
-    attrs->atime.QuadPart = nfs41_fcb->BasicInfo.LastAccessTime.QuadPart;
-    attrs->mtime.QuadPart = nfs41_fcb->BasicInfo.ChangeTime.QuadPart;
-    attrs->ctime.QuadPart = nfs41_fcb->BasicInfo.CreationTime.QuadPart;
+    file_time_to_nfs_time(&nfs41_fcb->BasicInfo.LastAccessTime, &attrs->atime);
+    file_time_to_nfs_time(&nfs41_fcb->BasicInfo.ChangeTime, &attrs->mtime);
+    file_time_to_nfs_time(&nfs41_fcb->BasicInfo.CreationTime, &attrs->ctime);
 }
 
 NTSTATUS nfs41_QueryEaInformation (
@@ -4634,6 +4645,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
     ULONG flags = 0, i;
     UNICODE_STRING dev_name, user_dev_name;
     PNFS41_DEVICE_EXTENSION dev_exts;
+    TIME_FIELDS jan_1_1970 = {1970, 1, 4, 1, 0, 0, 0, 0};
 
     DbgEn();
 
@@ -4698,6 +4710,8 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
 
     for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
         drv->MajorFunction[i] = (PDRIVER_DISPATCH)nfs41_FsdDispatch;
+
+    RtlTimeFieldsToTime(&jan_1_1970, &unix_time_diff);
 
 out_unregister:
     if (status != STATUS_SUCCESS)
