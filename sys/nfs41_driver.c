@@ -4633,7 +4633,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
     ULONG flags = 0, i;
     UNICODE_STRING dev_name, user_dev_name;
     PNFS41_DEVICE_EXTENSION dev_exts;
-    TIME_FIELDS jan_1_1970 = {1970, 1, 4, 1, 0, 0, 0, 0};
+    TIME_FIELDS jan_1_1970 = {1970, 1, 1, 0, 0, 0, 0, 0};
 
     DbgEn();
 
