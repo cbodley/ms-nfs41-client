@@ -31,6 +31,7 @@
 struct __nfs41_session;
 struct __nfs41_client;
 struct __rpc_client;
+struct __nfs41_root;
 
 typedef struct __nfs41_superblock {
     nfs41_fsid fsid;
@@ -123,6 +124,7 @@ typedef struct __nfs41_client {
     struct pnfs_file_device_list *devices;
     struct list_entry root_entry; /* position in nfs41_root.clients */
     HANDLE cond;
+    struct __nfs41_root *root;
     bool_t in_recovery;
 } nfs41_client;
 

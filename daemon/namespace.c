@@ -295,6 +295,7 @@ static int root_client_create(
         eprintf("nfs41_client_create() failed with %d\n", status);
         goto out;
     }
+    client->root = root;
     rpc->client = client;
 
     /* create session (and client takes ownership) */
