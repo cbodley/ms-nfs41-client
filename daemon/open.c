@@ -73,13 +73,6 @@ out_free:
     goto out;
 }
 
-static void free_open_state(
-    IN nfs41_open_state *state)
-{
-    free(state);
-}
-
-
 void nfs41_open_state_ref(
     IN nfs41_open_state *state)
 {
@@ -97,7 +90,7 @@ void nfs41_open_state_deref(
     dprintf(2, "nfs41_open_state_deref(%s) count %d\n",
         state->path.path, count);
     if (count == 0)
-        free_open_state(state);
+        free(state);
 }
 
 
