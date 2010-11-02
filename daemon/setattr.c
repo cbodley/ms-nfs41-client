@@ -81,19 +81,19 @@ static void remove_unsupported_attrs(
     IN OUT bitmap4 *attrs)
 {
     uint32_t i, count = 0;
-    dprintf(2, "remove_unsupported_attrs\n");
+    dprintf(3, "remove_unsupported_attrs\n");
     for (i = 0; i < 3; i++) {
-        dprintf(2, "\tmask[%d] = %12u", i, attrs->arr[i]);
-        dprintf(2, " & %12u", supported_attrs->arr[i]);
+        dprintf(3, "\tmask[%d] = %12u", i, attrs->arr[i]);
+        dprintf(3, " & %12u", supported_attrs->arr[i]);
 
         attrs->arr[i] &= supported_attrs->arr[i];
         if (attrs->arr[i])
             count = i+1;
 
-        dprintf(2, " = %12d\n", attrs->arr[i]);
+        dprintf(3, " = %12d\n", attrs->arr[i]);
     }
     attrs->count = min(attrs->count, count);
-    dprintf(2, "\tcount   = %d\n", attrs->count);
+    dprintf(3, "\tcount   = %d\n", attrs->count);
 }
 
 static int handle_nfs41_setattr(setattr_upcall_args *args)
