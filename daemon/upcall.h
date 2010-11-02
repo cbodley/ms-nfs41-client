@@ -210,7 +210,7 @@ int upcall_parse(
 int upcall_handle(
     IN nfs41_upcall *upcall);
 
-int upcall_marshall(
+void upcall_marshall(
     IN nfs41_upcall *upcall,
     OUT unsigned char *buffer,
     IN uint32_t length,

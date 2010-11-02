@@ -130,7 +130,7 @@ out:
     return status;
 }
 
-int upcall_marshall(
+void upcall_marshall(
     IN nfs41_upcall *upcall,
     OUT unsigned char *buffer,
     IN uint32_t length,
@@ -164,7 +164,6 @@ write_downcall:
     }
 out:
     *length_out = total - length;
-    return status;
 }
 
 void upcall_cancel(
