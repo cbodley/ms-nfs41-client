@@ -4341,6 +4341,14 @@ static NTSTATUS nfs41_GetReparsePoint(
     NTSTATUS status;
 
     DbgEn();
+
+    if (!BooleanFlagOn(RxContext->pFcb->Attributes,
+        FILE_ATTRIBUTE_REPARSE_POINT)) {
+        status = STATUS_NOT_A_REPARSE_POINT;
+        DbgP("FILE_ATTRIBUTE_REPARSE_POINT is not set!\n");
+        goto out;
+    }
+
     if (FsCtl->OutputBufferLength < HeaderLen) {
         RxContext->InformationToReturn = HeaderLen;
         status = STATUS_BUFFER_TOO_SMALL;
