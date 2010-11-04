@@ -191,6 +191,7 @@ typedef struct __nfs41_file_info {
     bool_t                  case_preserving;
     bool_t                  symlink_dir;
     bool_t                  symlink_support;
+    bool_t                  link_support;
 } nfs41_file_info;
 
 #endif /* !__NFS41_DAEMON_TYPES_H__ */

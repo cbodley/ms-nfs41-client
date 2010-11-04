@@ -96,7 +96,8 @@ static int handle_volume_attributes(
     /* query the case_ attributes of the root filesystem */
     nfs41_file_info info = { 0 };
     bitmap4 attr_request = { 1, { FATTR4_WORD0_CASE_INSENSITIVE |
-        FATTR4_WORD0_CASE_PRESERVING | FATTR4_WORD0_SYMLINK_SUPPORT} };
+        FATTR4_WORD0_CASE_PRESERVING | FATTR4_WORD0_SYMLINK_SUPPORT |
+        FATTR4_WORD0_LINK_SUPPORT } };
     PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
     int status = NO_ERROR;
 
@@ -109,6 +110,8 @@ static int handle_volume_attributes(
     }
 
     attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
+    if (info.link_support)
+        attr->FileSystemAttributes |= FILE_SUPPORTS_HARD_LINKS;
     if (info.symlink_support)
         attr->FileSystemAttributes |= FILE_SUPPORTS_REPARSE_POINTS;
     if (info.case_preserving)

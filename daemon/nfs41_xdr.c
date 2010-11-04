@@ -1552,6 +1552,10 @@ static bool_t decode_file_attrs(
             if (!xdr_u_hyper(xdr, &info->size))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_LINK_SUPPORT) {
+            if (!xdr_bool(xdr, &info->link_support))
+                return FALSE;
+        }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_SYMLINK_SUPPORT) {
             if (!xdr_bool(xdr, &info->symlink_support))
                 return FALSE;
