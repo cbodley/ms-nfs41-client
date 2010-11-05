@@ -626,7 +626,7 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
     } __except(EXCEPTION_EXECUTE_HANDLER) { 
         NTSTATUS code; 
         code = GetExceptionCode(); 
-        DbgP("Call to MmMapLocked failed due to exception 0x%0x\n", code);
+        print_error("Call to MmMapLocked failed due to exception 0x%0x\n", code);
         status = STATUS_ACCESS_DENIED;
         goto out;
     }
@@ -1091,7 +1091,7 @@ handle_upcall(
 
     status = SeImpersonateClientEx(&entry->sec_ctx, NULL);
     if (status != STATUS_SUCCESS)
-        DbgP("SeImpersonateClientEx failed %x\n", status);
+        print_error("SeImpersonateClientEx failed %x\n", status);
 
     switch(entry->opcode) {
     case NFS41_SHUTDOWN:
@@ -1143,7 +1143,7 @@ handle_upcall(
         break;
     default:
         status = STATUS_INVALID_PARAMETER;
-        DbgP("Unknown nfs41 ops %d\n", entry->opcode);
+        print_error("Unknown nfs41 ops %d\n", entry->opcode);
     }
 
     if (status == STATUS_SUCCESS)
@@ -1183,7 +1183,8 @@ NTSTATUS nfs41_UpcallCreate(
     sec_qos.EffectiveOnly = 0;
     status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &entry->sec_ctx);
     if (status != STATUS_SUCCESS) {
-        DbgP("SeCreateClientSecurityFromSubjectContext failed with %x\n", status);
+        print_error("SeCreateClientSecurityFromSubjectContext "
+            "failed with %x\n", status);
         RxFreePool(entry);
     }
     SeReleaseSubjectContext(&sec_ctx);
@@ -1258,7 +1259,7 @@ process_upcall:
             entry->state = NFS41_WAITING_FOR_DOWNCALL;
         ExReleaseFastMutex(&entry->lock);
         if (status == STATUS_INSUFFICIENT_RESOURCES) {
-            DbgP("upcall buffer is too small\n");
+            print_error("upcall buffer is too small\n");
             entry->status = status;
             KeSetEvent(&entry->cond, 0, FALSE);
             RxContext->InformationToReturn = 0;
@@ -1336,13 +1337,13 @@ nfs41_downcall (
     }
     ExReleaseFastMutex(&downcallLock); 
     if (!found) {
-        DbgP("Didn't find xid=%d entry\n", tmp->xid);
+        print_error("Didn't find xid=%d entry\n", tmp->xid);
         goto out_free;
     }
 
     ExAcquireFastMutex(&cur->lock);
     if (cur->state == NFS41_NOT_WAITING) {
-            DbgP("[downcall] Nobody is waiting for this request!!!\n");
+            print_error("[downcall] Nobody is waiting for this request!!!\n");
             ExReleaseFastMutex(&cur->lock);
             nfs41_RemoveEntry(downcallLock, downcall, cur);
             RxFreePool(cur);
@@ -1374,7 +1375,8 @@ nfs41_downcall (
             } __except(EXCEPTION_EXECUTE_HANDLER) { 
                 NTSTATUS code; 
                 code = GetExceptionCode(); 
-                DbgP("Call to MmUnmapLockedPages failed due to exception 0x%0x\n", code);
+                print_error("Call to MmUnmapLockedPages failed due to"
+                    " exception 0x%0x\n", code);
                 status = STATUS_ACCESS_DENIED;
             }
 #endif
@@ -1508,12 +1510,12 @@ static NTSTATUS SharedMemoryInit(
     status = RtlCreateSecurityDescriptor(&SecurityDesc,
         SECURITY_DESCRIPTOR_REVISION);
     if (status) {
-        DbgP("RtlCreateSecurityDescriptor() failed with %08X\n", status);
+        print_error("RtlCreateSecurityDescriptor() failed with %08X\n", status);
         goto out;
     }
     status = RtlSetDaclSecurityDescriptor(&SecurityDesc, TRUE, NULL, FALSE);
     if (status) {
-        DbgP("RtlSetDaclSecurityDescriptor() failed with %08X\n", status);
+        print_error("RtlSetDaclSecurityDescriptor() failed with %08X\n", status);
         goto out;
     }
 
@@ -1561,7 +1563,7 @@ NTSTATUS nfs41_Start(
 
     status = SharedMemoryInit(&DevExt->SharedMemorySection);
     if (status) {
-        DbgP("InitSharedMemory failed with %08X\n", status);
+        print_error("InitSharedMemory failed with %08X\n", status);
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
@@ -1637,7 +1639,7 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     if (BufferLen < sizeof(USHORT) + sizeof(USHORT) + sizeof(ULONG))
     {
         status = STATUS_BAD_NETWORK_NAME;
-        DbgP("Invalid input buffer.\n");
+        print_error("Invalid input buffer.\n");
         pConnectionName->Length = pConnectionName->MaximumLength = 0;
         *ppEaBuffer = NULL;
         *pEaLength = 0;
@@ -1658,7 +1660,7 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     if (BufferLen != BufferLenExpected)
     {
         status = STATUS_BAD_NETWORK_NAME;
-        DbgP("Received buffer of length %lu, but expected %lu bytes.\n",
+        print_error("Received buffer of length %lu, but expected %lu bytes.\n",
             BufferLen, BufferLenExpected);
         pConnectionName->Length = pConnectionName->MaximumLength = 0;
         *ppEaBuffer = NULL;
@@ -1951,7 +1953,7 @@ _nfs41_CreateSrvCall(
         pSrvCall->pSrvCallName->Length, pSrvCall->pSrvCallName);
 
     if (pSrvCall->pSrvCallName->Length > SERVER_NAME_BUFFER_SIZE) {
-        DbgP("Server name '%wZ' too long for server entry (max %u)\n",
+        print_error("Server name '%wZ' too long for server entry (max %u)\n",
             pSrvCall->pSrvCallName, SERVER_NAME_BUFFER_SIZE);
         status = STATUS_NAME_TOO_LONG;
         goto out;
@@ -1961,7 +1963,7 @@ _nfs41_CreateSrvCall(
     pServerEntry = (PNFS41_SERVER_ENTRY)RxAllocatePoolWithTag(PagedPool, 
         sizeof(NFS41_SERVER_ENTRY), NFS41_MM_POOLTAG);
     if (pServerEntry == NULL) {
-        DbgP("failed to allocate memory for pServerEntry\n");
+        print_error("failed to allocate memory for pServerEntry\n");
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
@@ -2008,7 +2010,7 @@ NTSTATUS nfs41_CreateSrvCall(
         status = RxDispatchToWorkerThread(nfs41_dev, DelayedWorkQueue, 
             _nfs41_CreateSrvCall, pCallbackContext);
         if (status != STATUS_SUCCESS) {
-            DbgP("RxDispatchToWorkerThread returned status %08lx\n", status);
+            print_error("RxDispatchToWorkerThread returned status %08lx\n", status);
             pCallbackContext->Status = status;
             pCallbackContext->SrvCalldownStructure->CallBack(pCallbackContext);
             status = STATUS_PENDING;
@@ -2056,7 +2058,7 @@ static NTSTATUS map_mount_errors(DWORD status)
     case ERROR_BAD_NET_RESP:    return STATUS_UNEXPECTED_NETWORK_ERROR;
     case ERROR_BAD_NETPATH:     return STATUS_BAD_NETWORK_PATH;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; "
+        print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INSUFFICIENT_RESOURCES\n", status);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -2147,7 +2149,7 @@ static NTSTATUS nfs41_MountConfig_ParseDword(
             DbgP("    '%ls' -> '%wZ' -> %lu\n", Name, *usValue, *Value);
         }
         else
-            DbgP("Failed to convert %s='%wZ' to unsigned long.\n",
+            print_error("Failed to convert %s='%wZ' to unsigned long.\n",
                 Name, *usValue);
     }
     else
@@ -2212,7 +2214,7 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
         else
         {
             status = STATUS_INVALID_PARAMETER;
-            DbgP("Unrecognized option '%ls' -> '%wZ'\n",
+            print_error("Unrecognized option '%ls' -> '%wZ'\n",
                 Name, usValue);
         }
 
@@ -2273,7 +2275,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         pCreateNetRootContext->NetRootStatus);
 
     if (pNetRoot->Type != NET_ROOT_DISK) {
-        DbgP("pNetRoot->Type %u != NET_ROOT_DISK\n", pNetRoot->Type);
+        print_error("pNetRoot->Type %u != NET_ROOT_DISK\n", pNetRoot->Type);
         status = STATUS_NOT_SUPPORTED;
         goto out;
     }
@@ -2282,7 +2284,8 @@ NTSTATUS nfs41_CreateVNetRoot(
      * only claim paths of the form '\\server\nfs4\path' */
     status = has_nfs_prefix(pSrvCall->pSrvCallName, pNetRoot->pNetRootName);
     if (status) {
-        DbgP("NetRootName %wZ doesn't match '\\nfs4'!\n", pNetRoot->pNetRootName);
+        print_error("NetRootName %wZ doesn't match '\\nfs4'!\n",
+            pNetRoot->pNetRootName);
         goto out;
     }
     pNetRoot->MRxNetRootState = MRX_NET_ROOT_STATE_GOOD;
@@ -2422,19 +2425,19 @@ NTSTATUS nfs41_FinalizeNetRoot(
     }        
 
     if (pNetRootContext == NULL || pNetRootContext->session == NULL) {
-        DbgP("No valid session has been established\n");
+        print_error("No valid session has been established\n");
         goto out;
     }
 
     if (pNetRoot->NumberOfFcbs > 0 || pNetRoot->NumberOfSrvOpens > 0) {
-        DbgP("%d open Fcbs %d open SrvOpens\n", pNetRoot->NumberOfFcbs, 
+        print_error("%d open Fcbs %d open SrvOpens\n", pNetRoot->NumberOfFcbs, 
             pNetRoot->NumberOfSrvOpens);
         goto out;
     }
 
     status = nfs41_unmount(pNetRootContext->session);
     if (status) {
-        DbgP("nfs41_mount failed with %d\n", status);
+        print_error("nfs41_mount failed with %d\n", status);
         goto out;
     }
 
@@ -2530,7 +2533,7 @@ static NTSTATUS map_open_errors(DWORD status, int len)
     case ERROR_REPARSE:                 return STATUS_REPARSE;
     case ERROR_TOO_MANY_LINKS:          return STATUS_TOO_MANY_LINKS;
     default:
-        DbgP("[ERROR] nfs41_Create: upcall returned %d returning "
+        print_error("[ERROR] nfs41_Create: upcall returned %d returning "
             "STATUS_INSUFFICIENT_RESOURCES\n", status);
     case ERROR_OUTOFMEMORY:             return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -2551,7 +2554,7 @@ static DWORD map_disposition_to_create_retval(DWORD disposition, DWORD errno)
         if (errno == ERROR_FILE_NOT_FOUND)  return FILE_CREATED;
         else                                return FILE_OVERWRITTEN;
     default:
-        DbgP("unknown disposition %d\n", disposition);
+        print_error("unknown disposition %d\n", disposition);
         return FILE_OPENED;
     }
 }
@@ -2584,19 +2587,19 @@ NTSTATUS nfs41_Create(
         print_ea_info(1, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
 
     if (Fcb->pNetRoot->Type != NET_ROOT_DISK) {
-        DbgP("unknown netroot type %d\n", Fcb->pNetRoot->Type);
+        print_error("unknown netroot type %d\n", Fcb->pNetRoot->Type);
         status = STATUS_NOT_IMPLEMENTED;
         goto out;
     }
 
     if (FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
-        DbgP("FCB_STATE_PAGING_FILE\n");
+        print_error("FCB_STATE_PAGING_FILE not implemented\n");
         status = STATUS_NOT_IMPLEMENTED;
         goto out;
     }
     
     if (pNetRootContext->session == NULL) {
-        DbgP("No valid session established\n");
+        print_error("No valid session established\n");
         goto out;
     }
 
@@ -2892,8 +2895,8 @@ static NTSTATUS map_close_errors(DWORD status)
     case ERROR_NETNAME_DELETED: return STATUS_NETWORK_NAME_DELETED;
     case ERROR_NOT_EMPTY:   return STATUS_DIRECTORY_NOT_EMPTY;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; defaulting to "
-            "STATUS_INTERNAL_ERROR\n", status);
+        print_error("failed to map windows error %d to NTSTATUS; "
+            "defaulting to STATUS_INTERNAL_ERROR\n", status);
     case ERROR_INTERNAL_ERROR: return STATUS_INTERNAL_ERROR;
     }
 }
@@ -3025,8 +3028,8 @@ static NTSTATUS map_querydir_errors(DWORD status)
     case ERROR_NO_MORE_FILES:       return STATUS_NO_MORE_FILES;
     case ERROR_OUTOFMEMORY:         return STATUS_INSUFFICIENT_RESOURCES;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; defaulting to "
-            "STATUS_INVALID_NETWORK_RESPONSE\n", status);
+        print_error("failed to map windows error %d to NTSTATUS; "
+            "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", status);
     case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
     }
 }
@@ -3056,7 +3059,7 @@ NTSTATUS nfs41_QueryDirectory (
     case FileIdBothDirectoryInformation:
         break;
     default:
-        DbgP("unhandled dir query class %d\n", InfoClass);
+        print_error("unhandled dir query class %d\n", InfoClass);
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
@@ -3080,7 +3083,7 @@ NTSTATUS nfs41_QueryDirectory (
     }
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        DbgP("ERROR: buffer too small provided %d need %d\n", 
+        print_error("ERROR: buffer too small provided %d need %d\n", 
             RxContext->Info.LengthRemaining, entry->u.QueryFile.buf_len);
         RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
@@ -3117,8 +3120,8 @@ static NTSTATUS map_volume_errors(DWORD status)
     case ERROR_INVALID_PARAMETER:   return STATUS_INVALID_PARAMETER;
     case ERROR_OUTOFMEMORY:         return STATUS_INSUFFICIENT_RESOURCES;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; defaulting to "
-            "STATUS_INVALID_NETWORK_RESPONSE\n", status);
+        print_error("failed to map windows error %d to NTSTATUS; "
+            "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", status);
     case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
     }
 }
@@ -3204,7 +3207,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
             break;
 
         default:
-            DbgP("unhandled fs query class %d\n", InfoClass);
+            print_error("unhandled fs query class %d\n", InfoClass);
             status = STATUS_INVALID_PARAMETER;
             goto out;
     }
@@ -3362,7 +3365,7 @@ NTSTATUS nfs41_QueryEaInformation (
             RxContext->Info.LengthRemaining = LengthRequired;
             status = STATUS_SUCCESS;
         } else
-            DbgP("Couldn't match %s\n", query->EaName);       
+            print_error("Couldn't match %s\n", query->EaName);       
     }
 out:
     DbgEx();
@@ -3383,7 +3386,7 @@ static NTSTATUS map_setea_error(DWORD error)
     case ERROR_NETNAME_DELETED:         return STATUS_NETWORK_NAME_DELETED;
     case ERROR_BUFFER_OVERFLOW:         return STATUS_INSUFFICIENT_RESOURCES;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; "
+        print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INVALID_PARAMETER\n", error);
     case ERROR_INVALID_PARAMETER:       return STATUS_INVALID_PARAMETER;
     }
@@ -3490,8 +3493,8 @@ static NTSTATUS map_queryfile_error(DWORD error)
     case ERROR_NETNAME_DELETED:     return STATUS_NETWORK_NAME_DELETED;
     case ERROR_INVALID_PARAMETER:   return STATUS_INVALID_PARAMETER;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; defaulting to "
-            "STATUS_INVALID_NETWORK_RESPONSE\n", error);
+        print_error("failed to map windows error %d to NTSTATUS; "
+            "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", error);
     case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
     }
 }
@@ -3554,7 +3557,7 @@ NTSTATUS nfs41_QueryFileInformation (
     case FileAttributeTagInformation:
         break;
     default:
-        DbgP("unhandled file query class %d\n", InfoClass);
+        print_error("unhandled file query class %d\n", InfoClass);
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
@@ -3655,7 +3658,7 @@ static NTSTATUS map_setfile_error(DWORD error)
     case ERROR_NETNAME_DELETED:         return STATUS_NETWORK_NAME_DELETED;
     case ERROR_BUFFER_OVERFLOW:         return STATUS_INSUFFICIENT_RESOURCES;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; "
+        print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INVALID_PARAMETER\n", error);
     case ERROR_INVALID_PARAMETER:       return STATUS_INVALID_PARAMETER;
     }
@@ -3738,7 +3741,7 @@ NTSTATUS nfs41_SetFileInformation (
         break;
     }
     default:
-        DbgP("unknown set_file information class %d\n", InfoClass);
+        print_error("unknown set_file information class %d\n", InfoClass);
         status = STATUS_NOT_SUPPORTED;
         goto out;
     }
@@ -3906,7 +3909,7 @@ static NTSTATUS map_readwrite_errors(DWORD status)
     case ERROR_NETWORK_ACCESS_DENIED:   return STATUS_NETWORK_ACCESS_DENIED;
     case ERROR_NETNAME_DELETED:         return STATUS_NETWORK_NAME_DELETED;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; "
+        print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_NET_WRITE_FAULT\n", status);
     case ERROR_NET_WRITE_FAULT:         return STATUS_NET_WRITE_FAULT;
     }
@@ -4070,7 +4073,7 @@ static NTSTATUS map_lock_errors(DWORD status)
      * success!! */
     case ERROR_INVALID_PARAMETER:   return STATUS_LOCK_NOT_GRANTED;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; "
+        print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", status);
     case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
     }
@@ -4250,7 +4253,7 @@ static NTSTATUS map_symlink_errors(NTSTATUS status)
     case STATUS_BUFFER_TOO_SMALL:
     case ERROR_BUFFER_OVERFLOW:     return STATUS_BUFFER_OVERFLOW;
     default:
-        DbgP("failed to map windows error %d to NTSTATUS; "
+        print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", status);
     case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
     }
@@ -4501,7 +4504,7 @@ NTSTATUS nfs41_FsdDispatch (
 #endif
 
     if (dev != (PDEVICE_OBJECT)nfs41_dev) {
-        DbgP("*** not ours ***\n");
+        print_error("*** not ours ***\n");
         Irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
         Irp->IoStatus.Information = 0;
         IoCompleteRequest(Irp, IO_NO_INCREMENT );
@@ -4647,7 +4650,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
 
     status = RxDriverEntry(drv, path);
     if (status != STATUS_SUCCESS) {
-        DbgP("RxDriverEntry failed: %08lx\n", status);
+        print_error("RxDriverEntry failed: %08lx\n", status);
         goto out;
     }
 
@@ -4656,7 +4659,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
 
     status = nfs41_init_ops();
     if (status != STATUS_SUCCESS) {
-        DbgP("nfs41_init_ops failed to initialize dispatch table\n");
+        print_error("nfs41_init_ops failed to initialize dispatch table\n");
         goto out;
     }
 
@@ -4665,7 +4668,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
                 sizeof(NFS41_DEVICE_EXTENSION), 
                 FILE_DEVICE_NETWORK_FILE_SYSTEM, FILE_REMOTE_DEVICE);
     if (status != STATUS_SUCCESS) {
-        DbgP("RxRegisterMinirdr failed: %08lx\n", status);
+        print_error("RxRegisterMinirdr failed: %08lx\n", status);
         goto out;
     }
     nfs41_dev->Flags |= DO_BUFFERED_IO;
@@ -4680,7 +4683,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
     DbgP("calling IoCreateSymbolicLink %wZ %wZ\n", &user_dev_name, &dev_name);
     status = IoCreateSymbolicLink(&user_dev_name, &dev_name);
     if (status != STATUS_SUCCESS) {
-        DbgP("Device name IoCreateSymbolicLink failed: %08lx\n", status);
+        print_error("Device name IoCreateSymbolicLink failed: %08lx\n", status);
         goto out_unregister;
     }
 
@@ -4737,12 +4740,12 @@ unload:
     RtlInitUnicodeString(&dev_name, NFS41_SHADOW_DEVICE_NAME);
     status = IoDeleteSymbolicLink(&dev_name);
     if (status != STATUS_SUCCESS) {
-        DbgP("couldn't delete device symbolic link\n");
+        print_error("couldn't delete device symbolic link\n");
     }
     RtlInitUnicodeString(&pipe_name, NFS41_SHADOW_PIPE_NAME);
     status = IoDeleteSymbolicLink(&pipe_name);
     if (status != STATUS_SUCCESS) {
-        DbgP("couldn't delete pipe symbolic link\n");
+        print_error("couldn't delete pipe symbolic link\n");
     }
     if (upcall) 
         RxFreePool(upcall);

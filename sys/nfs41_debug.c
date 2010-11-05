@@ -65,6 +65,38 @@ ULONG __cdecl DbgP(IN PCCH fmt, ...)
     return 0;
 }
 
+ULONG __cdecl print_error(IN PCCH fmt, ...)
+{
+    CHAR msg[512];
+    va_list args;
+    NTSTATUS status;
+
+    va_start(args, fmt);
+    ASSERT(fmt != NULL);
+    status = RtlStringCbVPrintfA(msg, sizeof(msg), fmt, args);
+    if (NT_SUCCESS(status)) {
+#ifdef INCLUDE_TIMESTAMPS
+        LARGE_INTEGER timestamp, local_time;
+        TIME_FIELDS time_fields;
+
+        KeQuerySystemTime(&timestamp);
+        ExSystemTimeToLocalTime(&timestamp,&local_time);
+        RtlTimeToTimeFields(&local_time, &time_fields);
+
+        DbgPrintEx(DPFLTR_IHVNETWORK_ID, DPFLTR_ERROR_LEVEL, 
+            "[%ld].[%02u:%02u:%02u.%u] %s", IoGetCurrentProcess(), 
+            time_fields.Hour, time_fields.Minute, time_fields.Second, 
+            time_fields.Milliseconds, msg);
+#else
+        DbgPrintEx(DPFLTR_IHVNETWORK_ID, DPFLTR_ERROR_LEVEL, 
+            "[%ld] %s", IoGetCurrentProcess(), msg);
+#endif
+    }
+    va_end(args);
+
+    return 0;
+}
+
 void print_hexbuf(int on, unsigned char *title, unsigned char *buf, int len) 
 {
     int j, k;
