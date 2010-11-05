@@ -620,38 +620,36 @@ const char *opcode2string(int opcode)
 void print_open_error(int on, int status)
 {
     switch (status) {
-    case ERROR_ACCESS_DENIED:
+    case STATUS_NETWORK_ACCESS_DENIED:
         DbgP("[ERROR] nfs41_Create: STATUS_NETWORK_ACCESS_DENIED\n");
         break;
-    case ERROR_INVALID_NAME:
+    case STATUS_OBJECT_NAME_INVALID:
         DbgP("[ERROR] nfs41_Create: STATUS_OBJECT_NAME_INVALID\n");
         break;
-    case ERROR_FILE_EXISTS:
-        DbgP("[ERROR] nfs41_Create: ERROR_FILE_EXISTS\n");
+    case STATUS_OBJECT_NAME_COLLISION:
+        DbgP("[ERROR] nfs41_Create: STATUS_OBJECT_NAME_COLLISION\n");
         break;
-    case ERROR_FILE_INVALID:
+    case STATUS_FILE_INVALID:
         DbgP("[ERROR] nfs41_Create: STATUS_FILE_INVALID\n");
         break;
-    case ERROR_FILE_NOT_FOUND:
-        DbgP("[ERROR] nfs41_Create: ERROR_FILE_NOT_FOUND\n");
+    case STATUS_OBJECT_NAME_NOT_FOUND:
+        DbgP("[ERROR] nfs41_Create: STATUS_OBJECT_NAME_NOT_FOUND\n");
         break;
-    case ERROR_FILENAME_EXCED_RANGE:
+    case STATUS_NAME_TOO_LONG:
         DbgP("[ERROR] nfs41_Create: STATUS_NAME_TOO_LONG\n");
         break;
-    case ERROR_NETWORK_ACCESS_DENIED:
-        DbgP("[ERROR] nfs41_Create: ERROR_NETWORK_ACCESS_DENIED\n");
-        break;
-    case ERROR_PATH_NOT_FOUND:
+    case STATUS_OBJECT_PATH_NOT_FOUND:
         DbgP("[ERROR] nfs41_Create: STATUS_OBJECT_PATH_NOT_FOUND\n");
         break;
-    case ERROR_SHARING_VIOLATION:
+    case STATUS_BAD_NETWORK_PATH:
+        DbgP("[ERROR] nfs41_Create: STATUS_BAD_NETWORK_PATH\n");
+        break;
+    case STATUS_SHARING_VIOLATION:
         DbgP("[ERROR] nfs41_Create: STATUS_SHARING_VIOLATION\n");
         break;
     default:
-        DbgP("[ERROR] nfs41_Create: upcall returned %d returning "
-            "STATUS_INSUFFICIENT_RESOURCES\n", status);
-    case ERROR_OUTOFMEMORY:
         DbgP("[ERROR] nfs41_Create: STATUS_INSUFFICIENT_RESOURCES\n");
+        break;
     }
 }
 

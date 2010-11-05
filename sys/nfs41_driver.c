@@ -2529,6 +2529,7 @@ static NTSTATUS map_open_errors(DWORD status, int len)
     case ERROR_FILENAME_EXCED_RANGE:    return STATUS_NAME_TOO_LONG;
     case ERROR_NETWORK_ACCESS_DENIED:   return STATUS_NETWORK_ACCESS_DENIED;
     case ERROR_PATH_NOT_FOUND:          return STATUS_OBJECT_PATH_NOT_FOUND;
+    case ERROR_BAD_NETPATH:             return STATUS_BAD_NETWORK_PATH;
     case ERROR_SHARING_VIOLATION:       return STATUS_SHARING_VIOLATION;
     case ERROR_REPARSE:                 return STATUS_REPARSE;
     case ERROR_TOO_MANY_LINKS:          return STATUS_TOO_MANY_LINKS;
