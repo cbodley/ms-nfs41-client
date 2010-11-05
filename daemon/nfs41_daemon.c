@@ -60,6 +60,7 @@ static int map_user_to_ids(nfs41_idmapper *idmapper, uid_t *uid, gid_t *gid)
         eprintf("GetUserName() failed with %d\n", status);
         goto out;
     }
+    dprintf(1, "map_user_to_ids: mapping user %s\n", username);
 
     if (nfs41_idmap_name_to_ids(idmapper, username, uid, gid)) {
         /* instead of failing for auth_sys, fall back to 'nobody' uid/gid */
