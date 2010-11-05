@@ -110,6 +110,9 @@
     <ClCompile Include="..\daemon\symlink.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\daemon\idmap.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\daemon\daemon_debug.h">
@@ -158,6 +161,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\daemon\service.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\daemon\idmap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
