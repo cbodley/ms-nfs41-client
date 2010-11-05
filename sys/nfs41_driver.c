@@ -4413,6 +4413,7 @@ NTSTATUS nfs41_FsCtl(
 {
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
     DbgEn();
+    print_debug_header(RxContext);
     DbgP("FileName: %wZ\n", &RxContext->CurrentIrpSp->FileObject->FileName);
     switch (RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode) {
     case FSCTL_SET_REPARSE_POINT:
