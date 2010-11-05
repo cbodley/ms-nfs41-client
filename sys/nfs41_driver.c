@@ -3686,10 +3686,13 @@ NTSTATUS nfs41_SetFileInformation (
     {
         PFILE_RENAME_INFORMATION rinfo = 
             (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
+        UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
+            (USHORT)rinfo->FileNameLength, rinfo->FileName };
         if (rinfo->RootDirectory) {
             status = STATUS_NOT_SUPPORTED;
             goto out;
         }
+        DbgP("Attempting to rename to '%wZ'\n", dst);
         nfs41_fcb->Flags = 0;
     }
     break;
@@ -3697,10 +3700,13 @@ NTSTATUS nfs41_SetFileInformation (
     {
         PFILE_LINK_INFORMATION linfo = 
             (PFILE_LINK_INFORMATION)RxContext->Info.Buffer;
+        UNICODE_STRING dst = { (USHORT)linfo->FileNameLength,
+            (USHORT)linfo->FileNameLength, linfo->FileName };
         if (linfo->RootDirectory) {
             status = STATUS_NOT_SUPPORTED;
             goto out;
         }
+        DbgP("Attempting to add link as '%wZ'\n", dst);
         nfs41_fcb->Flags = 0;
     }
     break;
