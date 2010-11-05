@@ -27,10 +27,12 @@
 #include <stdio.h>
 
 #include <devioctl.h>
+#include <lmcons.h> /* UNLEN for GetUserName() */
 
 #include "nfs41_driver.h" /* for NFS41_USER_DEVICE_NAME_A */
 #include "nfs41_np.h" /* for NFS41NP_SHARED_MEMORY */
 
+#include "idmap.h"
 #include "daemon_debug.h"
 #include "upcall.h"
 #include "util.h"
@@ -47,8 +49,30 @@ typedef struct _nfs41_process_thread {
     uint32_t tid;
 } nfs41_process_thread;
 
+static int map_user_to_ids(nfs41_idmapper *idmapper, uid_t *uid, gid_t *gid)
+{
+    char username[UNLEN + 1];
+    DWORD len = UNLEN + 1;
+    int status = NO_ERROR;
+
+    if (!GetUserNameA(username, &len)) {
+        status = GetLastError();
+        eprintf("GetUserName() failed with %d\n", status);
+        goto out;
+    }
+
+    if (nfs41_idmap_name_to_ids(idmapper, username, uid, gid)) {
+        /* instead of failing for auth_sys, fall back to 'nobody' uid/gid */
+        *uid = 666;
+        *gid = 777;
+    }
+out:
+    return status;
+}
+
 static unsigned int WINAPI thread_main(void *args) 
 {
+    nfs41_idmapper *idmapper = (nfs41_idmapper*)args;
     DWORD status = 0;
     HANDLE pipe;
     // buffer used to process upcall, assumed to be fixed size. 
@@ -78,6 +102,13 @@ static unsigned int WINAPI thread_main(void *args)
         }
 
         status = upcall_parse(outbuf, (uint32_t)outbuf_len, &upcall);
+        if (status) {
+            upcall.status = status;
+            goto write_downcall;
+        }
+
+        /* map username to uid/gid */
+        status = map_user_to_ids(idmapper, &upcall.uid, &upcall.gid);
         if (status) {
             upcall.status = status;
             goto write_downcall;
@@ -152,6 +183,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
     // handle to our drivers
     HANDLE pipe;
     nfs41_process_thread tids[MAX_NUM_THREADS];
+    nfs41_idmapper *idmapper;
     int i;
 
     if (argc > 2) {
@@ -172,13 +204,19 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 
     nfs41_server_list_init();
 
+    status = nfs41_idmap_create(&idmapper);
+    if (status) {
+        eprintf("id mapping initialization failed with %d\n", status);
+        goto out_logs;
+    }
+
     pipe = CreateFile(NFS41_USER_DEVICE_NAME_A, GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
         0, NULL);
     if (pipe == INVALID_HANDLE_VALUE)
     {
         eprintf("Unable to open upcall pipe %d\n", GetLastError());
-        return;
+        goto out_idmap;
     }
 
     dprintf(1, "starting nfs41 mini redirector\n");
@@ -187,7 +225,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
     if (!status) {
         eprintf("IOCTL_NFS41_START failed with %d\n", 
                 GetLastError());
-        goto quit;
+        goto out_pipe;
     }
 
 #ifndef STANDALONE_NFSD
@@ -198,17 +236,17 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 
     for (i = 0; i < MAX_NUM_THREADS; i++) {
         tids[i].handle = (HANDLE)_beginthreadex(NULL, 0, thread_main, 
-                NULL, 0, &tids[i].tid);
+                idmapper, 0, &tids[i].tid);
         if (tids[i].handle == INVALID_HANDLE_VALUE) {
             status = GetLastError();
             eprintf("_beginthreadex failed %d\n", status);
-            goto quit;
+            goto out_pipe;
         }
     }
 #ifndef STANDALONE_NFSD
     // report the status to the service control manager.
     if (!ReportStatusToSCMgr(SERVICE_RUNNING, NO_ERROR, 0))
-        goto quit;
+        goto out_pipe;
     WaitForSingleObject(stop_event, INFINITE);
 #else
     //This can be changed to waiting on an array of handles and using waitformultipleobjects
@@ -218,8 +256,11 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 #endif
     dprintf(1, "Parent woke up!!!!\n");
 
-quit:
+out_pipe:
     CloseHandle(pipe);
+out_idmap:
+    nfs41_idmap_free(idmapper);
+out_logs:
 #ifndef STANDALONE_NFSD
     close_log_files();
 #endif

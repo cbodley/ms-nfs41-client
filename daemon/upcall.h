@@ -177,6 +177,9 @@ typedef struct __nfs41_upcall {
     uint32_t                last_error;
     upcall_args             args;
 
+    uid_t                   uid;
+    gid_t                   gid;
+
     /* store referenced pointers with the upcall for
      * automatic dereferencing on upcall_cleanup();
      * see upcall_root_ref() and upcall_open_state_ref() */
