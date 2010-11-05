@@ -40,53 +40,24 @@ int compound_error(int status)
     return status;
 }
 
-static void compound_args_init(
-    nfs41_compound_args *compound,
-    nfs_argop4 *argarray,
-    const char *tag)
-{
-    compound->tag_len = (uint32_t)strlen(tag);
-    memcpy(compound->tag, tag, compound->tag_len);
-    compound->minorversion = 1;
-    compound->argarray_count = 0;
-    compound->argarray = argarray;
-}
-
-static void compound_args_add_op(
-    nfs41_compound_args *compound,
-    uint32_t opnum,
-    void *arg)
-{
-    const uint32_t i = compound->argarray_count++;
-    compound->argarray[i].op = opnum;
-    compound->argarray[i].arg = arg;
-}
-
-static void compound_res_init(
-    nfs41_compound_res *compound,
-    nfs_resop4 *resarray)
-{
-    ZeroMemory(compound, sizeof(nfs41_compound_res));
-    compound->tag_len = NFS4_OPAQUE_LIMIT;
-    compound->resarray_count = 0;
-    compound->resarray = resarray;
-}
-
-static void compound_res_add_op(
-    nfs41_compound_res *compound,
-    void *res)
-{
-    compound->resarray[compound->resarray_count++].res = res;
-}
-
 void compound_init(
     nfs41_compound *compound,
     nfs_argop4 *argops,
     nfs_resop4 *resops,
     const char *tag)
 {
-    compound_args_init(&compound->args, argops, tag);
-    compound_res_init(&compound->res, resops);
+    /* initialize args */
+    compound->args.tag_len = (uint32_t)strlen(tag);
+    memcpy(compound->args.tag, tag, compound->args.tag_len);
+    compound->args.minorversion = 1;
+    compound->args.argarray_count = 0;
+    compound->args.argarray = argops;
+
+    /* initialize results */
+    ZeroMemory(&compound->res, sizeof(nfs41_compound_res));
+    compound->res.tag_len = NFS4_OPAQUE_LIMIT;
+    compound->res.resarray_count = 0;
+    compound->res.resarray = resops;
 }
 
 void compound_add_op(
@@ -95,8 +66,11 @@ void compound_add_op(
     void *arg,
     void *res)
 {
-    compound_args_add_op(&compound->args, opnum, arg);
-    compound_res_add_op(&compound->res, res);
+    const uint32_t i = compound->args.argarray_count++;
+    compound->args.argarray[i].op = opnum;
+    compound->args.argarray[i].arg = arg;
+
+    compound->res.resarray[compound->res.resarray_count++].res = res;
 }
 
 /* Due to the possibility of replays, we might get a response to a different

@@ -77,15 +77,6 @@ static int deviceid_compare(
     return memcmp(device->device.deviceid, deviceid, PNFS_DEVICEID_SIZE);
 }
 
-static enum pnfs_status file_device_entry_find(
-    IN struct pnfs_file_device_list *devices,
-    IN const unsigned char *deviceid,
-    OUT struct list_entry **entry_out)
-{
-    *entry_out = list_search(&devices->head, deviceid, deviceid_compare);
-    return *entry_out ? PNFS_SUCCESS : PNFSERR_NO_DEVICE;
-}
-
 static enum pnfs_status file_device_find_or_create(
     IN const unsigned char *deviceid,
     IN struct pnfs_file_device_list *devices,
@@ -99,8 +90,8 @@ static enum pnfs_status file_device_find_or_create(
     EnterCriticalSection(&devices->lock);
 
     /* search for an existing device */
-    status = file_device_entry_find(devices, deviceid, &entry);
-    if (status) {
+    entry = list_search(&devices->head, deviceid, deviceid_compare);
+    if (entry == NULL) {
         /* create a new device */
         pnfs_file_device *device;
         status = file_device_create(deviceid, &device);
@@ -117,6 +108,7 @@ static enum pnfs_status file_device_find_or_create(
         }
     } else {
         *device_out = device_entry(entry);
+        status = PNFS_SUCCESS;
 
         dprintf(FDLVL, "<-- pnfs_file_device_find_or_create() "
             "returning existing device %p\n", *device_out);
@@ -164,12 +156,6 @@ void pnfs_file_device_list_free(
 
 
 /* pnfs_file_device */
-static enum pnfs_status file_device_status(
-    IN pnfs_file_device *device)
-{
-    return device->device.type == 0 ? PNFS_PENDING : PNFS_SUCCESS;
-}
-
 enum pnfs_status pnfs_file_device_get(
     IN nfs41_session *session,
     IN struct pnfs_file_device_list *devices,
@@ -187,13 +173,13 @@ enum pnfs_status pnfs_file_device_get(
         goto out;
 
     AcquireSRWLockShared(&device->lock);
-    status = file_device_status(device);
+    status = device->device.type == 0 ? PNFS_PENDING : PNFS_SUCCESS;
     ReleaseSRWLockShared(&device->lock);
 
     if (status == PNFS_PENDING) {
         AcquireSRWLockExclusive(&device->lock);
 
-        status = file_device_status(device);
+        status = device->device.type == 0 ? PNFS_PENDING : PNFS_SUCCESS;
         if (status == PNFS_PENDING) {
             nfsstat = pnfs_rpc_getdeviceinfo(session, deviceid, device);
             if (nfsstat == NFS4_OK) {

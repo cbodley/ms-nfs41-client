@@ -72,12 +72,6 @@ out:
     return status;
 }
 
-static void superblock_free(
-    IN nfs41_superblock *superblock)
-{
-    free(superblock);
-}
-
 static int get_superblock_attrs(
     IN nfs41_session *session,
     IN nfs41_superblock *superblock,
@@ -175,7 +169,7 @@ void nfs41_superblock_list_free(
     dprintf(SBLVL, "nfs41_superblock_list_free()\n");
 
     list_for_each_tmp(entry, tmp, &superblocks->head)
-        superblock_free(superblock_entry(entry));
+        free(superblock_entry(entry));
 }
 
 

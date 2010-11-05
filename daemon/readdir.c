@@ -80,12 +80,6 @@ out:
 #define FILTER_STAR '*'
 #define FILTER_QM   '>'
 
-static __inline int readdir_has_wildcards(
-    const char *filter)
-{
-    return strchr(filter, FILTER_STAR) || strchr(filter, FILTER_QM);
-}
-
 static __inline const char* skip_stars(
     const char *filter)
 {
@@ -505,7 +499,7 @@ fetch_entries:
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_RDATTR_ERROR;
 
-    if (readdir_has_wildcards((const char*)args->filter)) {
+    if (strchr(args->filter, FILTER_STAR) || strchr(args->filter, FILTER_QM)) {
         /* use READDIR for wildcards */
 
         uint32_t dots_len = 0;

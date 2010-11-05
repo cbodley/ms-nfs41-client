@@ -226,8 +226,8 @@ int nfs41_server_find_or_create(
     EnterCriticalSection(&g_server_list.lock);
 
     /* search for an existing server */
-    status = server_entry_find(&g_server_list, &info, &entry);
-    if (status) {
+    entry = list_search(&g_server_list.head, &info, server_compare);
+    if (entry == NULL) {
         /* create a new server */
         status = server_create(&info, &server);
         if (status == NO_ERROR) {
@@ -243,6 +243,7 @@ int nfs41_server_find_or_create(
         }
     } else {
         server = server_entry(entry);
+        status = NO_ERROR;
 
         dprintf(SRVLVL, "<-- nfs41_server_find_or_create() "
             "returning existing server %p\n", server);

@@ -239,45 +239,20 @@ static enum pnfs_status file_layout_fetch(
     return pnfsstat;
 }
 
-static bool_t layout_recalled(
-    IN const pnfs_layout *layout)
-{
-    return (layout->status & PNFS_LAYOUT_RECALLED) != 0;
-}
-
-static bool_t layout_granted(
-    IN const pnfs_layout *layout)
-{
-    return (layout->status & PNFS_LAYOUT_GRANTED) != 0;
-}
-
-static bool_t layout_not_rw(
-    IN const pnfs_layout *layout)
-{
-    return (layout->status & PNFS_LAYOUT_NOT_RW) != 0;
-}
-
-static bool_t will_never_grant(
-    IN const pnfs_layout *layout,
-    IN enum pnfs_iomode iomode)
-{
-    return (layout->status & PNFS_LAYOUT_UNAVAILABLE) != 0
-        || (iomode == PNFS_IOMODE_RW && layout_not_rw(layout));
-}
-
 static enum pnfs_status layout_grant_status(
     IN const pnfs_layout *layout,
     IN enum pnfs_iomode iomode)
 {
     enum pnfs_status status = PNFS_PENDING;
 
-    if (layout_recalled(layout)) {
+    if (layout->status & PNFS_LAYOUT_RECALLED) {
         /* don't use a recalled layout */
         status = PNFSERR_LAYOUT_RECALLED;
-    } else if (layout_granted(layout)) {
+    } else if (layout->status & PNFS_LAYOUT_GRANTED) {
         /* the layout is granted; use it if it's compatible */
         status = PNFS_SUCCESS;
-    } else if (will_never_grant(layout, iomode)) {
+    } else if ((layout->status & PNFS_LAYOUT_UNAVAILABLE) ||
+        (iomode == PNFS_IOMODE_RW && layout->status & PNFS_LAYOUT_NOT_RW)) {
         /* an error from LAYOUTGET indicated that the server
          * won't ever grant this layout, so stop trying */
         status = PNFSERR_NOT_SUPPORTED;
@@ -311,7 +286,7 @@ static enum pnfs_status file_layout_cache(
             if (layout->layout.state.seqid)
                 state = &layout->layout.state;
 
-            if (!layout_not_rw(&layout->layout)) {
+            if ((layout->layout.status & PNFS_LAYOUT_NOT_RW) == 0) {
                 /* try to get a RW layout first */
                 status = file_layout_fetch(layout, session,
                     meta_file, state, PNFS_IOMODE_RW, offset, length);
@@ -358,7 +333,7 @@ static enum pnfs_status file_device_status(
 {
     enum pnfs_status status = PNFS_PENDING;
 
-    if (layout_recalled(layout)) {
+    if (layout->status & PNFS_LAYOUT_RECALLED) {
         /* don't fetch deviceinfo for a recalled layout */
         status = PNFSERR_LAYOUT_RECALLED;
     } else if (layout->status & PNFS_LAYOUT_HAS_DEVICE) {
@@ -797,7 +772,7 @@ enum pnfs_status pnfs_layout_io_start(
 
     AcquireSRWLockExclusive(&layout->lock);
 
-    if (layout_recalled(layout)) {
+    if ((layout->status & PNFS_LAYOUT_RECALLED) != 0) {
         /* don't start any more io if the layout has been recalled */
         status = PNFSERR_LAYOUT_RECALLED;
         dprintf(FLLVL, "pnfs_layout_io_start() failed, layout was recalled\n");
