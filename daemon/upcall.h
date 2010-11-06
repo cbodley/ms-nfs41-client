@@ -27,7 +27,6 @@
 #include "nfs41_ops.h"
 #include "from_kernel.h"
 
-
 /* structures for upcall arguments */
 typedef struct __mount_upcall_args {
     const char *hostname;

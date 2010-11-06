@@ -107,6 +107,7 @@ typedef enum _nfs41_updowncall_state {
 } nfs41_updowncall_state;
 
 typedef struct _updowncall_entry {
+    DWORD version;
     DWORD xid;
     DWORD opcode;
     NTSTATUS status;
@@ -284,6 +285,7 @@ typedef struct _NFS41_NETROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
     HANDLE                  session;
+    DWORD                   nfs41d_version;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
         (((pNetRoot) == NULL) ? NULL : (PNFS41_NETROOT_EXTENSION)((pNetRoot)->Context))
@@ -345,6 +347,7 @@ typedef struct _NFS41_DEVICE_EXTENSION {
     PRDBSS_DEVICE_OBJECT    DeviceObject;
     ULONG                   ActiveNodes;
     HANDLE                  SharedMemorySection;
+    DWORD                   nfs41d_version;
 } NFS41_DEVICE_EXTENSION, *PNFS41_DEVICE_EXTENSION;
 
 #define NFS41GetDeviceExtension(RxContext,pExt)        \
@@ -452,18 +455,21 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    header_len = sizeof(entry->xid) + sizeof(entry->opcode);
+    header_len = sizeof(entry->version) + sizeof(entry->xid) + sizeof(entry->opcode);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
     else
         *len = header_len;
+    RtlCopyMemory(tmp, &entry->version, sizeof(entry->version));
+    tmp += sizeof(DWORD);
     RtlCopyMemory(tmp, &entry->xid, sizeof(entry->xid));
     tmp += sizeof(xid);
     RtlCopyMemory(tmp, &entry->opcode, sizeof(entry->opcode));
 
-    DbgP("[upcall] entry=%p xid=%d opcode=%d\n", entry, entry->xid, entry->opcode);
+    DbgP("[upcall] entry=%p xid=%d opcode=%d version=%d\n", entry, entry->xid, 
+        entry->opcode, entry->version);
 out:
     return status;
 }
@@ -1359,7 +1365,9 @@ nfs41_downcall (
         switch (tmp->opcode) {
         case NFS41_MOUNT:
             RtlCopyMemory(&cur->u.Mount.session, buf, sizeof(HANDLE));
-            DbgP("[mount] session pointer 0x%x\n", cur->u.Mount.session); 
+            buf += sizeof(HANDLE);
+            RtlCopyMemory(&cur->version, buf, sizeof(DWORD));
+            DbgP("[mount] session pointer 0x%x version %d\n", cur->u.Mount.session, cur->version);
             break;
         case NFS41_WRITE:
         case NFS41_READ:
@@ -1472,7 +1480,7 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_shutdown_daemon()
+NTSTATUS nfs41_shutdown_daemon(DWORD version)
 {
     NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry = NULL;
@@ -1481,6 +1489,7 @@ NTSTATUS nfs41_shutdown_daemon()
     status = nfs41_UpcallCreate(NFS41_SHUTDOWN, &entry);
     if (status)
         goto out;
+    entry->version = version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -1723,7 +1732,7 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_unmount(HANDLE session)
+NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
 {
     NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
@@ -1733,6 +1742,7 @@ NTSTATUS nfs41_unmount(HANDLE session)
     if (status)
         goto out;
     entry->u.Mount.session = session;
+    entry->version = version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -1812,6 +1822,10 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
     PLOWIO_CONTEXT io_ctx = &RxContext->LowIoContext;
     ULONG fsop = io_ctx->ParamsFor.FsCtl.FsControlCode;
     ULONG state;
+    ULONG in_len = io_ctx->ParamsFor.IoCtl.InputBufferLength;
+    DWORD *buf = io_ctx->ParamsFor.IoCtl.pInputBuffer;
+    NFS41GetDeviceExtension(RxContext, DevExt);
+    DWORD nfs41d_version = 0;
 
     //DbgEn();
 
@@ -1866,6 +1880,12 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
             break;
         case IOCTL_NFS41_START:
             print_driver_state(nfs41_start_state);
+            if (in_len >= sizeof(DWORD)) {
+                RtlCopyMemory(&nfs41d_version, buf, sizeof(DWORD));
+                DbgP("NFS41 Daemon sent start request with version %d\n", nfs41d_version);
+                DbgP("Currently used NFS41 Daemon version is %d\n", DevExt->nfs41d_version);
+                DevExt->nfs41d_version = nfs41d_version;
+            }
             switch(nfs41_start_state) {
             case NFS41_START_DRIVER_STARTABLE:
                 (nfs41_start_driver_state)InterlockedCompareExchange(
@@ -1893,7 +1913,7 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
             break;
         case IOCTL_NFS41_STOP:
             if (nfs41_start_state == NFS41_START_DRIVER_STARTED)
-                nfs41_shutdown_daemon();
+                nfs41_shutdown_daemon(DevExt->nfs41d_version);
             if (RxContext->RxDeviceObject->NumberOfActiveFcbs > 0) {
                 DbgP("device has open handles %d\n", 
                     RxContext->RxDeviceObject->NumberOfActiveFcbs);
@@ -2058,7 +2078,8 @@ static NTSTATUS map_mount_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root, PHANDLE session)
+NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root, 
+                     PHANDLE session, DWORD *version)
 {
     NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
@@ -2069,6 +2090,7 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root, PHANDLE ses
         goto out;
     entry->u.Mount.srv_name = srv_name;
     entry->u.Mount.root = root;
+    entry->version = *version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -2078,6 +2100,8 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root, PHANDLE ses
 
     /* map windows ERRORs to NTSTATUS */
     status = map_mount_errors(entry->status);
+    if (status == STATUS_SUCCESS)
+        *version = entry->version;
     RxFreePool(entry);
 out:
     DbgEx();
@@ -2253,7 +2277,8 @@ NTSTATUS nfs41_CreateVNetRoot(
         NFS41GetVNetRootExtension(pVNetRoot);
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(pNetRoot);
-
+    NFS41GetDeviceExtension(pCreateNetRootContext->RxContext,DevExt);
+    DWORD nfs41d_version = DevExt->nfs41d_version;
     ASSERT((NodeType(pNetRoot) == RDBSS_NTC_NETROOT) &&
         (NodeType(pNetRoot->pSrvCall) == RDBSS_NTC_SRVCALL));
 
@@ -2317,10 +2342,10 @@ NTSTATUS nfs41_CreateVNetRoot(
     DbgP("Server Name %wZ Mount Point %wZ\n",
         &Config.SrvName, &Config.MntPt);
     status = nfs41_mount(&Config.SrvName, &Config.MntPt,
-        &pVNetRootContext->session);
+        &pVNetRootContext->session, &nfs41d_version);
     if (status != STATUS_SUCCESS)
         goto out;
-
+    pNetRootContext->nfs41d_version = nfs41d_version;
     pNetRootContext->session = pVNetRootContext->session;
     DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
 
@@ -2409,7 +2434,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension((PMRX_NET_ROOT)pNetRoot);
     nfs41_updowncall_entry *tmp;
-
+    
     DbgEn();
     print_net_root(1, pNetRoot);
 
@@ -2429,7 +2454,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }
 
-    status = nfs41_unmount(pNetRootContext->session);
+    status = nfs41_unmount(pNetRootContext->session, pNetRootContext->nfs41d_version);
     if (status) {
         print_error("nfs41_mount failed with %d\n", status);
         goto out;
@@ -2608,6 +2633,7 @@ NTSTATUS nfs41_Create(
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
     entry->u.Open.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
     if (isDataAccess(params.DesiredAccess))
         entry->u.Open.open_owner_id = get_next_open_owner();
     // if we are creating a file check if nfsv3attributes were passed in
@@ -2906,6 +2932,8 @@ NTSTATUS nfs41_CloseSrvOpen (
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_close_args(RxContext);
@@ -2915,6 +2943,7 @@ NTSTATUS nfs41_CloseSrvOpen (
         goto out;
     entry->u.Close.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.Close.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
     if (!RxContext->pFcb->OpenCount) {
         entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
         entry->u.Close.renamed = nfs41_fcb->Renamed;
@@ -3040,6 +3069,8 @@ NTSTATUS nfs41_QueryDirectory (
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_querydir_args(RxContext);
@@ -3071,6 +3102,7 @@ NTSTATUS nfs41_QueryDirectory (
     entry->u.QueryFile.restart_scan = RxContext->QueryDirectory.RestartScan;
     entry->u.QueryFile.return_single = RxContext->QueryDirectory.ReturnSingleEntry;
     entry->u.QueryFile.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3132,6 +3164,8 @@ NTSTATUS nfs41_QueryVolumeInformation (
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     nfs41_updowncall_entry *entry;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_queryvolume_args(RxContext);
@@ -3214,6 +3248,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
     entry->u.Volume.query = InfoClass;
     entry->u.Volume.buf = RxContext->Info.Buffer;
     entry->u.Volume.buf_len = RxContext->Info.LengthRemaining;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3400,6 +3435,8 @@ NTSTATUS nfs41_SetEaInformation (
     PFILE_FULL_EA_INFORMATION eainfo = 
         (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;        
     nfs3_attrs *attrs = NULL;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_debug_header(RxContext);
@@ -3418,6 +3455,7 @@ NTSTATUS nfs41_SetEaInformation (
     entry->u.SetEa.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.SetEa.session = pVNetRootContext->session;
     entry->u.SetEa.mode = attrs->mode;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3505,6 +3543,8 @@ NTSTATUS nfs41_QueryFileInformation (
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     switch (InfoClass) {
@@ -3566,6 +3606,7 @@ NTSTATUS nfs41_QueryFileInformation (
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
     entry->u.QueryFile.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3673,6 +3714,8 @@ NTSTATUS nfs41_SetFileInformation (
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     FILE_RENAME_INFORMATION rinfo;
     PFILE_OBJECT fo = RxContext->CurrentIrpSp->FileObject;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_setfile_args(RxContext);
@@ -3753,6 +3796,8 @@ NTSTATUS nfs41_SetFileInformation (
     entry->u.SetFile.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.SetFile.filename = FileName;
     entry->u.SetFile.InfoClass = InfoClass;
+    entry->version = pNetRootContext->nfs41d_version;
+
     switch(InfoClass) {
     case FileAllocationInformation:
     case FileEndOfFileInformation:
@@ -3928,6 +3973,8 @@ NTSTATUS nfs41_Read (
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     BOOLEAN async = FALSE;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_readwrite_args(RxContext);
@@ -3940,6 +3987,7 @@ NTSTATUS nfs41_Read (
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
     entry->u.ReadWrite.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
     if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) == FALSE) {
         entry->u.ReadWrite.rxcontext = RxContext;
         async = entry->async_op = TRUE;
@@ -3990,6 +4038,8 @@ NTSTATUS nfs41_Write (
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     BOOLEAN async = FALSE;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_readwrite_args(RxContext);
@@ -4002,6 +4052,8 @@ NTSTATUS nfs41_Write (
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
     entry->u.ReadWrite.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
+
     if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) == FALSE) {
         entry->u.ReadWrite.rxcontext = RxContext;
         async = entry->async_op = TRUE;
@@ -4122,6 +4174,8 @@ NTSTATUS nfs41_Lock(
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     const ULONG flags = LowIoContext->ParamsFor.Locks.Flags;
     LARGE_INTEGER poll_delay = {0};
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_lock_args(RxContext);
@@ -4138,6 +4192,7 @@ NTSTATUS nfs41_Lock(
     entry->u.Lock.length = LowIoContext->ParamsFor.Locks.Length;
     entry->u.Lock.exclusive = BooleanFlagOn(flags, SL_EXCLUSIVE_LOCK);
     entry->u.Lock.blocking = !BooleanFlagOn(flags, SL_FAIL_IMMEDIATELY);
+    entry->version = pNetRootContext->nfs41d_version;
 
 retry_upcall:
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
@@ -4203,6 +4258,8 @@ NTSTATUS nfs41_Unlock(
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_lock_args(RxContext);
@@ -4215,6 +4272,7 @@ NTSTATUS nfs41_Unlock(
         goto out;
     entry->u.Unlock.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.Unlock.session = pVNetRootContext->session;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (LowIoContext->Operation == LOWIO_OP_UNLOCK_MULTIPLE) {
         entry->u.Unlock.count = unlock_list_count(
@@ -4296,6 +4354,8 @@ static NTSTATUS nfs41_SetReparsePoint(
     PNFS41_V_NET_ROOT_EXTENSION VNetRoot = NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     nfs41_updowncall_entry *entry;
     NTSTATUS status;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_reparse_buffer(Reparse);
@@ -4319,6 +4379,7 @@ static NTSTATUS nfs41_SetReparsePoint(
     entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = TRUE;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4343,6 +4404,8 @@ static NTSTATUS nfs41_GetReparsePoint(
     const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
         SymbolicLinkReparseBuffer.PathBuffer);
     NTSTATUS status;
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
 
@@ -4371,6 +4434,7 @@ static NTSTATUS nfs41_GetReparsePoint(
     entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = FALSE;
+    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;

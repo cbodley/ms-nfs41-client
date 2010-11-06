@@ -106,9 +106,15 @@ out_err:
 
 static int marshall_mount(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
+    int status;
     mount_upcall_args *args = &upcall->args.mount;
-    dprintf(2, "NFS41_MOUNT: writing pointer to nfs41_root %p\n", args->root);
-    return safe_write(&buffer, length, &args->root, sizeof(args->root));
+    dprintf(2, "NFS41_MOUNT: writing pointer to nfs41_root %p and version %d\n", 
+        args->root, NFS41D_VERSION);
+    status = safe_write(&buffer, length, &args->root, sizeof(args->root));
+    if (status) goto out;
+    status = safe_write(&buffer, length, &NFS41D_VERSION, sizeof(DWORD));
+out:
+    return status;
 }
 
 const nfs41_upcall_op nfs41_op_mount = {

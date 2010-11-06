@@ -72,6 +72,7 @@ int upcall_parse(
 {
     int status;
     const nfs41_upcall_op *op;
+    DWORD version;
 
     ZeroMemory(upcall, sizeof(nfs41_upcall));
     if (!length) {
@@ -84,12 +85,20 @@ int upcall_parse(
     print_hexbuf(4, (unsigned char *)"upcall buffer: ", buffer, length);
 
     /* parse common elements */
+    status = safe_read(&buffer, &length, &version, sizeof(uint32_t));
+    if (status) goto out;
     status = safe_read(&buffer, &length, &upcall->xid, sizeof(uint32_t));
     if (status) goto out;
     status = safe_read(&buffer, &length, &upcall->opcode, sizeof(uint32_t));
     if (status) goto out;
 
-    dprintf(2, "xid=%d opcode=%s\n", upcall->xid, opcode2string(upcall->opcode));
+    dprintf(2, "version=%d xid=%d opcode=%s\n", version, upcall->xid, 
+        opcode2string(upcall->opcode));
+    if (version != NFS41D_VERSION) {
+        eprintf("received version %d expecting version %d\n", version, NFS41D_VERSION);
+        upcall->status = status = 116;
+        goto out;
+    }
 
     if (upcall->opcode >= g_upcall_op_table_size) {
         status = ERROR_NOT_SUPPORTED;

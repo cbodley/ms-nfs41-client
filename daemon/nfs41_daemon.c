@@ -38,7 +38,7 @@
 #include "util.h"
 
 #define MAX_NUM_THREADS 128
-BOOLEAN CREATED_SESSION = FALSE;
+DWORD NFS41D_VERSION = 0;
 
 #ifndef STANDALONE_NFSD //make sure to define it in "sources" not here
 #include "service.h"
@@ -115,27 +115,12 @@ static unsigned int WINAPI thread_main(void *args)
             goto write_downcall;
         }
 
-#if 1   //AGLO: this is just a placeholder for a real solution. I know this variable needs a lock in a
-        //normal case. However, this does not prevent us from receiving an upcall for an old mount
-        //that was not reestablished. It will only work for erroring requests until the 1st mount upcall.
-        if (!CREATED_SESSION && (upcall.opcode != NFS41_MOUNT && upcall.opcode != NFS41_SHUTDOWN)) {
-            eprintf("nfs41_daemon restarted and does not have a valid session established\n");
-            upcall.status = 116;
-            goto write_downcall;
-        }
-#endif
-
         if (upcall.opcode == NFS41_SHUTDOWN) {
             printf("Shutting down..\n");
             exit(0);
         }
 
         status = upcall_handle(&upcall);
-
-#if 1 //AGLO: place holder for a real solution
-        if (upcall.opcode == NFS41_MOUNT && upcall.status == NO_ERROR)
-            CREATED_SESSION = 1;
-#endif
 
 write_downcall:
         dprintf(1, "writing downcall: xid=%d opcode=%s status=%d "
@@ -211,6 +196,9 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
         goto out_logs;
     }
 
+    NFS41D_VERSION = GetTickCount();
+    dprintf(1, "NFS41 Daemon starting: version %d\n", NFS41D_VERSION);
+
     pipe = CreateFile(NFS41_USER_DEVICE_NAME_A, GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
         0, NULL);
@@ -222,7 +210,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 
     dprintf(1, "starting nfs41 mini redirector\n");
     status = DeviceIoControl(pipe, IOCTL_NFS41_START,
-        NULL, 0, NULL, 0, (LPDWORD)&len, NULL);
+        &NFS41D_VERSION, sizeof(DWORD), NULL, 0, (LPDWORD)&len, NULL);
     if (!status) {
         eprintf("IOCTL_NFS41_START failed with %d\n", 
                 GetLastError());

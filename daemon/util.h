@@ -26,7 +26,7 @@
 
 #include "nfs41_types.h"
 
-
+extern DWORD NFS41D_VERSION;
 struct __nfs41_session;
 struct __nfs41_write_verf;
 enum stable_how4;
