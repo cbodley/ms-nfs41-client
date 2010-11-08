@@ -313,7 +313,6 @@ clnt_vc_create(fd, raddr, prog, vers, sendsz, recvsz, cb_xdr, cb_fn, cb_args)
 	struct sockaddr_storage ss;
 	socklen_t slen;
 	struct __rpc_sockinfo si;
-    struct cb_fn_args *cfa;
 
 	if (disrupt == 0)
 		disrupt = PtrToUlong(raddr);

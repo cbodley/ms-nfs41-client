@@ -50,7 +50,7 @@
 #define snprintf _snprintf
 //#define vsnprintf _vsnprintf
 #define strcasecmp _stricmp
-#define strdup _strdup
+//#define strdup _strdup
 #define getpid _getpid
 
 #define bcmp memcmp
