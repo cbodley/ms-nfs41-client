@@ -182,6 +182,8 @@ typedef struct __nfs41_root {
     uint32_t wsize;
     uint32_t rsize;
     LONG ref_count;
+    uint32_t uid;
+    uint32_t gid;
 } nfs41_root;
 
 
@@ -348,6 +350,8 @@ int nfs41_rpc_clnt_create(
     IN uint32_t wsize,
     IN uint32_t rsize,
     IN bool_t needcb,
+    IN uint32_t uid,
+    IN uint32_t gid,
     OUT nfs41_rpc_clnt **rpc_out);
 
 void nfs41_rpc_clnt_free(

@@ -101,12 +101,16 @@ int nfs41_rpc_clnt_create(
     IN uint32_t wsize,
     IN uint32_t rsize,
     bool_t needcb,
+    IN uint32_t uid,
+    IN uint32_t gid,
     OUT nfs41_rpc_clnt **rpc_out)
 {
     CLIENT *client;
     nfs41_rpc_clnt *rpc;
     uint32_t addr_index;
     int status;
+    char machname[MAXHOSTNAMELEN + 1];
+    gid_t gids[1];
 
     rpc = calloc(1, sizeof(nfs41_rpc_clnt));
     if (rpc == NULL) {
@@ -127,7 +131,12 @@ int nfs41_rpc_clnt_create(
         goto out_free_rpc_clnt;
     }
     // XXX Pick credentials in better manner
-    client->cl_auth = authsys_create_default();
+    if (gethostname(machname, sizeof(machname)) == -1) {
+        eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
+        goto out_free_rpc_clnt;
+    }
+    machname[sizeof(machname) - 1] = '\0';
+    client->cl_auth = authsys_create(machname, uid, gid, 0, gids);
     if (client->cl_auth == NULL) {
         // XXX log failure in auth creation somewhere
         // XXX Better error return

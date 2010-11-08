@@ -72,6 +72,8 @@ static int handle_mount(nfs41_upcall *upcall)
         goto out;
     }
     // add a mount
+    root->uid = upcall->uid;
+    root->gid = upcall->gid;
     status = nfs41_root_mount_addrs(root, &addrs, 0, 0, &client);
     if (status) {
         eprintf("nfs41_root_mount() failed with %d\n", status);
