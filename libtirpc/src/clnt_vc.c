@@ -848,17 +848,6 @@ clnt_vc_destroy(cl)
 	mutex_lock(&clnt_fd_lock);
 	while (vc_fd_locks[WINSOCK_HANDLE_HASH(ct_fd)])
 		cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(ct_fd)], &clnt_fd_lock);
-	if (ct->ct_closeit && ct->ct_fd != -1) {
-		(void)closesocket(ct->ct_fd);
-	}
-	XDR_DESTROY(&(ct->ct_xdrs));
-	if (ct->ct_addr.buf)
-		free(ct->ct_addr.buf);
-	mem_free(ct, sizeof(struct ct_data));
-	if (cl->cl_netid && cl->cl_netid[0])
-		mem_free(cl->cl_netid, strlen(cl->cl_netid) +1);
-	if (cl->cl_tp && cl->cl_tp[0])
-		mem_free(cl->cl_tp, strlen(cl->cl_tp) +1);
 
     if (cl->cb_thread != INVALID_HANDLE_VALUE) {
         int status;
@@ -870,9 +859,21 @@ clnt_vc_destroy(cl)
         status = WaitForSingleObject(cl->cb_thread, INFINITE);
         fprintf(stdout, "%04x: terminated callback thread\n", GetCurrentThreadId());
         mutex_lock(&clnt_fd_lock);
-	    while (vc_fd_locks[WINSOCK_HANDLE_HASH(ct_fd)])
-		    cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(ct_fd)], &clnt_fd_lock);
+        while (vc_fd_locks[WINSOCK_HANDLE_HASH(ct_fd)])
+            cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(ct_fd)], &clnt_fd_lock);
     }
+
+	if (ct->ct_closeit && ct->ct_fd != -1) {
+		(void)closesocket(ct->ct_fd);
+	}
+	XDR_DESTROY(&(ct->ct_xdrs));
+	if (ct->ct_addr.buf)
+		free(ct->ct_addr.buf);
+	mem_free(ct, sizeof(struct ct_data));
+	if (cl->cl_netid && cl->cl_netid[0])
+		mem_free(cl->cl_netid, strlen(cl->cl_netid) +1);
+	if (cl->cl_tp && cl->cl_tp[0])
+		mem_free(cl->cl_tp, strlen(cl->cl_tp) +1);
 	mem_free(cl, sizeof(CLIENT));
 	mutex_unlock(&clnt_fd_lock);
 //	thr_sigsetmask(SIG_SETMASK, &(mask), NULL);
