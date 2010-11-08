@@ -315,8 +315,9 @@ static int readdir_copy_entry(
         lookup_entry(args->root, args->state->session,
             &args->state->file, entry);
     } else if (entry->attr_info.type == NF4LNK) {
-        const nfs41_component name = { entry->name,
-            (unsigned short)entry->name_len - 1 };
+        nfs41_component name;
+        name.name = entry->name;
+        name.len = (unsigned short)entry->name_len - 1;
         /* look up the symlink target to see whether it's a directory */
         lookup_symlink(args->root, args->state->session,
             &args->state->file, &name, &entry->attr_info);

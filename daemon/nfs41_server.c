@@ -216,10 +216,13 @@ int nfs41_server_find_or_create(
     IN const netaddr4 *addr,
     OUT nfs41_server **server_out)
 {
-    const struct server_info info = { server_scope, server_owner_major_id };
+    struct server_info info;
     struct list_entry *entry;
     nfs41_server *server;
     int status;
+
+    info.owner = server_owner_major_id;
+    info.scope = server_scope;
 
     dprintf(SRVLVL, "--> nfs41_server_find_or_create(%s)\n", info.owner);
 
