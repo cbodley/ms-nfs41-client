@@ -590,7 +590,8 @@ out:
 
 int nfs41_close(
     IN nfs41_session *session,
-    IN nfs41_open_state *state)
+    IN nfs41_path_fh *file,
+    IN stateid_arg *stateid)
 {
     int status;
     nfs41_compound compound;
@@ -617,11 +618,11 @@ int nfs41_close(
         goto out;
 
     compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
-    putfh_args.file = &state->file;
+    putfh_args.file = file;
     putfh_args.in_recovery = 0;
 
     compound_add_op(&compound, OP_CLOSE, &close_args, &close_res);
-    close_args.open_stateid = &state->stateid;
+    close_args.stateid = stateid;
 
     compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
     getattr_args.attr_request = &attr_request;
@@ -639,7 +640,7 @@ int nfs41_close(
     memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));
     nfs41_attr_cache_update(session_name_cache(session),
-        state->file.fh.fileid, &info);
+        file->fh.fileid, &info);
 
 out:
     return status;
@@ -648,7 +649,7 @@ out:
 int nfs41_write(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN unsigned char *data,
     IN uint32_t data_len,
     IN uint64_t offset,
@@ -732,7 +733,7 @@ out:
 int nfs41_read(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN uint64_t offset,
     IN uint32_t count,
     OUT unsigned char *data_out,
@@ -857,12 +858,12 @@ out:
 
 int nfs41_lock(
     IN nfs41_session *session,
-    IN nfs41_open_state *open_state,
-    IN stateid4 *lock_state OPTIONAL,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
     IN uint32_t type,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT stateid4 *stateid_out)
+    IN OUT stateid_arg *stateid)
 {
     int status;
     nfs41_compound compound;
@@ -883,7 +884,7 @@ int nfs41_lock(
         goto out;
 
     compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
-    putfh_args.file = &open_state->file;
+    putfh_args.file = file;
     putfh_args.in_recovery = 0;
 
     compound_add_op(&compound, OP_LOCK, &lock_args, &lock_res);
@@ -891,64 +892,19 @@ int nfs41_lock(
     lock_args.reclaim = 0;
     lock_args.offset = offset;
     lock_args.length = length;
-    if (lock_state) {
+    if (stateid->type == STATEID_LOCK) {
         lock_args.locker.new_lock_owner = 0;
-        lock_args.locker.u.lock_owner.lock_stateid = lock_state;
+        lock_args.locker.u.lock_owner.lock_stateid = stateid;
         lock_args.locker.u.lock_owner.lock_seqid = 0; /* ignored */
     } else {
         lock_args.locker.new_lock_owner = 1;
         lock_args.locker.u.open_owner.open_seqid = 0; /* ignored */
-        lock_args.locker.u.open_owner.open_stateid = &open_state->stateid;
+        lock_args.locker.u.open_owner.open_stateid = stateid;
         lock_args.locker.u.open_owner.lock_seqid = 0; /* ignored */
-        lock_args.locker.u.open_owner.lock_owner = &open_state->owner;
+        lock_args.locker.u.open_owner.lock_owner = owner;
     }
-    lock_res.u.resok4.lock_stateid = stateid_out;
+    lock_res.u.resok4.lock_stateid = &stateid->stateid;
     lock_res.u.denied.owner.owner_len = NFS4_OPAQUE_LIMIT;
-
-    status = compound_encode_send_decode(session, &compound, 0, 0);
-    if (status)
-        goto out;
-
-    compound_error(status = compound.res.status);
-out:
-    return status;
-}
-
-int nfs41_test_lock(
-    IN nfs41_session *session,
-    IN nfs41_open_state *state,
-    IN uint32_t type,
-    IN uint64_t offset,
-    IN uint64_t length)
-{
-    int status;
-    nfs41_compound compound;
-    nfs_argop4 argops[3];
-    nfs_resop4 resops[3];
-    nfs41_sequence_args sequence_args;
-    nfs41_sequence_res sequence_res;
-    nfs41_putfh_args putfh_args;
-    nfs41_putfh_res putfh_res;
-    nfs41_lockt_args lockt_args;
-    nfs41_lockt_res lockt_res;
-
-    compound_init(&compound, argops, resops, "test_lock");
-
-    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
-    status = nfs41_session_sequence(&sequence_args, session, 0);
-    if (status)
-        goto out;
-
-    compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
-    putfh_args.file = &state->file;
-    putfh_args.in_recovery = 0;
-
-    compound_add_op(&compound, OP_LOCKT, &lockt_args, &lockt_res);
-    lockt_args.locktype = type;
-    lockt_args.offset = offset;
-    lockt_args.length = length;
-    lockt_args.owner = &state->owner;
-    lockt_res.denied.owner.owner_len = NFS4_OPAQUE_LIMIT;
 
     status = compound_encode_send_decode(session, &compound, 0, 0);
     if (status)
@@ -961,10 +917,10 @@ out:
 
 int nfs41_unlock(
     IN nfs41_session *session,
-    IN nfs41_open_state *open_state,
-    IN OUT stateid4 *lock_state,
+    IN nfs41_path_fh *file,
     IN uint64_t offset,
-    IN uint64_t length)
+    IN uint64_t length,
+    IN OUT stateid_arg *stateid)
 {
     int status;
     nfs41_compound compound;
@@ -985,7 +941,7 @@ int nfs41_unlock(
         goto out;
 
     compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
-    putfh_args.file = &open_state->file;
+    putfh_args.file = file;
     putfh_args.in_recovery = 0;
 
     compound_add_op(&compound, OP_LOCKU, &locku_args, &locku_res);
@@ -993,8 +949,8 @@ int nfs41_unlock(
     locku_args.locktype = READ_LT;
     locku_args.offset = offset;
     locku_args.length = length;
-    locku_args.lock_stateid = lock_state;
-    locku_res.lock_stateid = lock_state;
+    locku_args.lock_stateid = stateid;
+    locku_res.lock_stateid = &stateid->stateid;
 
     status = compound_encode_send_decode(session, &compound, 0, 0);
     if (status)
@@ -1299,7 +1255,7 @@ out:
 int nfs41_setattr(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN nfs41_file_info *info)
 {
     int status;
@@ -1662,7 +1618,7 @@ out:
 enum nfsstat4 pnfs_rpc_layoutget(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *state,
+    IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
@@ -1697,7 +1653,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     layoutget_args.iomode = iomode;
     layoutget_args.offset = offset;
     layoutget_args.minlength = layoutget_args.length = length;
-    layoutget_args.stateid = state;
+    layoutget_args.stateid = stateid;
     layoutget_args.maxcount = session->fore_chan_attrs.ca_maxresponsesize - READ_OVERHEAD;
     layoutget_res.u.res_ok.layout = layout;
 

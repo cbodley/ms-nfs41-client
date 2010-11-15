@@ -192,7 +192,7 @@ static enum pnfs_status file_layout_fetch(
     IN OUT pnfs_file_layout *layout,
     IN nfs41_session *session,
     IN nfs41_path_fh *meta_file,
-    IN stateid4 *state,
+    IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length)
@@ -204,7 +204,7 @@ static enum pnfs_status file_layout_fetch(
         pnfs_iomode_string(iomode), layout->layout.state.seqid);
 
     nfsstat = pnfs_rpc_layoutget(session, meta_file,
-        state, iomode, offset, length, layout);
+        stateid, iomode, offset, length, layout);
     if (nfsstat) {
         dprintf(FLLVL, "pnfs_rpc_layoutget() failed with %s\n",
             nfs_error_string(nfsstat));
@@ -264,7 +264,7 @@ static enum pnfs_status file_layout_cache(
     IN OUT pnfs_file_layout *layout,
     IN nfs41_session *session,
     IN nfs41_path_fh *meta_file,
-    IN stateid4 *state,
+    IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length)
@@ -283,19 +283,22 @@ static enum pnfs_status file_layout_cache(
         status = layout_grant_status(&layout->layout, iomode);
         if (status == PNFS_PENDING) {
             /* if there's an existing layout stateid, use it */
-            if (layout->layout.state.seqid)
-                state = &layout->layout.state;
+            if (layout->layout.state.seqid) {
+                memcpy(&stateid->stateid, &layout->layout.state,
+                    sizeof(stateid4));
+                stateid->type = STATEID_LAYOUT;
+            }
 
             if ((layout->layout.status & PNFS_LAYOUT_NOT_RW) == 0) {
                 /* try to get a RW layout first */
                 status = file_layout_fetch(layout, session,
-                    meta_file, state, PNFS_IOMODE_RW, offset, length);
+                    meta_file, stateid, PNFS_IOMODE_RW, offset, length);
             }
 
             if (status && iomode == PNFS_IOMODE_READ) {
                 /* fall back on READ if necessary */
                 status = file_layout_fetch(layout, session,
-                    meta_file, state, iomode, offset, length);
+                    meta_file, stateid, iomode, offset, length);
             }
         }
 
@@ -375,7 +378,7 @@ static enum pnfs_status file_layout_get(
     IN OUT pnfs_file_layout *layout,
     IN nfs41_session *session,
     IN nfs41_path_fh *meta_file,
-    IN stateid4 *state,
+    IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length)
@@ -384,7 +387,7 @@ static enum pnfs_status file_layout_get(
 
     /* request a range for the entire file */
     status = file_layout_cache(layout, session,
-        meta_file, state, iomode, 0, NFS4_UINT64_MAX);
+        meta_file, stateid, iomode, 0, NFS4_UINT64_MAX);
     if (status) {
         dprintf(FLLVL, "file_layout_cache() failed with %s\n",
             pnfs_error_string(status));
@@ -509,6 +512,7 @@ enum pnfs_status pnfs_open_state_layout(
     IN uint64_t length,
     OUT pnfs_file_layout **layout_out)
 {
+    stateid_arg stateid;
     pnfs_file_layout *layout;
     enum pnfs_status status;
 
@@ -547,9 +551,11 @@ enum pnfs_status pnfs_open_state_layout(
             goto out;
     }
 
+    nfs41_open_stateid_arg(state, &stateid);
+
     /* make sure the layout can satisfy this request */
     status = file_layout_get(layout, session, &state->file,
-        &state->stateid, iomode, offset, length);
+        &stateid, iomode, offset, length);
     if (status) {
         dprintf(FLLVL, "file_layout_get() failed with %s\n",
             pnfs_error_string(status));

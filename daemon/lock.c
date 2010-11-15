@@ -33,23 +33,22 @@
 #define LKLVL 2 /* dprintf level for lock logging */
 
 
-stateid4* nfs41_lock_stateid_copy(
-    IN nfs41_lock_state *lock_state,
-    IN OUT stateid4 *dest)
+void nfs41_lock_stateid_arg(
+    IN nfs41_open_state *state,
+    OUT stateid_arg *arg)
 {
-    stateid4 *result;
-    AcquireSRWLockShared(&lock_state->lock);
-    if (lock_state->initialized) {
-        memcpy(dest, &lock_state->stateid, sizeof(stateid4));
-        result = dest;
-        dprintf(LKLVL, "nfs41_lock_stateid_copy: copying existing stateid "
-            "with seqid=%u\n", result->seqid);
+    AcquireSRWLockShared(&state->last_lock.lock);
+    if (state->last_lock.initialized) {
+        /* use lock stateid where available */
+        memcpy(&arg->stateid, &state->last_lock.stateid, sizeof(stateid4));
+        arg->type = STATEID_LOCK;
+        ReleaseSRWLockShared(&state->last_lock.lock);
     } else {
-        result = NULL;
-        dprintf(LKLVL, "nfs41_lock_stateid_copy: no existing lock state\n");
+        ReleaseSRWLockShared(&state->last_lock.lock);
+
+        /* fall back on open stateid */
+        nfs41_open_stateid_arg(state, arg);
     }
-    ReleaseSRWLockShared(&lock_state->lock);
-    return result;
 }
 
 static void update_last_lock_state(
@@ -124,15 +123,15 @@ static __inline uint32_t get_lock_type(BOOLEAN exclusive, BOOLEAN blocking)
 
 static int handle_lock(nfs41_upcall *upcall)
 {
-    int status;
+    stateid_arg stateid;
     lock_upcall_args *args = &upcall->args.lock;
     nfs41_open_state *state = args->state;
     const uint32_t type = get_lock_type(args->exclusive, args->blocking);
-    stateid4 stateid, *prev_stateid;
+    int status;
 
-    prev_stateid = nfs41_lock_stateid_copy(&state->last_lock, &stateid);
+    nfs41_lock_stateid_arg(state, &stateid);
 
-    status = nfs41_lock(state->session, state, prev_stateid,
+    status = nfs41_lock(state->session, &state->file, &state->owner,
         type, args->offset, args->length, &stateid);
     if (status) {
         dprintf(LKLVL, "nfs41_lock failed with %s\n",
@@ -141,27 +140,27 @@ static int handle_lock(nfs41_upcall *upcall)
         goto out;
     }
 
-    update_last_lock_state(&state->last_lock, &stateid);
+    update_last_lock_state(&state->last_lock, &stateid.stateid);
 out:
     return status;
 }
 
 static void cancel_lock(IN nfs41_upcall *upcall)
 {
-    int status = NO_ERROR;
+    stateid_arg stateid;
     lock_upcall_args *args = &upcall->args.lock;
     nfs41_open_state *state = args->state;
-    stateid4 stateid, *prev_stateid;
+    int status = NO_ERROR;
 
     dprintf(1, "--> cancel_lock()\n");
 
     if (upcall->status)
         goto out;
 
-    prev_stateid = nfs41_lock_stateid_copy(&state->last_lock, &stateid);
+    nfs41_lock_stateid_arg(state, &stateid);
 
-    status = nfs41_unlock(state->session, state,
-        prev_stateid, args->offset, args->length);
+    status = nfs41_unlock(state->session, &state->file,
+        args->offset, args->length, &stateid);
     if (status) {
         dprintf(LKLVL, "cancel_lock: nfs41_unlock() failed with %s\n",
             nfs_error_string(status));
@@ -169,7 +168,7 @@ static void cancel_lock(IN nfs41_upcall *upcall)
         goto out;
     }
 
-    update_last_lock_state(&state->last_lock, &stateid);
+    update_last_lock_state(&state->last_lock, &stateid.stateid);
 out:
     dprintf(1, "<-- cancel_lock() returning %d\n", status);
 }
@@ -201,17 +200,18 @@ out:
 
 static int handle_unlock(nfs41_upcall *upcall)
 {
-    int status;
+    stateid_arg stateid;
     unlock_upcall_args *args = &upcall->args.unlock;
     nfs41_open_state *state = args->state;
-    stateid4 stateid;
     uint32_t i, nsuccess = 0;
     unsigned char *buf = args->buf;
     uint32_t buf_len = args->buf_len;
     uint64_t offset;
     uint64_t length;
+    int status;
 
-    if (nfs41_lock_stateid_copy(&state->last_lock, &stateid) == NULL) {
+    nfs41_lock_stateid_arg(state, &stateid);
+    if (stateid.type != STATEID_LOCK) {
         eprintf("attempt to unlock a file with no lock state\n");
         status = ERROR_NOT_LOCKED;
         goto out;
@@ -222,7 +222,8 @@ static int handle_unlock(nfs41_upcall *upcall)
         if (safe_read(&buf, &buf_len, &offset, sizeof(LONGLONG))) break;
         if (safe_read(&buf, &buf_len, &length, sizeof(LONGLONG))) break;
 
-        status = nfs41_unlock(state->session, state, &stateid, offset, length);
+        status = nfs41_unlock(state->session,
+            &state->file, offset, length, &stateid);
         if (status == NFS4_OK) {
             nsuccess++;
         } else {
@@ -233,7 +234,7 @@ static int handle_unlock(nfs41_upcall *upcall)
     }
 
     if (nsuccess) {
-        update_last_lock_state(&state->last_lock, &stateid);
+        update_last_lock_state(&state->last_lock, &stateid.stateid);
         status = NO_ERROR;
     }
 out:

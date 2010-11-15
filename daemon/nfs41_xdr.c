@@ -1101,13 +1101,14 @@ static bool_t encode_op_close(
     if (!xdr_u_int32_t(xdr, &zero)) // This should be ignored by server
         return FALSE;
 
-    return xdr_stateid4(xdr, args->open_stateid);
+    return xdr_stateid4(xdr, &args->stateid->stateid);
 }
 
 static bool_t decode_op_close(
     XDR *xdr,
     nfs_resop4 *resop)
 {
+    stateid4 ignored;
     nfs41_op_close_res *res = (nfs41_op_close_res*)resop->res;
 
     if (unexpected_op(resop->op, OP_CLOSE))
@@ -1117,7 +1118,7 @@ static bool_t decode_op_close(
         return FALSE;
 
     if (res->status == NFS4_OK)
-        return xdr_stateid4(xdr, &res->open_stateid);
+        return xdr_stateid4(xdr, &ignored);
 
     return TRUE;
 }
@@ -1315,7 +1316,7 @@ static bool_t xdr_locker4(
         if (!xdr_u_int32_t(xdr, &locker->u.open_owner.open_seqid))
             return FALSE;
 
-        if (!xdr_stateid4(xdr, locker->u.open_owner.open_stateid))
+        if (!xdr_stateid4(xdr, &locker->u.open_owner.open_stateid->stateid))
             return FALSE;
 
         if (!xdr_u_int32_t(xdr, &locker->u.open_owner.lock_seqid))
@@ -1324,7 +1325,7 @@ static bool_t xdr_locker4(
         return xdr_state_owner4(xdr, locker->u.open_owner.lock_owner);
     } else {
         /* exist_lock_owner4 lock_owner */
-        if (!xdr_stateid4(xdr, locker->u.lock_owner.lock_stateid))
+        if (!xdr_stateid4(xdr, &locker->u.lock_owner.lock_stateid->stateid))
             return FALSE;
 
         return xdr_u_int32_t(xdr, &locker->u.lock_owner.lock_seqid);
@@ -1459,7 +1460,7 @@ static bool_t encode_op_locku(
     if (!xdr_u_int32_t(xdr, &args->seqid))
         return FALSE;
 
-    if (!xdr_stateid4(xdr, args->lock_stateid))
+    if (!xdr_stateid4(xdr, &args->lock_stateid->stateid))
         return FALSE;
 
     if (!xdr_u_hyper(xdr, &args->offset))
@@ -1974,7 +1975,7 @@ static bool_t encode_op_read(
     if (unexpected_op(argop->op, OP_READ))
         return FALSE;
 
-    if (!xdr_stateid4(xdr, args->stateid))
+    if (!xdr_stateid4(xdr, &args->stateid->stateid))
         return FALSE;
 
     if (!xdr_u_hyper(xdr, &args->offset))
@@ -2409,7 +2410,7 @@ static bool_t encode_op_setattr(
     if (unexpected_op(argop->op, OP_SETATTR))
         return FALSE;
 
-    if (!xdr_stateid4(xdr, args->stateid))
+    if (!xdr_stateid4(xdr, &args->stateid->stateid))
         return FALSE;
 
     /* encode attribute values from args->info into attrs.attr_vals */
@@ -2452,7 +2453,7 @@ static bool_t encode_op_write(
     if (unexpected_op(argop->op, OP_WRITE))
         return FALSE;
 
-    if (!xdr_stateid4(xdr, args->stateid))
+    if (!xdr_stateid4(xdr, &args->stateid->stateid))
         return FALSE;
 
     if (!xdr_u_hyper(xdr, &args->offset))
@@ -2811,7 +2812,7 @@ static bool_t encode_op_layoutget(
     if (!xdr_u_hyper(xdr, &args->minlength))
         return FALSE;
 
-    if (!xdr_stateid4(xdr, args->stateid))
+    if (!xdr_stateid4(xdr, &args->stateid->stateid))
         return FALSE;
 
     return xdr_u_int32_t(xdr, &args->maxcount);

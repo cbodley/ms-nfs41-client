@@ -244,6 +244,22 @@ typedef struct __nfs41_reclaim_complete_res {
 } nfs41_reclaim_complete_res;
 
 
+/* recoverable stateid argument */
+enum stateid_type {
+    STATEID_OPEN,
+    STATEID_LOCK,
+    STATEID_DELEG_FILE,
+    STATEID_DELEG_DIR,
+    STATEID_LAYOUT,
+    STATEID_SPECIAL
+};
+typedef struct __stateid_arg {
+    stateid4                stateid;
+    enum stateid_type       type;
+    nfs41_open_state        *open;
+} stateid_arg;
+
+
 /* OP_ACCESS */
 enum {
     ACCESS4_READ            = 0x00000001,
@@ -269,13 +285,11 @@ typedef struct __nfs41_access_res {
 /* OP_CLOSE */
 typedef struct __nfs41_op_close_args {
 //  uint32_t                seqid; // not used, always 0
-    stateid4                *open_stateid; /* -> nfs41_op_open_res_ok.stateid */
+    stateid_arg             *stateid;
 } nfs41_op_close_args;
 
 typedef struct __nfs41_op_close_res {
     uint32_t                status;
-    /* case NFS4_OK: */
-    stateid4                open_stateid;
 } nfs41_op_close_res;
 
 
@@ -360,13 +374,13 @@ enum {
 
 typedef struct __open_to_lock_owner4 {
     uint32_t                open_seqid;
-    stateid4                *open_stateid;
+    stateid_arg             *open_stateid;
     uint32_t                lock_seqid;
     state_owner4            *lock_owner;
 } open_to_lock_owner4;
 
 typedef struct __exist_lock_owner4 {
-    stateid4                *lock_stateid;
+    stateid_arg             *lock_stateid;
     uint32_t                lock_seqid;
 } exist_lock_owner4;
 
@@ -431,7 +445,7 @@ typedef struct __nfs41_lockt_res {
 typedef struct __nfs41_locku_args {
     uint32_t                locktype;
     uint32_t                seqid;
-    stateid4                *lock_stateid;
+    stateid_arg             *lock_stateid;
     uint64_t                offset;
     uint64_t                length;
 } nfs41_locku_args;
@@ -628,7 +642,7 @@ typedef struct __nfs41_op_open_res {
 
 /* OP_READ */
 typedef struct __nfs41_read_args {
-    stateid4                *stateid; /* -> nfs41_op_open_res_ok.stateid */
+    stateid_arg             *stateid; /* -> nfs41_op_open_res_ok.stateid */
     uint64_t                offset;
     uint32_t                count;
 } nfs41_read_args;
@@ -726,7 +740,7 @@ enum time_how4 {
 };
 
 typedef struct __nfs41_setattr_args {
-    stateid4                *stateid;
+    stateid_arg             *stateid;
     nfs41_file_info         *info;
 } nfs41_setattr_args;
 
@@ -750,7 +764,7 @@ typedef struct __nfs41_write_verf {
 } nfs41_write_verf;
 
 typedef struct __nfs41_write_args {
-    stateid4                *stateid; /* -> nfs41_op_open_res_ok.stateid */
+    stateid_arg             *stateid; /* -> nfs41_op_open_res_ok.stateid */
     uint64_t                offset;
     uint32_t                stable; /* stable_how4 */
     uint32_t                data_len;
@@ -777,7 +791,7 @@ typedef struct __pnfs_layoutget_args {
     uint64_t                offset;
     uint64_t                length;
     uint64_t                minlength;
-    stateid4                *stateid;
+    stateid_arg             *stateid;
     uint32_t                maxcount;
 } pnfs_layoutget_args;
 
@@ -923,12 +937,13 @@ int nfs41_create(
 
 int nfs41_close(
     IN nfs41_session *session,
-    IN nfs41_open_state *state);
+    IN nfs41_path_fh *file,
+    IN stateid_arg *stateid);
 
 int nfs41_write(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN unsigned char *data,
     IN uint32_t data_len,
     IN uint64_t offset,
@@ -939,7 +954,7 @@ int nfs41_write(
 int nfs41_read(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN uint64_t offset,
     IN uint32_t count,
     OUT unsigned char *data_out,
@@ -955,26 +970,19 @@ int nfs41_commit(
 
 int nfs41_lock(
     IN nfs41_session *session,
-    IN nfs41_open_state *open_state,
-    IN stateid4 *lock_state OPTIONAL,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
     IN uint32_t type,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT stateid4 *stateid_out);
-
-int nfs41_test_lock(
-    IN nfs41_session *session,
-    IN nfs41_open_state *state,
-    IN uint32_t type,
-    IN uint64_t offset,
-    IN uint64_t length);
+    IN OUT stateid_arg *stateid);
 
 int nfs41_unlock(
     IN nfs41_session *session,
-    IN nfs41_open_state *open_state,
-    IN OUT stateid4 *lock_state,
+    IN nfs41_path_fh *file,
     IN uint64_t offset,
-    IN uint64_t length);
+    IN uint64_t length,
+    IN OUT stateid_arg *stateid);
 
 stateid4* nfs41_lock_stateid_copy(
     IN nfs41_lock_state *lock_state,
@@ -1019,7 +1027,7 @@ int nfs41_rename(
 int nfs41_setattr(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN nfs41_file_info *info);
 
 int nfs41_link(
@@ -1070,7 +1078,7 @@ enum nfsstat4 nfs41_fs_locations(
 enum nfsstat4 pnfs_rpc_layoutget(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *state,
+    IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,

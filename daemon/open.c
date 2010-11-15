@@ -94,6 +94,17 @@ void nfs41_open_state_deref(
         free(state);
 }
 
+void nfs41_open_stateid_arg(
+    IN nfs41_open_state *state,
+    OUT stateid_arg *arg)
+{
+    AcquireSRWLockShared(&state->lock);
+    memcpy(&arg->stateid, &state->stateid, sizeof(stateid4));
+    ReleaseSRWLockShared(&state->lock);
+    arg->type = STATEID_OPEN;
+    arg->open = state;
+}
+
 
 /* client list of associated open state */
 static void client_state_add(
@@ -491,7 +502,10 @@ static void cancel_open(IN nfs41_upcall *upcall)
         goto out; /* if handle_open() failed, the state was already freed */
 
     if (state->do_close) {
-        status = nfs41_close(state->session, state);
+        stateid_arg stateid;
+        nfs41_open_stateid_arg(state, &stateid);
+
+        status = nfs41_close(state->session, &state->file, &stateid);
         if (status)
             dprintf(1, "cancel_open: nfs41_close() failed with %s\n",
                 nfs_error_string(status));
@@ -569,7 +583,10 @@ static int handle_close(nfs41_upcall *upcall)
     }
 
     if (state->do_close) {
-        status = nfs41_close(state->session, state);
+        stateid_arg stateid;
+        nfs41_open_stateid_arg(state, &stateid);
+
+        status = nfs41_close(state->session, &state->file, &stateid);
         if (status) {
             dprintf(1, "nfs41_close() failed with error %s.\n",
                 nfs_error_string(status));

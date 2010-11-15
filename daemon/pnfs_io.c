@@ -43,8 +43,7 @@ static uint32_t io_unit_count(
 static enum pnfs_status pattern_init(
     IN pnfs_io_pattern *pattern,
     IN nfs41_root *root,
-    IN nfs41_path_fh *meta_file,
-    IN stateid4 *stateid,
+    IN nfs41_open_state *state,
     IN pnfs_file_layout *layout,
     IN unsigned char *buffer,
     IN uint64_t offset,
@@ -76,12 +75,7 @@ static enum pnfs_status pattern_init(
     }
 
     pattern->root = root;
-    pattern->meta_file = meta_file;
-    /* 13.9.1.  Global Stateid Requirements
-     * "The stateid sent to the data server MUST be sent
-     * with the seqid set to zero" */
-    memcpy(&pattern->stateid, stateid, sizeof(stateid4));
-    pattern->stateid.seqid = 0;
+    pattern->state = state;
     pattern->layout = layout;
     pattern->buffer = buffer;
     pattern->offset_start = offset;
@@ -301,9 +295,9 @@ static enum pnfs_status map_ds_error(
 static uint32_t WINAPI file_layout_read_thread(void *args)
 {
     pnfs_io_unit io;
+    stateid_arg stateid;
     pnfs_io_thread *thread = (pnfs_io_thread*)args;
     pnfs_io_pattern *pattern = thread->pattern;
-    stateid4 *state = &pattern->stateid;
     pnfs_data_server *server;
     nfs41_client *client;
     uint32_t maxreadsize, bytes_read, total_read;
@@ -329,13 +323,16 @@ static uint32_t WINAPI file_layout_read_thread(void *args)
         goto out;
     }
 
+    nfs41_lock_stateid_arg(pattern->state, &stateid);
+    stateid.stateid.seqid = 0;
+
     total_read = 0;
     while ((status = thread_next_unit(thread, &io)) == PNFS_PENDING) {
         maxreadsize = max_read_size(client->session, &io.file->fh);
         if (io.length > maxreadsize)
             io.length = maxreadsize;
 
-        nfsstat = nfs41_read(client->session, io.file, state, io.offset,
+        nfsstat = nfs41_read(client->session, io.file, &stateid, io.offset,
             (uint32_t)io.length, io.buffer, &bytes_read, &eof);
         if (nfsstat) {
             eprintf("nfs41_read() failed with %s\n",
@@ -363,10 +360,10 @@ out:
 static uint32_t WINAPI file_layout_write_thread(void *args)
 {
     pnfs_io_unit io;
+    stateid_arg stateid;
     nfs41_write_verf verf;
     pnfs_io_thread *thread = (pnfs_io_thread*)args;
     pnfs_io_pattern *pattern = thread->pattern;
-    stateid4 *state = &pattern->stateid;
     pnfs_data_server *server;
     pnfs_file_layout *layout = pattern->layout;
     nfs41_client *client;
@@ -395,6 +392,9 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
         goto out;
     }
 
+    nfs41_lock_stateid_arg(pattern->state, &stateid);
+    stateid.stateid.seqid = 0;
+
 retry_write:
     thread->offset = offset_start;
     thread->stable = DATA_SYNC4;
@@ -406,7 +406,7 @@ retry_write:
         if (io.length > maxwritesize)
             io.length = maxwritesize;
 
-        nfsstat = nfs41_write(client->session, io.file, state, io.buffer,
+        nfsstat = nfs41_write(client->session, io.file, &stateid, io.buffer,
             (uint32_t)io.length, io.offset, UNSTABLE4, &bytes_written, &verf);
         if (nfsstat) {
             eprintf("nfs41_write() failed with %s\n",
@@ -460,8 +460,7 @@ out:
 enum pnfs_status pnfs_read(
     IN nfs41_root *root,
     IN nfs41_session *session,
-    IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN nfs41_open_state *state,
     IN pnfs_file_layout *layout,
     IN uint64_t offset,
     IN uint64_t length,
@@ -475,8 +474,8 @@ enum pnfs_status pnfs_read(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, file, stateid,
-        layout, buffer_out, offset, length, session->lease_time);
+    status = pattern_init(&pattern, root, state, layout,
+        buffer_out, offset, length, session->lease_time);
     if (status) {
         eprintf("pattern_init() failed with %s\n",
             pnfs_error_string(status));
@@ -500,8 +499,7 @@ out:
 enum pnfs_status pnfs_write(
     IN nfs41_root *root,
     IN nfs41_session *session,
-    IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN nfs41_open_state *state,
     IN pnfs_file_layout *layout,
     IN uint64_t offset,
     IN uint64_t length,
@@ -518,8 +516,8 @@ enum pnfs_status pnfs_write(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, file, stateid,
-        layout, buffer, offset, length, session->lease_time);
+    status = pattern_init(&pattern, root, state, layout,
+        buffer, offset, length, session->lease_time);
     if (status) {
         eprintf("pattern_init() failed with %s\n",
             pnfs_error_string(status));
@@ -541,7 +539,7 @@ enum pnfs_status pnfs_write(
          * after LAYOUTCOMMIT */
         dprintf(1, "sending COMMIT to meta server for offset=%d and len=%d\n",
             offset, *len_out);
-        nfsstat = nfs41_commit(session, pattern.meta_file, offset, *len_out, 0);
+        nfsstat = nfs41_commit(session, &state->file, offset, *len_out, 0);
         if (nfsstat) {
             dprintf(IOLVL, "nfs41_commit() failed with %s\n",
                 nfs_error_string(nfsstat));
@@ -553,7 +551,7 @@ enum pnfs_status pnfs_write(
     /* send LAYOUTCOMMIT */
     new_last_offset = offset + *len_out - 1;
 
-    nfsstat = pnfs_rpc_layoutcommit(session, pattern.meta_file,
+    nfsstat = pnfs_rpc_layoutcommit(session, &state->file,
         &pattern.layout->layout.state, offset, *len_out,
         &new_last_offset, NULL);
     if (nfsstat) {

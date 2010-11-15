@@ -400,4 +400,14 @@ void nfs41_open_state_ref(
 void nfs41_open_state_deref(
     IN nfs41_open_state *state);
 
+struct __stateid_arg;
+void nfs41_open_stateid_arg(
+    IN nfs41_open_state *state,
+    OUT struct __stateid_arg *arg);
+
+/* lock.c */
+void nfs41_lock_stateid_arg(
+    IN nfs41_open_state *state,
+    OUT struct __stateid_arg *arg);
+
 #endif /* __NFS41__ */

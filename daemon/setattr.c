@@ -101,13 +101,11 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     PFILE_BASIC_INFO basic_info = (PFILE_BASIC_INFO)args->buf;
     nfs41_open_state *state = args->state;
     nfs41_superblock *superblock = state->file.fh.superblock;
-    stateid4 stateid, *pstateid;
+    stateid_arg stateid;
     nfs41_file_info info;
     int status = NO_ERROR;
 
-    pstateid = nfs41_lock_stateid_copy(&state->last_lock, &stateid);
-    if (pstateid == NULL)
-        pstateid = &state->stateid;
+    nfs41_lock_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
 
@@ -159,7 +157,7 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     if (!info.attrmask.count)
         goto out;
 
-    status = nfs41_setattr(state->session, &state->file, pstateid, &info);
+    status = nfs41_setattr(state->session, &state->file, &stateid, &info);
     if (status) {
         dprintf(1, "nfs41_setattr() failed with error %s.\n",
             nfs_error_string(status));
@@ -313,18 +311,15 @@ out:
 
 static int handle_nfs41_set_size(setattr_upcall_args *args)
 {
-    nfs41_open_state *state = args->state;
-    int status;
-
+    nfs41_file_info info;
+    stateid_arg stateid;
     /* note: this is called with either FILE_END_OF_FILE_INFO or
      * FILE_ALLOCATION_INFO, both of which contain a single LARGE_INTEGER */
     PLARGE_INTEGER size = (PLARGE_INTEGER)args->buf;
-    stateid4 stateid, *pstateid;
-    nfs41_file_info info;
+    nfs41_open_state *state = args->state;
+    int status;
 
-    pstateid = nfs41_lock_stateid_copy(&state->last_lock, &stateid);
-    if (pstateid == NULL)
-        pstateid = &state->stateid;
+    nfs41_lock_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
     info.size = size->QuadPart;
@@ -333,7 +328,7 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
     info.attrmask.arr[0] = FATTR4_WORD0_SIZE;
 
     dprintf(2, "calling setattr() with size=%lld\n", info.size);
-    status = nfs41_setattr(state->session, &state->file, pstateid, &info);
+    status = nfs41_setattr(state->session, &state->file, &stateid, &info);
     if (status)
         dprintf(1, "nfs41_setattr() failed with error %s.\n",
             nfs_error_string(status));
@@ -518,12 +513,10 @@ static int handle_setexattr(nfs41_upcall *upcall)
     int status;
     setexattr_upcall_args *args = &upcall->args.setexattr;
     nfs41_open_state *state = args->state;
-    stateid4 stateid, *pstateid;
+    stateid_arg stateid;
     nfs41_file_info info;
 
-    pstateid = nfs41_lock_stateid_copy(&state->last_lock, &stateid);
-    if (pstateid == NULL)
-        pstateid = &state->stateid;
+    nfs41_lock_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
 
@@ -532,7 +525,7 @@ static int handle_setexattr(nfs41_upcall *upcall)
     info.attrmask.arr[1] |= FATTR4_WORD1_MODE;
     info.attrmask.count = 2;
 
-    status = nfs41_setattr(state->session, &state->file, pstateid, &info);
+    status = nfs41_setattr(state->session, &state->file, &stateid, &info);
     if (status)
         dprintf(1, "nfs41_setattr() failed with error %s.\n",
             nfs_error_string(status));
