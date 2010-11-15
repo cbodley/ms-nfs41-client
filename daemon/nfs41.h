@@ -91,6 +91,7 @@ typedef struct __nfs41_open_state {
     state_owner4 owner;
     nfs41_lock_state last_lock;
     struct __pnfs_file_layout *layout;
+    struct list_entry client_entry; /* entry in nfs41_client.opens */
     SRWLOCK lock;
     LONG ref_count;
 } nfs41_open_state;
@@ -109,6 +110,11 @@ typedef struct __nfs41_rpc_clnt {
     bool_t in_recovery;
 } nfs41_rpc_clnt;
 
+struct client_state {
+    struct list_entry opens; /* list of associated nfs41_open_state */
+    CRITICAL_SECTION lock;
+};
+
 typedef struct __nfs41_client {
     nfs41_server *server;
     client_owner4 owner;
@@ -126,6 +132,9 @@ typedef struct __nfs41_client {
     HANDLE cond;
     struct __nfs41_root *root;
     bool_t in_recovery;
+
+    /* for state recovery on server reboot */
+    struct client_state state;
 } nfs41_client;
 
 #define NFS41_MAX_NUM_SLOTS NFS41_MAX_RPC_REQS

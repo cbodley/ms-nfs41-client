@@ -73,6 +73,7 @@ out_free:
     goto out;
 }
 
+/* open state reference counting */
 void nfs41_open_state_ref(
     IN nfs41_open_state *state)
 {
@@ -91,6 +92,28 @@ void nfs41_open_state_deref(
         state->path.path, count);
     if (count == 0)
         free(state);
+}
+
+
+/* client list of associated open state */
+static void client_state_add(
+    IN nfs41_open_state *state)
+{
+    nfs41_client *client = state->session->client;
+
+    EnterCriticalSection(&client->state.lock);
+    list_add_tail(&client->state.opens, &state->client_entry);
+    LeaveCriticalSection(&client->state.lock);
+}
+
+static void client_state_remove(
+    IN nfs41_open_state *state)
+{
+    nfs41_client *client = state->session->client;
+
+    EnterCriticalSection(&client->state.lock);
+    list_remove(&state->client_entry);
+    LeaveCriticalSection(&client->state.lock);
 }
 
 
@@ -395,6 +418,9 @@ static int handle_open(nfs41_upcall *upcall)
                 args->mode, state, &info);
 
             if (status == NFS4_OK) {
+                /* add to the client's list of state for recovery */
+                client_state_add(state);
+
                 nfs_to_basic_info(&info, &args->basic_info);
                 nfs_to_standard_info(&info, &args->std_info);
                 state->do_close = 1;
@@ -468,6 +494,9 @@ static void cancel_open(IN nfs41_upcall *upcall)
         if (status)
             dprintf(1, "cancel_open: nfs41_close() failed with %s\n",
                 nfs_error_string(status));
+
+        /* remove from the client's list of state for recovery */
+        client_state_remove(state);
     } else if (args->created) {
         const nfs41_component *name = &state->file.name;
         status = nfs41_remove(state->session, &state->parent, name);
@@ -545,6 +574,9 @@ static int handle_close(nfs41_upcall *upcall)
                 nfs_error_string(status));
             status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
         }
+
+        /* remove from the client's list of state for recovery */
+        client_state_remove(state);
     }
 
     if (status || !rm_status)

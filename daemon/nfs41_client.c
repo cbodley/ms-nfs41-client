@@ -131,6 +131,9 @@ int nfs41_client_create(
     client->is_data = is_data;
     update_exchangeid_res(client, exchangeid);
 
+    list_init(&client->state.opens);
+    InitializeCriticalSection(&client->state.lock);
+
     //initialize a lock used to protect access to client id and client id seq#
     InitializeSRWLock(&client->exid_lock);
 
