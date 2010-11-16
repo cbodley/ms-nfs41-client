@@ -407,6 +407,89 @@ out:
     return status;
 }
 
+int nfs41_open_reclaim(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
+    IN uint32_t allow,
+    IN uint32_t deny,
+    OUT stateid4 *stateid)
+{
+    int status;
+    nfs41_compound compound;
+    nfs_argop4 argops[6];
+    nfs_resop4 resops[6];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_putfh_args putfh_args[2];
+    nfs41_putfh_res putfh_res[2];
+    nfs41_op_open_args open_args;
+    nfs41_op_open_res open_res;
+    bitmap4 attr_request;
+    nfs41_getattr_args getattr_args;
+    nfs41_getattr_res getattr_res, pgetattr_res;
+    nfs41_file_info info, dir_info;
+
+    init_getattr_request(&attr_request);
+
+    compound_init(&compound, argops, resops, "open reclaim");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 1);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_PUTFH, &putfh_args[0], &putfh_res[0]);
+    putfh_args[0].file = file;
+    putfh_args[0].in_recovery = 0;
+
+    compound_add_op(&compound, OP_OPEN, &open_args, &open_res);
+    open_args.seqid = 0;
+    open_args.share_access = allow | OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
+    open_args.share_deny = deny; 
+    open_args.owner = owner;
+    open_args.openhow.opentype = OPEN4_NOCREATE;
+    open_args.claim.claim = CLAIM_PREVIOUS;
+    open_args.claim.u.prev.delegate_type = OPEN_DELEGATE_NONE;
+    open_res.resok4.stateid = stateid;
+
+    compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
+    getattr_args.attr_request = &attr_request;
+    getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
+    getattr_res.info = &info;
+
+    compound_add_op(&compound, OP_PUTFH, &putfh_args[1], &putfh_res[1]);
+    putfh_args[1].file = parent;
+    putfh_args[1].in_recovery = 0;
+
+    compound_add_op(&compound, OP_GETATTR, &getattr_args, &pgetattr_res);
+    getattr_args.attr_request = &attr_request;
+    pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
+    pgetattr_res.info = &dir_info;
+
+    status = compound_encode_send_decode(session, &compound, 0, 0);
+    if (status)
+        goto out;
+
+    if (compound_error(status = compound.res.status))
+        goto out;
+
+    /* update the attributes of the parent directory */
+    memcpy(&dir_info.attrmask, &pgetattr_res.obj_attributes.attrmask,
+        sizeof(bitmap4));
+    nfs41_attr_cache_update(session_name_cache(session),
+        parent->fh.fileid, &dir_info);
+
+    /* update the attributes of the file */
+    memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
+        sizeof(bitmap4));
+    nfs41_attr_cache_update(session_name_cache(session),
+        file->fh.fileid, &info);
+out:
+    return status;
+}
+
 int nfs41_create(
     IN nfs41_session *session,
     IN uint32_t type,

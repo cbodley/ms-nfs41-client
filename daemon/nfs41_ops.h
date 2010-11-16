@@ -585,6 +585,10 @@ typedef struct __open_claim4 {
         struct __open_claim_null {
             const nfs41_component *filename;
         } null;
+    /* case CLAIM_PREVIOUS: */
+        struct __open_claim_prev {
+            uint32_t delegate_type;
+        } prev;
     } u;
 } open_claim4;
 
@@ -899,6 +903,15 @@ int nfs41_open(
     IN uint32_t mode,
     IN OUT nfs41_open_state *state,
     OUT nfs41_file_info *info);
+
+int nfs41_open_reclaim(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
+    IN uint32_t allow,
+    IN uint32_t deny,
+    OUT stateid4 *stateid);
 
 int nfs41_create(
     IN nfs41_session *session,

@@ -1743,6 +1743,9 @@ static bool_t encode_open_claim4(
     case CLAIM_NULL:
         result = encode_component(xdr, oc->u.null.filename);
         break;
+    case CLAIM_PREVIOUS:
+        result = xdr_u_int32_t(xdr, &oc->u.prev.delegate_type);
+        break;
     case CLAIM_FH:
         /* use current file handle */
         break;
