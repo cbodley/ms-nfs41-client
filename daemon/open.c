@@ -395,9 +395,10 @@ static int handle_open(nfs41_upcall *upcall)
         args->mode = info.mode;
         args->changeattr = info.change;
     } else {
-        uint32_t allow = 0, deny = 0, create = 0;
+        uint32_t create = 0;
 
-        map_access_2_allowdeny(args->access_mask, args->access_mode, &allow, &deny);
+        map_access_2_allowdeny(args->access_mask, args->access_mode,
+            &state->share_access, &state->share_deny);
         status = map_disposition_2_nfsopen(args->disposition, status, &create, &upcall->last_error);
         if (status)
             goto out_free_state;
@@ -414,8 +415,8 @@ static int handle_open(nfs41_upcall *upcall)
             args->std_info.Directory = 1;
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
-            status = nfs41_open(state->session, allow, deny, create,
-                args->mode, state, &info);
+            status = nfs41_open(state->session, state->share_access,
+                state->share_deny, create, args->mode, state, &info);
 
             if (status == NFS4_OK) {
                 /* add to the client's list of state for recovery */

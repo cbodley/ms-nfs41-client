@@ -117,7 +117,7 @@ int compound_encode_send_decode(
     int status, retry_count = 0, delayby = 0;
     nfs41_sequence_args *args =
         (nfs41_sequence_args *)compound->args.argarray[0].arg;
-    bool_t zero = 0;
+    bool_t zero = 0, client_state_lost = FALSE;
 
 retry:
     /* send compound */
@@ -184,6 +184,7 @@ retry:
             goto out_free_slot;
         else if (status == 1)
             goto do_retry;
+        client_state_lost = TRUE;
         status = nfs41_client_renew(session->client);
         if (status) {
             eprintf("nfs41_exchange_id() failed with %d\n", status);
@@ -202,6 +203,7 @@ retry:
         }
         status = nfs41_session_renew(session);
         if (status == NFS4ERR_STALE_CLIENTID) {
+            client_state_lost = TRUE;
             status = nfs41_client_renew(session->client);
             if (status) {
                 eprintf("nfs41_exchange_id() failed with %d\n", status);
@@ -218,6 +220,34 @@ retry:
         } else if (status && status != NFS4ERR_STALE_CLIENTID) {
             eprintf("nfs41_session_renew: failed with %d\n", status);
             goto out;
+        }
+        /* do client state recovery */
+        if (client_state_lost) {
+            struct client_state *state = &session->client->state;
+            struct list_entry *entry;
+            nfs41_open_state *open;
+            stateid4 stateid;
+
+            EnterCriticalSection(&state->lock);
+            list_for_each(entry, &state->opens) {
+                open = list_container(entry, nfs41_open_state, client_entry);
+                status = nfs41_open_reclaim(session, &open->parent, &open->file,
+                    &open->owner, open->share_access, open->share_deny,
+                    &stateid);
+                if (status == NFS4_OK) {
+                    /* update the open's stateid under lock */
+                    AcquireSRWLockExclusive(&open->lock);
+                    memcpy(&open->stateid, &stateid, sizeof(stateid4));
+                    ReleaseSRWLockExclusive(&open->lock);
+                }
+            }
+            LeaveCriticalSection(&state->lock);
+
+            /* send reclaim_complete, but don't fail on errors */
+            status = nfs41_reclaim_complete(session);
+            if (status && status == NFS4ERR_NOTSUPP)
+                eprintf("nfs41_reclaim_complete() failed with %s\n",
+                    nfs_error_string(status));
         }
         if (nfs41_renew_in_progress(session->client, NULL))
             nfs41_renew_in_progress(session->client, &zero);

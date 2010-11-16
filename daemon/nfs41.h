@@ -94,6 +94,8 @@ typedef struct __nfs41_open_state {
     struct list_entry client_entry; /* entry in nfs41_client.opens */
     SRWLOCK lock;
     LONG ref_count;
+    uint32_t share_access;
+    uint32_t share_deny;
 } nfs41_open_state;
 
 typedef struct __nfs41_rpc_clnt {
