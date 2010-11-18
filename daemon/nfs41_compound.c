@@ -123,6 +123,56 @@ static void recovery_finish(
     LeaveCriticalSection(&client->recovery.lock);
 }
 
+static int recover_open(
+    IN nfs41_session *session,
+    IN nfs41_open_state *open)
+{
+    stateid4 stateid;
+    int status;
+
+    /* reclaim the open stateid */
+    status = nfs41_open_reclaim(session, &open->parent, &open->file,
+        &open->owner, open->share_access, open->share_deny, &stateid);
+    if (status)
+        goto out;
+
+    AcquireSRWLockExclusive(&open->lock);
+    /* update the open stateid */
+    memcpy(&open->stateid, &stateid, sizeof(stateid4));
+    ReleaseSRWLockExclusive(&open->lock);
+out:
+    return status;
+}
+
+static int recover_client_state(
+    IN nfs41_session *session,
+    IN nfs41_client *client)
+{
+    struct client_state *state = &session->client->state;
+    struct list_entry *entry;
+    nfs41_open_state *open;
+    int status = NFS4_OK;
+
+    /* recover each of the client's opens */
+    EnterCriticalSection(&state->lock);
+    list_for_each(entry, &state->opens) {
+        open = list_container(entry, nfs41_open_state, client_entry);
+        status = recover_open(session, open);
+        if (status == NFS4ERR_BADSESSION)
+            break;
+    }
+    LeaveCriticalSection(&state->lock);
+
+    if (status != NFS4ERR_BADSESSION) {
+        /* send reclaim_complete, but don't fail on errors */
+        status = nfs41_reclaim_complete(session);
+        if (status && status == NFS4ERR_NOTSUPP)
+            eprintf("nfs41_reclaim_complete() failed with %s\n",
+                nfs_error_string(status));
+    }
+    return status;
+}
+
 int compound_encode_send_decode(
     nfs41_session *session,
     nfs41_compound *compound,
@@ -226,36 +276,9 @@ restart_recovery:
             recovery_finish(session->client);
             goto out;
         }
-        /* do client state recovery */
         if (client_state_lost) {
-            struct client_state *state = &session->client->state;
-            struct list_entry *entry;
-            nfs41_open_state *open;
-            stateid4 stateid;
-
-            EnterCriticalSection(&state->lock);
-            list_for_each(entry, &state->opens) {
-                open = list_container(entry, nfs41_open_state, client_entry);
-                status = nfs41_open_reclaim(session, &open->parent, &open->file,
-                    &open->owner, open->share_access, open->share_deny,
-                    &stateid);
-                if (status == NFS4_OK) {
-                    /* update the open's stateid under lock */
-                    AcquireSRWLockExclusive(&open->lock);
-                    memcpy(&open->stateid, &stateid, sizeof(stateid4));
-                    ReleaseSRWLockExclusive(&open->lock);
-                } else if (status == NFS4ERR_BADSESSION) {
-                    LeaveCriticalSection(&state->lock);
-                    goto restart_recovery;
-                }
-            }
-            LeaveCriticalSection(&state->lock);
-
-            /* send reclaim_complete, but don't fail on errors */
-            status = nfs41_reclaim_complete(session);
-            if (status && status == NFS4ERR_NOTSUPP)
-                eprintf("nfs41_reclaim_complete() failed with %s\n",
-                    nfs_error_string(status));
+            /* do client state recovery */
+            status = recover_client_state(session, session->client);
             if (status == NFS4ERR_BADSESSION)
                 goto restart_recovery;
         }
