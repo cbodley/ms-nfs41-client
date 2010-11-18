@@ -160,7 +160,7 @@ static int lookup_rpc(
     }
 
     buffer_size = MAX_RPC_RES_SIZE(component_count);
-    status = compound_encode_send_decode(session, &compound, 0, buffer_size);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 

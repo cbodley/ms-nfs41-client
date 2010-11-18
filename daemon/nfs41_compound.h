@@ -77,7 +77,6 @@ void compound_add_op(
 int compound_encode_send_decode(
     nfs41_session *session,
     nfs41_compound *compound,
-    uint32_t bufsize_in,
-    uint32_t bufsize_out);
+    bool_t try_recovery);
 
 #endif /* __NFS41_DAEMON_COMPOUND_H__ */

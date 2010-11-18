@@ -1099,7 +1099,7 @@ static int rpc_array_putfh(
         putfh_args[i].in_recovery = 1;
     }
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status) goto out;
 
     status = sequence_res.sr_status;

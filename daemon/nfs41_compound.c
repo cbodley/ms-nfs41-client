@@ -126,8 +126,7 @@ static void recovery_finish(
 int compound_encode_send_decode(
     nfs41_session *session,
     nfs41_compound *compound,
-    uint32_t bufsize_in,
-    uint32_t bufsize_out)
+    bool_t try_recovery)
 {
     int status, retry_count = 0, delayby = 0;
     nfs41_sequence_args *args =
@@ -182,17 +181,14 @@ retry:
     if (compound->res.status != NFS4_OK)
         dprintf(1, "\n################ %s ################\n\n",
             nfs_error_string(compound->res.status));
-    if (compound->res.status != NFS4_OK && 
-        compound->args.argarray[0].op == OP_DESTROY_SESSION) {
-            dprintf(1, "OP_DESTROY_SESSION ignoring errors\n");
-            compound->res.status = NFS4_OK;
-    }
 
     switch (compound->res.status) {
     case NFS4_OK:
         break;
 
     case NFS4ERR_STALE_CLIENTID:
+        if (!try_recovery)
+            goto out;
         if (!recovery_start_or_wait(session->client))
             goto do_retry;
         //try to create a new client
@@ -207,9 +203,12 @@ retry:
         //fallthru and reestablish the session
     case NFS4ERR_BADSESSION:
         if (compound->res.status == NFS4ERR_BADSESSION) {
+            if (!try_recovery)
+                goto out;
             if (!recovery_start_or_wait(session->client))
                 goto do_retry;
         }
+restart_recovery:
         //try to create a new session
         status = nfs41_session_renew(session);
         if (status == NFS4ERR_STALE_CLIENTID) {
@@ -221,15 +220,8 @@ retry:
                 recovery_finish(session->client);
                 goto out;
             }
-            status = nfs41_session_renew(session);
-            if (status) {
-                eprintf("after reestablishing clientid: nfs41_session_renew() "
-                    "failed with %d\n", status);
-                status = ERROR_BAD_NET_RESP;
-                recovery_finish(session->client);
-                goto out;
-            }
-        } else if (status && status != NFS4ERR_STALE_CLIENTID) {
+            goto restart_recovery;
+        } else if (status) {
             eprintf("nfs41_session_renew: failed with %d\n", status);
             recovery_finish(session->client);
             goto out;
@@ -252,6 +244,9 @@ retry:
                     AcquireSRWLockExclusive(&open->lock);
                     memcpy(&open->stateid, &stateid, sizeof(stateid4));
                     ReleaseSRWLockExclusive(&open->lock);
+                } else if (status == NFS4ERR_BADSESSION) {
+                    LeaveCriticalSection(&state->lock);
+                    goto restart_recovery;
                 }
             }
             LeaveCriticalSection(&state->lock);
@@ -261,6 +256,8 @@ retry:
             if (status && status == NFS4ERR_NOTSUPP)
                 eprintf("nfs41_reclaim_complete() failed with %s\n",
                     nfs_error_string(status));
+            if (status == NFS4ERR_BADSESSION)
+                goto restart_recovery;
         }
         recovery_finish(session->client);
         goto do_retry;

@@ -246,7 +246,8 @@ int nfs41_destroy_session(
     compound_add_op(&compound, OP_DESTROY_SESSION, &ds_args, &ds_res);
     ds_args.dsa_sessionid = session->session_id;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    /* don't attempt to recover from BADSESSION/STALE_CLIENTID */
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
@@ -278,7 +279,8 @@ enum nfsstat4 nfs41_reclaim_complete(
 
     compound_add_op(&compound, OP_RECLAIM_COMPLETE, NULL, &reclaim_res);
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    /* don't attempt to recover from BADSESSION */
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
@@ -365,7 +367,7 @@ int nfs41_open(
     pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     pgetattr_res.info = &dir_info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -468,7 +470,8 @@ int nfs41_open_reclaim(
     pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     pgetattr_res.info = &dir_info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    /* don't attempt to recover from BADSESSION errors */
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
@@ -559,7 +562,7 @@ int nfs41_create(
     pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     pgetattr_res.info = &dir_info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -629,7 +632,7 @@ int nfs41_close(
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     getattr_res.info = &info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -702,7 +705,7 @@ int nfs41_write(
         getattr_res.info = &info;
     }
 
-    status = compound_encode_send_decode(session, &compound, data_len, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -769,7 +772,7 @@ int nfs41_read(
     read_res.resok4.data_len = count;
     read_res.resok4.data = data_out;
 
-    status = compound_encode_send_decode(session, &compound, 0, count);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -838,7 +841,7 @@ int nfs41_commit(
         getattr_res.info = &info;
     }
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -906,7 +909,7 @@ int nfs41_lock(
     lock_res.u.resok4.lock_stateid = &stateid->stateid;
     lock_res.u.denied.owner.owner_len = NFS4_OPAQUE_LIMIT;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -952,7 +955,7 @@ int nfs41_unlock(
     locku_args.lock_stateid = stateid;
     locku_res.lock_stateid = &stateid->stateid;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1002,8 +1005,7 @@ int nfs41_readdir(
     readdir_res.reply.entries = entries;
     ZeroMemory(entries, readdir_args.dircount);
 
-    status = compound_encode_send_decode(session, &compound,
-        0, readdir_args.maxcount);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1065,7 +1067,7 @@ int nfs41_getattr(
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     getattr_res.info = info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1124,7 +1126,7 @@ int nfs41_remove(
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     getattr_res.info = &info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1206,7 +1208,7 @@ int nfs41_rename(
     src_getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     src_getattr_res.info = &src_info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1284,7 +1286,7 @@ int nfs41_setattr(
     setattr_args.stateid = stateid;
     setattr_args.info = info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1375,7 +1377,7 @@ int nfs41_link(
     compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
     getfh_res.fh = &link_out->fh;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1439,7 +1441,7 @@ int nfs41_readlink(
     readlink_res.link_len = max_len - 1;
     readlink_res.link = link_out;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1484,7 +1486,7 @@ int nfs41_access(
     compound_add_op(&compound, OP_ACCESS, &access_args, &access_res);
     access_args.access = requested;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1516,7 +1518,7 @@ int nfs41_send_sequence(
     if (status)
         goto out;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1556,7 +1558,7 @@ int nfs41_delegreturn(
     compound_add_op(&compound, OP_DELEGRETURN, &dr_args, &dr_res);
     dr_args.stateid = stateid;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1606,7 +1608,7 @@ enum nfsstat4 nfs41_fs_locations(
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     getattr_res.info = &info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1657,7 +1659,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     layoutget_args.maxcount = session->fore_chan_attrs.ca_maxresponsesize - READ_OVERHEAD;
     layoutget_res.u.res_ok.layout = layout;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1720,7 +1722,7 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     getattr_res.info = &info;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1772,7 +1774,7 @@ enum nfsstat4 pnfs_rpc_layoutreturn(
     layoutreturn_args.length = layout->layout.length;
     layoutreturn_args.stateid = &layout->layout.state;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
@@ -1820,7 +1822,7 @@ enum nfsstat4 pnfs_rpc_getdeviceinfo(
     getdeviceinfo_args.notify_types.count = 0;
     getdeviceinfo_res.u.res_ok.device = device;
 
-    status = compound_encode_send_decode(session, &compound, 0, 0);
+    status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
 
