@@ -37,51 +37,82 @@ void nfs41_lock_stateid_arg(
     IN nfs41_open_state *state,
     OUT stateid_arg *arg)
 {
-    AcquireSRWLockShared(&state->last_lock.lock);
-    if (state->last_lock.initialized) {
+    AcquireSRWLockShared(&state->lock);
+    if (state->locks.stateid.seqid) {
         /* use lock stateid where available */
-        memcpy(&arg->stateid, &state->last_lock.stateid, sizeof(stateid4));
+        memcpy(&arg->stateid, &state->locks.stateid, sizeof(stateid4));
         arg->type = STATEID_LOCK;
-        ReleaseSRWLockShared(&state->last_lock.lock);
+        arg->open = state;
     } else {
-        ReleaseSRWLockShared(&state->last_lock.lock);
-
         /* fall back on open stateid */
         nfs41_open_stateid_arg(state, arg);
     }
+    ReleaseSRWLockShared(&state->lock);
 }
 
-static void update_last_lock_state(
-    OUT nfs41_lock_state *lock_state,
-    IN stateid4 *stateid)
+/* expects the caller to hold an exclusive lock on nfs41_open_state.lock */
+static void update_lock_state(
+    OUT nfs41_open_state *state,
+    IN const stateid4 *stateid)
 {
-    /* update the lock state if the seqid is more recent */
-    AcquireSRWLockShared(&lock_state->lock);
-    if (stateid->seqid > lock_state->stateid.seqid) {
-        ReleaseSRWLockShared(&lock_state->lock);
-
-        AcquireSRWLockExclusive(&lock_state->lock);
-        if (stateid->seqid > lock_state->stateid.seqid) {
-            if (lock_state->initialized) {
-                /* if the lock state already existed, update the seqid only;
-                 * assume that stateid->other remains unchanged */
-                dprintf(LKLVL, "update_last_lock_state: setting seqid=%u "
-                    "(was %u)\n", stateid->seqid, lock_state->stateid.seqid);
-                lock_state->stateid.seqid = stateid->seqid;
-            } else {
-                /* copy the entire stateid and mark as initialized */
-                dprintf(LKLVL, "update_last_lock_state: stateid "
-                    "initialized with seqid=%u\n", stateid->seqid);
-                memcpy(&lock_state->stateid, stateid, sizeof(stateid4));
-                lock_state->initialized = 1;
-            }
-        }
-        ReleaseSRWLockExclusive(&lock_state->lock);
-    } else {
-        dprintf(LKLVL, "update_last_lock_state: discarding seqid=%u "
-            "(already %u)\n", stateid->seqid, lock_state->stateid.seqid);
-        ReleaseSRWLockShared(&lock_state->lock);
+    if (state->locks.stateid.seqid == 0) {
+        /* if it's a new lock stateid, copy it in */
+        memcpy(&state->locks.stateid, stateid, sizeof(stateid4));
+    } else if (stateid->seqid > state->locks.stateid.seqid) {
+        /* update the seqid if it's more recent */
+        state->locks.stateid.seqid = stateid->seqid;
     }
+}
+
+static int open_lock_add(
+    IN nfs41_open_state *state,
+    IN const stateid4 *stateid,
+    IN uint64_t offset,
+    IN uint64_t length,
+    IN uint32_t type)
+{
+    nfs41_lock_state *lock;
+    int status = NO_ERROR;
+
+    AcquireSRWLockExclusive(&state->lock);
+    update_lock_state(state, stateid);
+
+    lock = malloc(sizeof(nfs41_lock_state));
+    if (lock == NULL) {
+        status = GetLastError();
+        goto out;
+    }
+    lock->offset = offset;
+    lock->length = length;
+    lock->type = type;
+
+    list_add_tail(&state->locks.list, &lock->open_entry);
+out:
+    ReleaseSRWLockExclusive(&state->lock);
+    return status;
+}
+
+static void open_lock_remove(
+    IN nfs41_open_state *state,
+    IN const stateid4 *stateid,
+    IN uint64_t offset,
+    IN uint64_t length)
+{
+    struct list_entry *entry;
+    nfs41_lock_state *lock;
+
+    AcquireSRWLockExclusive(&state->lock);
+    update_lock_state(state, stateid);
+
+    list_for_each(entry, &state->locks.list) {
+        lock = list_container(entry, nfs41_lock_state, open_entry);
+        if (lock->offset == offset && lock->length == length) {
+            list_remove(entry);
+            free(lock);
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&state->lock);
 }
 
 
@@ -132,7 +163,7 @@ static int handle_lock(nfs41_upcall *upcall)
     nfs41_lock_stateid_arg(state, &stateid);
 
     status = nfs41_lock(state->session, &state->file, &state->owner,
-        type, args->offset, args->length, &stateid);
+        type, args->offset, args->length, 0, &stateid);
     if (status) {
         dprintf(LKLVL, "nfs41_lock failed with %s\n",
             nfs_error_string(status));
@@ -140,7 +171,9 @@ static int handle_lock(nfs41_upcall *upcall)
         goto out;
     }
 
-    update_last_lock_state(&state->last_lock, &stateid.stateid);
+    /* ignore errors from open_lock_add(); they just mean we
+     * won't be able to recover the lock after reboot */
+    open_lock_add(state, &stateid.stateid, args->offset, args->length, type);
 out:
     return status;
 }
@@ -168,7 +201,7 @@ static void cancel_lock(IN nfs41_upcall *upcall)
         goto out;
     }
 
-    update_last_lock_state(&state->last_lock, &stateid.stateid);
+    open_lock_remove(state, &stateid.stateid, args->offset, args->length);
 out:
     dprintf(1, "<-- cancel_lock() returning %d\n", status);
 }
@@ -208,7 +241,7 @@ static int handle_unlock(nfs41_upcall *upcall)
     uint32_t buf_len = args->buf_len;
     uint64_t offset;
     uint64_t length;
-    int status;
+    int status = NO_ERROR;
 
     nfs41_lock_stateid_arg(state, &stateid);
     if (stateid.type != STATEID_LOCK) {
@@ -217,7 +250,6 @@ static int handle_unlock(nfs41_upcall *upcall)
         goto out;
     }
 
-    status = NO_ERROR;
     for (i = 0; i < args->count; i++) {
         if (safe_read(&buf, &buf_len, &offset, sizeof(LONGLONG))) break;
         if (safe_read(&buf, &buf_len, &length, sizeof(LONGLONG))) break;
@@ -225,6 +257,7 @@ static int handle_unlock(nfs41_upcall *upcall)
         status = nfs41_unlock(state->session,
             &state->file, offset, length, &stateid);
         if (status == NFS4_OK) {
+            open_lock_remove(state, &stateid.stateid, offset, length);
             nsuccess++;
         } else {
             dprintf(LKLVL, "nfs41_unlock failed with %s\n",
@@ -234,7 +267,7 @@ static int handle_unlock(nfs41_upcall *upcall)
     }
 
     if (nsuccess) {
-        update_last_lock_state(&state->last_lock, &stateid.stateid);
+        update_lock_state(state, &stateid.stateid);
         status = NO_ERROR;
     }
 out:

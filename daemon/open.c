@@ -62,6 +62,7 @@ static int create_open_state(
     state->owner.owner_len = (uint32_t)strlen(
         (const char*)state->owner.owner);
     state->ref_count = 1;
+    list_init(&state->locks.list);
 
     *state_out = state;
     status = NO_ERROR;
@@ -72,6 +73,18 @@ out_free:
     free(state);
     goto out;
 }
+
+static void open_state_free(
+    IN nfs41_open_state *state)
+{
+    struct list_entry *entry, *tmp;
+
+    /* free associated lock state */
+    list_for_each_tmp(entry, tmp, &state->locks.list)
+        free(list_container(entry, nfs41_lock_state, open_entry));
+    free(state);
+}
+
 
 /* open state reference counting */
 void nfs41_open_state_ref(
@@ -91,7 +104,7 @@ void nfs41_open_state_deref(
     dprintf(2, "nfs41_open_state_deref(%s) count %d\n",
         state->path.path, count);
     if (count == 0)
-        free(state);
+        open_state_free(state);
 }
 
 void nfs41_open_stateid_arg(

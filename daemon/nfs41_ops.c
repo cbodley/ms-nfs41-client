@@ -866,6 +866,7 @@ int nfs41_lock(
     IN uint32_t type,
     IN uint64_t offset,
     IN uint64_t length,
+    IN bool_t reclaim,
     IN OUT stateid_arg *stateid)
 {
     int status;
@@ -892,7 +893,7 @@ int nfs41_lock(
 
     compound_add_op(&compound, OP_LOCK, &lock_args, &lock_res);
     lock_args.locktype = type;
-    lock_args.reclaim = 0;
+    lock_args.reclaim = reclaim;
     lock_args.offset = offset;
     lock_args.length = length;
     if (stateid->type == STATEID_LOCK) {
@@ -909,11 +910,14 @@ int nfs41_lock(
     lock_res.u.resok4.lock_stateid = &stateid->stateid;
     lock_res.u.denied.owner.owner_len = NFS4_OPAQUE_LIMIT;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, !reclaim);
     if (status)
         goto out;
 
-    compound_error(status = compound.res.status);
+    if (compound_error(status = compound.res.status))
+        goto out;
+
+    stateid->type = STATEID_LOCK; /* returning a lock stateid */
 out:
     return status;
 }

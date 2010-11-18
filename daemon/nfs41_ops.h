@@ -975,6 +975,7 @@ int nfs41_lock(
     IN uint32_t type,
     IN uint64_t offset,
     IN uint64_t length,
+    IN bool_t reclaim,
     IN OUT stateid_arg *stateid);
 
 int nfs41_unlock(

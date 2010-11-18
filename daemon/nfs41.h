@@ -68,9 +68,10 @@ typedef struct __nfs41_server {
 } nfs41_server;
 
 typedef struct __nfs41_lock_state {
-    bool_t initialized;
-    stateid4 stateid;
-    SRWLOCK lock;
+    struct list_entry open_entry; /* entry in nfs41_open_state.locks */
+    uint64_t offset;
+    uint64_t length;
+    uint32_t type;
 } nfs41_lock_state;
 
 /* nfs41_open_state reference counting:
@@ -89,13 +90,17 @@ typedef struct __nfs41_open_state {
     bool_t do_close;
     stateid4 stateid;
     state_owner4 owner;
-    nfs41_lock_state last_lock;
     struct __pnfs_file_layout *layout;
     struct list_entry client_entry; /* entry in nfs41_client.opens */
     SRWLOCK lock;
     LONG ref_count;
     uint32_t share_access;
     uint32_t share_deny;
+
+    struct { /* list of open lock state for recovery */
+        stateid4 stateid;
+        struct list_entry list;
+    } locks;
 } nfs41_open_state;
 
 typedef struct __nfs41_rpc_clnt {
