@@ -546,15 +546,12 @@ static struct name_cache_entry* name_cache_search(
     IN struct name_cache_entry *parent,
     IN const nfs41_component *component)
 {
-    char dbg_name[NFS41_MAX_COMPONENT_LEN];
     struct rb_node *node;
     struct name_cache_entry *entry;
     int result;
 
-    StringCchCopyNA(dbg_name, NFS41_MAX_COMPONENT_LEN,
-        component->name, component->len);
-    dprintf(NCLVL2, "--> name_cache_search('%s' under '%s')\n",
-        dbg_name, parent->component);
+    dprintf(NCLVL2, "--> name_cache_search('%.*s' under '%s')\n",
+        component->len, component->name, parent->component);
 
     entry = NULL;
     node = parent->rbchildren.rb_node;
@@ -699,13 +696,10 @@ static int name_cache_find_or_create(
     IN const nfs41_component *component,
     OUT struct name_cache_entry **target_out)
 {
-    char dbg_name[NFS41_MAX_COMPONENT_LEN];
     int status = NO_ERROR;
 
-    StringCchCopyNA(dbg_name, NFS41_MAX_COMPONENT_LEN,
-        component->name, component->len);
-    dprintf(NCLVL1, "--> name_cache_find_or_create("
-        "'%s' under '%s')\n", dbg_name, parent->component);
+    dprintf(NCLVL1, "--> name_cache_find_or_create('%.*s' under '%s')\n",
+        component->len, component->name, parent->component);
 
     *target_out = name_cache_search(cache, parent, component);
     if (*target_out)
@@ -914,13 +908,11 @@ int nfs41_name_cache_insert(
     IN OPTIONAL const nfs41_file_info *info,
     IN OPTIONAL const change_info4 *cinfo)
 {
-    char dbg_path[NFS41_MAX_PATH_LEN];
     struct name_cache_entry *grandparent, *parent, *target;
     int status;
 
-    StringCchCopyNA(dbg_path, NFS41_MAX_PATH_LEN, path,
-        name->name + name->len - path);
-    dprintf(NCLVL1, "--> nfs41_name_cache_insert('%s')\n", dbg_path);
+    dprintf(NCLVL1, "--> nfs41_name_cache_insert('%.*s')\n",
+        name->name + name->len - path, path);
 
     AcquireSRWLockExclusive(&cache->lock);
 
