@@ -488,6 +488,7 @@ clnt_vc_call(cl, proc, xdr_args, args_ptr, xdr_results, results_ptr, timeout)
 	u_int32_t *msg_x_id = &ct->ct_u.ct_mcalli;    /* yuk */
 	bool_t shipnow;
 	int refreshes = 2;
+    u_int seq = -1;
 #ifndef _WIN32
 	sigset_t mask, newmask;
 #else
@@ -520,7 +521,7 @@ call_again:
 
 	if ((! XDR_PUTBYTES(xdrs, ct->ct_u.ct_mcallc, ct->ct_mpos)) ||
 	    (! XDR_PUTINT32(xdrs, (int32_t *)&proc)) ||
-	    (! AUTH_MARSHALL(cl->cl_auth, xdrs)) ||
+	    (! AUTH_MARSHALL(cl->cl_auth, xdrs, &seq)) ||
 	    (! (*xdr_args)(xdrs, args_ptr))) {
 		if (ct->ct_error.re_status == RPC_SUCCESS)
 			ct->ct_error.re_status = RPC_CANTENCODEARGS;
@@ -607,7 +608,7 @@ call_again:
 	_seterr_reply(&ct->reply_msg, &(ct->ct_error));
 	if (ct->ct_error.re_status == RPC_SUCCESS) {
 		if (! AUTH_VALIDATE(cl->cl_auth,
-		    &ct->reply_msg.acpted_rply.ar_verf)) {
+		    &ct->reply_msg.acpted_rply.ar_verf, seq)) {
 			ct->ct_error.re_status = RPC_AUTHERROR;
 			ct->ct_error.re_why = AUTH_INVALIDRESP;
 		} else if (! (*xdr_results)(xdrs, results_ptr)) {

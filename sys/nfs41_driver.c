@@ -2704,7 +2704,7 @@ NTSTATUS nfs41_Create(
 
     status = map_open_errors(entry->status, SrvOpen->pAlreadyPrefixedName->Length);
     if (status != STATUS_SUCCESS) {
-        print_open_error(1, entry->status);
+        print_open_error(1, status);
         goto out_free;
     }
 

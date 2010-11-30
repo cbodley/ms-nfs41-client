@@ -5,6 +5,8 @@ SOURCES=\
 	auth_none.c \
 	auth_time.c \
 	auth_unix.c \
+	auth_sspi.c \
+	authsspi_prot.c \
 	authunix_prot.c \
 	bindresvport.c \
 	clnt_bcast.c \
@@ -69,13 +71,12 @@ SOURCES=\
 #	crypt_client.c \
 #	des_crypt.c \
 #	svc_auth_sspi.c \
-#	auth_sspi.c \
 #	auth_des.c \
 #	authdes_prot.c \
 #	authgss_prot.c \
 
 UMTYPE=console
-UNICODE=1
+#UNICODE=1
 DLLBASE=0x1010000
 #USE_NTDLL=1
 #USE_MSVCRT=1

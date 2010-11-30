@@ -58,9 +58,9 @@ __FBSDID("$FreeBSD: src/lib/libc/rpc/auth_none.c,v 1.12 2002/03/22 23:18:35 obri
  * Authenticator operations routines
  */
 
-static bool_t authnone_marshal (AUTH *, XDR *);
+static bool_t authnone_marshal (AUTH *, XDR *, u_int *);
 static void authnone_verf (AUTH *);
-static bool_t authnone_validate (AUTH *, struct opaque_auth *);
+static bool_t authnone_validate (AUTH *, struct opaque_auth *, u_int);
 static bool_t authnone_refresh (AUTH *, void *);
 static void authnone_destroy (AUTH *);
 
@@ -108,7 +108,7 @@ authnone_create()
 
 /*ARGSUSED*/
 static bool_t
-authnone_marshal(AUTH *client, XDR *xdrs)
+authnone_marshal(AUTH *client, XDR *xdrs, u_int *seq)
 {
 	struct authnone_private *ap;
 	bool_t dummy;
@@ -136,7 +136,7 @@ authnone_verf(AUTH *client)
 
 /*ARGSUSED*/
 static bool_t
-authnone_validate(AUTH *client, struct opaque_auth *opaque)
+authnone_validate(AUTH *client, struct opaque_auth *opaque, u_int seq)
 {
 
 	return (TRUE);

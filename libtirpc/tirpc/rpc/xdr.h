@@ -354,6 +354,7 @@ extern void   xdrrec_create(XDR *, u_int, u_int, void *,
 
 /* make end of xdr record */
 extern bool_t xdrrec_endofrecord(XDR *, int);
+extern int32_t *xdrrec_getoutbase(XDR *);
 
 /* move to beginning of next record */
 extern bool_t xdrrec_skiprecord(XDR *);

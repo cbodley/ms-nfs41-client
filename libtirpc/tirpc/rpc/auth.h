@@ -188,10 +188,9 @@ typedef struct __auth {
 	struct auth_ops {
 		void	(*ah_nextverf) (struct __auth *);
 		/* nextverf & serialize */
-		int	(*ah_marshal) (struct __auth *, XDR *);
+		int	(*ah_marshal) (struct __auth *, XDR *, u_int *);
 		/* validate verifier */
-		int	(*ah_validate) (struct __auth *,
-			    struct opaque_auth *);
+		int	(*ah_validate) (struct __auth *, struct opaque_auth *, u_int);
 		/* refresh credentials */
 		int	(*ah_refresh) (struct __auth *, void *);
 		/* destroy this structure */
@@ -219,15 +218,15 @@ typedef struct __auth {
 #define auth_nextverf(auth)		\
 		((*((auth)->ah_ops->ah_nextverf))(auth))
 
-#define AUTH_MARSHALL(auth, xdrs)	\
-		((*((auth)->ah_ops->ah_marshal))(auth, xdrs))
-#define auth_marshall(auth, xdrs)	\
+#define AUTH_MARSHALL(auth, xdrs, seq)	\
+		((*((auth)->ah_ops->ah_marshal))(auth, xdrs, seq))
+#define auth_marshall(auth, xdrs, seq)	\
 		((*((auth)->ah_ops->ah_marshal))(auth, xdrs))
 
-#define AUTH_VALIDATE(auth, verfp)	\
-		((*((auth)->ah_ops->ah_validate))((auth), verfp))
-#define auth_validate(auth, verfp)	\
-		((*((auth)->ah_ops->ah_validate))((auth), verfp))
+#define AUTH_VALIDATE(auth, verfp, seq)	\
+		((*((auth)->ah_ops->ah_validate))((auth), verfp, seq))
+#define auth_validate(auth, verfp, seq)	\
+		((*((auth)->ah_ops->ah_validate))((auth), verfp, seq))
 
 #define AUTH_REFRESH(auth, msg)		\
 		((*((auth)->ah_ops->ah_refresh))(auth, msg))

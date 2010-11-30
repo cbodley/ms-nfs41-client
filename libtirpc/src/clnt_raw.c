@@ -166,7 +166,7 @@ call_again:
 	clp->u.mashl_rpcmsg.rm_xid ++ ;
 	if ((! XDR_PUTBYTES(xdrs, clp->u.mashl_callmsg, clp->mcnt)) ||
 	    (! XDR_PUTINT32(xdrs, (int32_t *)&proc)) ||
-	    (! AUTH_MARSHALL(h->cl_auth, xdrs)) ||
+	    (! AUTH_MARSHALL(h->cl_auth, xdrs, NULL)) ||
 	    (! (*xargs)(xdrs, argsp))) {
 		return (RPC_CANTENCODEARGS);
 	}
@@ -207,7 +207,7 @@ call_again:
 	status = error.re_status;
 
 	if (status == RPC_SUCCESS) {
-		if (! AUTH_VALIDATE(h->cl_auth, &msg.acpted_rply.ar_verf)) {
+		if (! AUTH_VALIDATE(h->cl_auth, &msg.acpted_rply.ar_verf, 0)) {
 			status = RPC_AUTHERROR;
 		}
 	}  /* end successful completion */
@@ -217,7 +217,7 @@ call_again:
 	}  /* end of unsuccessful completion */
 
 	if (status == RPC_SUCCESS) {
-		if (! AUTH_VALIDATE(h->cl_auth, &msg.acpted_rply.ar_verf)) {
+		if (! AUTH_VALIDATE(h->cl_auth, &msg.acpted_rply.ar_verf, 0)) {
 			status = RPC_AUTHERROR;
 		}
 		if (msg.acpted_rply.ar_verf.oa_base != NULL) {

@@ -330,10 +330,10 @@ xdrrec_getpos(xdrs)
 	XDR *xdrs;
 {
 	RECSTREAM *rstrm = (RECSTREAM *)xdrs->x_private;
-	off_t pos;
+	off_t pos = 0;
 
 	//pos = lseek((int)(u_long)rstrm->tcp_handle, (off_t)0, 1);
-	pos = _lseek((int)PtrToUlong(rstrm->tcp_handle), (off_t)0, 1);
+	//pos = _lseek((int)PtrToUlong(rstrm->tcp_handle), (off_t)0, 1);
 	if (pos != -1)
 		switch (xdrs->x_op) {
 
@@ -389,6 +389,28 @@ xdrrec_setpos(xdrs, pos)
 			break;
 		}
 	return (FALSE);
+}
+
+int32_t *
+xdrrec_getoutbase(xdrs)
+	XDR *xdrs;
+{
+	RECSTREAM *rstrm = (RECSTREAM *)xdrs->x_private;
+	int32_t *buf = NULL;
+
+	switch (xdrs->x_op) {
+
+	case XDR_ENCODE:
+        buf = rstrm->out_base;
+		break;
+
+	case XDR_DECODE:
+		break;
+
+	case XDR_FREE:
+		break;
+	}
+	return (buf);
 }
 
 static int32_t *

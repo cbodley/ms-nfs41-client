@@ -207,6 +207,12 @@
     <ClCompile Include="..\libtirpc\src\xdr_stdio.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\libtirpc\src\auth_sspi.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libtirpc\src\authsspi_prot.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\libtirpc\src\rpc_com.h">
@@ -339,6 +345,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\libtirpc\tirpc\rpc\xdr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth_sspi.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

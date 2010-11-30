@@ -58,8 +58,8 @@
 
 /* auth_unix.c */
 static void authunix_nextverf (AUTH *);
-static bool_t authunix_marshal (AUTH *, XDR *);
-static bool_t authunix_validate (AUTH *, struct opaque_auth *);
+static bool_t authunix_marshal (AUTH *, XDR *, u_int *seq);
+static bool_t authunix_validate (AUTH *, struct opaque_auth *, u_int);
 static bool_t authunix_refresh (AUTH *, void *);
 static void authunix_destroy (AUTH *);
 static void marshal_new_auth (AUTH *);
@@ -213,9 +213,10 @@ authunix_nextverf(auth)
 }
 
 static bool_t
-authunix_marshal(auth, xdrs)
+authunix_marshal(auth, xdrs, seq)
 	AUTH *auth;
 	XDR *xdrs;
+    u_int *seq;
 {
 	struct audata *au;
 
@@ -227,9 +228,10 @@ authunix_marshal(auth, xdrs)
 }
 
 static bool_t
-authunix_validate(auth, verf)
+authunix_validate(auth, verf, seq)
 	AUTH *auth;
 	struct opaque_auth *verf;
+    u_int seq;
 {
 	struct audata *au;
 	XDR xdrs;

@@ -125,7 +125,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;secur32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>..\libtirpc\libtirpc\libtirpc.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
@@ -187,7 +187,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\libtirpc\src\asprintf.c" />
+    <ClCompile Include="..\libtirpc\src\authsspi_prot.c" />
     <ClCompile Include="..\libtirpc\src\auth_none.c" />
+    <ClCompile Include="..\libtirpc\src\auth_sspi.c" />
     <ClCompile Include="..\libtirpc\src\auth_time.c" />
     <ClCompile Include="..\libtirpc\src\auth_unix.c" />
     <ClCompile Include="..\libtirpc\src\authunix_prot.c" />
@@ -257,6 +259,7 @@
     <ClInclude Include="..\libtirpc\tirpc\rpc\auth_des.h" />
     <ClInclude Include="..\libtirpc\tirpc\rpc\auth_gss.h" />
     <ClInclude Include="..\libtirpc\tirpc\rpc\auth_kerb.h" />
+    <ClInclude Include="..\libtirpc\tirpc\rpc\auth_sspi.h" />
     <ClInclude Include="..\libtirpc\tirpc\rpc\auth_unix.h" />
     <ClInclude Include="..\libtirpc\tirpc\rpc\clnt.h" />
     <ClInclude Include="..\libtirpc\tirpc\rpc\clnt_soc.h" />

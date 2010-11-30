@@ -395,7 +395,7 @@ call_again:
 	*(u_int32_t *)(void *)(cu->cu_outbuf) = htonl(xid);
 
 	if ((! XDR_PUTINT32(xdrs, (int32_t *)&proc)) ||
-	    (! AUTH_MARSHALL(cl->cl_auth, xdrs)) ||
+	    (! AUTH_MARSHALL(cl->cl_auth, xdrs, NULL)) ||
 	    (! (*xargs)(xdrs, argsp))) {
 		cu->cu_error.re_status = RPC_CANTENCODEARGS;
 		goto out;
@@ -541,7 +541,7 @@ get_reply:
 
 		if (cu->cu_error.re_status == RPC_SUCCESS) {
 			if (! AUTH_VALIDATE(cl->cl_auth,
-					    &reply_msg.acpted_rply.ar_verf)) {
+					    &reply_msg.acpted_rply.ar_verf, 0)) {
 				cu->cu_error.re_status = RPC_AUTHERROR;
 				cu->cu_error.re_why = AUTH_INVALIDRESP;
 			}

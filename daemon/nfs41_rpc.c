@@ -27,6 +27,9 @@
 #include "nfs41_callback.h"
 
 #include "rpc/rpc.h"
+#define SECURITY_WIN32
+#include <security.h>
+#include "rpc/auth_sspi.h"
 
 static enum clnt_stat send_null(CLIENT *client)
 {
@@ -42,6 +45,7 @@ static int get_client_for_netaddr(
     IN uint32_t wsize,
     IN uint32_t rsize,
     IN nfs41_rpc_clnt *rpc,
+    OUT char **server_name,
     OUT CLIENT **client_out)
 {
     int status = ERROR_NETWORK_UNREACHABLE;
@@ -56,6 +60,13 @@ static int get_client_for_netaddr(
     addr = uaddr2taddr(nconf, netaddr->uaddr);
     if (addr == NULL)
         goto out_free_conf;
+
+    *server_name = calloc(NFS41_HOSTNAME_LEN, sizeof(char));
+    if (*server_name == NULL)
+        goto out_free_addr;
+
+    getnameinfo(addr->buf, addr->len, *server_name, NFS41_HOSTNAME_LEN, NULL, 0, 0);
+    dprintf(1, "servername is %s\n", *server_name);
 
     dprintf(1, "callback function %p args %p\n", nfs41_handle_callback, rpc);
     client = clnt_tli_create(RPC_ANYFD, nconf, addr,
@@ -79,6 +90,7 @@ static int get_client_for_multi_addr(
     IN uint32_t wsize,
     IN uint32_t rsize,
     IN nfs41_rpc_clnt *rpc,
+    OUT char **server_name,
     OUT CLIENT **client_out,
     OUT uint32_t *addr_index)
 {
@@ -86,7 +98,7 @@ static int get_client_for_multi_addr(
     uint32_t i;
     for (i = 0; i < addrs->count; i++) {
         status = get_client_for_netaddr(&addrs->arr[i],
-            wsize, rsize, rpc, client_out);
+            wsize, rsize, rpc, server_name, client_out);
         if (status == NO_ERROR) {
             *addr_index = i;
             break;
@@ -111,6 +123,7 @@ int nfs41_rpc_clnt_create(
     int status;
     char machname[MAXHOSTNAMELEN + 1];
     gid_t gids[1];
+    char *server_name = NULL;
 
     rpc = calloc(1, sizeof(nfs41_rpc_clnt));
     if (rpc == NULL) {
@@ -123,13 +136,19 @@ int nfs41_rpc_clnt_create(
         eprintf("CreateEvent failed %d\n", status);
         goto out_free_rpc_clnt;
     }
-
-    status = get_client_for_multi_addr(addrs,
-        wsize, rsize, needcb?rpc:NULL, &client, &addr_index);
+    status = get_client_for_multi_addr(addrs, wsize, rsize, needcb?rpc:NULL, 
+                &server_name, &client, &addr_index);
     if (status) {
         clnt_pcreateerror("connecting failed");
         goto out_free_rpc_clnt;
     }
+    if (send_null(client) != RPC_SUCCESS) {
+        // XXX Do what here?
+        eprintf("nfs41_rpc_clnt_create: send_null failed\n");
+        status = ERROR_NETWORK_UNREACHABLE;
+        goto out_err_auth;
+    }
+#if 0
     // XXX Pick credentials in better manner
     if (gethostname(machname, sizeof(machname)) == -1) {
         eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
@@ -140,16 +159,22 @@ int nfs41_rpc_clnt_create(
     if (client->cl_auth == NULL) {
         // XXX log failure in auth creation somewhere
         // XXX Better error return
+        eprintf("nfs41_rpc_clnt_create: failed to create AUTHSYS\n");
         status = ERROR_NETWORK_UNREACHABLE;
         goto out_err_client;
-    }
-    if (send_null(client) != RPC_SUCCESS) {
-        // XXX Do what here?
-        eprintf("nfs41_rpc_clnt_create: send_null failed\n");
+    } else dprintf(1, "nfs41_rpc_clnt_create: successfully created AUTHSYS\n");
+#else
+    client->cl_auth = authsspi_create_default(client, server_name, RPCSEC_SSPI_SVC_NONE);
+#endif
+    if (client->cl_auth == NULL) {
+        // XXX log failure in auth creation somewhere
+        // XXX Better error return
+        eprintf("nfs41_rpc_clnt_create: failed to create AUTHGSS\n");
         status = ERROR_NETWORK_UNREACHABLE;
-        goto out_err_auth;
-    }
+        goto out_err_client;
+    } else dprintf(1, "nfs41_rpc_clnt_create: successfully created AUTHGSS\n");
 
+    free(server_name);
     rpc->rpc = client;
 
     /* keep a copy of the address and buffer sizes for reconnect */
@@ -219,11 +244,12 @@ static int rpc_reconnect(
     CLIENT *client = NULL;
     uint32_t addr_index;
     int status;
+    char *server_name = NULL;
 
     AcquireSRWLockExclusive(&rpc->lock);
 
-    status = get_client_for_multi_addr(&rpc->addrs,
-        rpc->wsize, rpc->rsize, rpc, &client, &addr_index);
+    status = get_client_for_multi_addr(&rpc->addrs, rpc->wsize, rpc->rsize, 
+                rpc, &server_name, &client, &addr_index);
     if (status)
         goto out_unlock;
 

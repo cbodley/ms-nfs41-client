@@ -3,6 +3,8 @@ EXPORTS
 authnone_create
 authunix_create
 authunix_create_default
+authsspi_create
+authsspi_create_default
 clnt_create
 clnt_broadcast
 clnt_pcreateerror
