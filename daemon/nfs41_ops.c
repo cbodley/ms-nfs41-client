@@ -295,8 +295,9 @@ int nfs41_open(
     IN uint32_t deny,
     IN uint32_t create,
     IN uint32_t mode,
+    IN bool_t try_recovery,
     IN OUT nfs41_open_state *state,
-    OUT nfs41_file_info *info)
+    OUT OPTIONAL nfs41_file_info *info)
 {
     int status;
     nfs41_compound compound;
@@ -314,7 +315,10 @@ int nfs41_open(
     nfs41_getattr_res getattr_res, pgetattr_res;
     nfs41_savefh_res savefh_res;
     nfs41_restorefh_res restorefh_res;
-    nfs41_file_info dir_info;
+    nfs41_file_info tmp_info, dir_info;
+
+    if (info == NULL)
+        info = &tmp_info;
 
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_FSID | FATTR4_WORD0_FILEID;
@@ -367,7 +371,7 @@ int nfs41_open(
     pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     pgetattr_res.info = &dir_info;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, try_recovery);
     if (status)
         goto out;
 
@@ -867,6 +871,7 @@ int nfs41_lock(
     IN uint64_t offset,
     IN uint64_t length,
     IN bool_t reclaim,
+    IN bool_t try_recovery,
     IN OUT stateid_arg *stateid)
 {
     int status;
@@ -910,7 +915,7 @@ int nfs41_lock(
     lock_res.u.resok4.lock_stateid = &stateid->stateid;
     lock_res.u.denied.owner.owner_len = NFS4_OPAQUE_LIMIT;
 
-    status = compound_encode_send_decode(session, &compound, !reclaim);
+    status = compound_encode_send_decode(session, &compound, try_recovery);
     if (status)
         goto out;
 

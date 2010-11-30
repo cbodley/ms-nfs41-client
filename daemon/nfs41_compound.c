@@ -135,13 +135,24 @@ static int recover_open(
     /* reclaim the open stateid */
     status = nfs41_open_reclaim(session, &open->parent, &open->file,
         &open->owner, open->share_access, open->share_deny, &stateid.stateid);
+
+    if (status == NFS4_OK) {
+        /* update the open stateid on success */
+        memcpy(&open->stateid, &stateid.stateid, sizeof(stateid4));
+
+    } else if (status == NFS4ERR_NO_GRACE) {
+        dprintf(1, "not in grace period, retrying a normal open\n");
+        status = nfs41_open(session, open->share_access,
+            open->share_deny, OPEN4_NOCREATE, 0, FALSE, open, NULL);
+
+        /* update the stateid arg with the new open->stateid */
+        memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));
+    }
     if (status)
         goto out;
 
     AcquireSRWLockExclusive(&open->lock);
 
-    /* update the open stateid */
-    memcpy(&open->stateid, &stateid.stateid, sizeof(stateid4));
     stateid.type = STATEID_OPEN;
     stateid.open = open;
 
@@ -149,7 +160,12 @@ static int recover_open(
     list_for_each(entry, &open->locks.list) {
         lock = list_container(entry, nfs41_lock_state, open_entry);
         status = nfs41_lock(session, &open->file, &open->owner,
-            lock->type, lock->offset, lock->length, TRUE, &stateid);
+            lock->type, lock->offset, lock->length, TRUE, FALSE, &stateid);
+        if (status == NFS4ERR_NO_GRACE) {
+            dprintf(1, "not in grace period, retrying a normal lock\n");
+            status = nfs41_lock(session, &open->file, &open->owner,
+                lock->type, lock->offset, lock->length, FALSE, FALSE, &stateid);
+        }
         if (status == NFS4ERR_BADSESSION)
             break;
     }
@@ -306,12 +322,15 @@ restart_recovery:
         recovery_finish(session->client);
         goto do_retry;
 
-    case NFS4ERR_STALE_STATEID:
+    case NFS4ERR_EXPIRED: /* revoked by lease expiration */
+    case NFS4ERR_STALE_STATEID: /* server reboot */
         if (compound->args.argarray[0].op == OP_SEQUENCE) {
             nfs41_sequence_args *seq = (nfs41_sequence_args*)
                 compound->args.argarray[0].arg;
             nfs41_session_free_slot(session, seq->sa_slotid);
         }
+        if (!try_recovery)
+            goto out;
         {
             nfs_argop4 *argop = &compound->args.argarray[
                 compound->res.resarray_count-1];

@@ -163,7 +163,7 @@ static int handle_lock(nfs41_upcall *upcall)
     nfs41_lock_stateid_arg(state, &stateid);
 
     status = nfs41_lock(state->session, &state->file, &state->owner,
-        type, args->offset, args->length, 0, &stateid);
+        type, args->offset, args->length, FALSE, TRUE, &stateid);
     if (status) {
         dprintf(LKLVL, "nfs41_lock failed with %s\n",
             nfs_error_string(status));

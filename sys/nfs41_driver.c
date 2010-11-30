@@ -2986,7 +2986,8 @@ static NTSTATUS map_close_errors(DWORD status)
     switch (status) {
     case NO_ERROR:              return STATUS_SUCCESS;
     case ERROR_NETNAME_DELETED: return STATUS_NETWORK_NAME_DELETED;
-    case ERROR_NOT_EMPTY:   return STATUS_DIRECTORY_NOT_EMPTY;
+    case ERROR_NOT_EMPTY:       return STATUS_DIRECTORY_NOT_EMPTY;
+    case ERROR_FILE_INVALID:    return STATUS_FILE_INVALID;
     default:
         print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INTERNAL_ERROR\n", status);
@@ -4021,7 +4022,7 @@ static NTSTATUS map_readwrite_errors(DWORD status)
     switch (status) {
     case ERROR_ACCESS_DENIED:           return STATUS_ACCESS_DENIED;
     case ERROR_HANDLE_EOF:              return STATUS_END_OF_FILE;
-    case ERROR_FILE_INVALID:            return STATUS_FILE_CLOSED;
+    case ERROR_FILE_INVALID:            return STATUS_FILE_INVALID;
     case ERROR_INVALID_PARAMETER:       return STATUS_INVALID_PARAMETER;
     case ERROR_LOCK_VIOLATION:          return STATUS_FILE_LOCK_CONFLICT;
     case ERROR_NETWORK_ACCESS_DENIED:   return STATUS_NETWORK_ACCESS_DENIED;
@@ -4194,6 +4195,7 @@ static NTSTATUS map_lock_errors(DWORD status)
     case ERROR_ATOMIC_LOCKS_NOT_SUPPORTED: return STATUS_UNSUCCESSFUL;
     case ERROR_OUTOFMEMORY:         return STATUS_INSUFFICIENT_RESOURCES;
     case ERROR_SHARING_VIOLATION:   return STATUS_SHARING_VIOLATION;
+    case ERROR_FILE_INVALID:        return STATUS_FILE_INVALID;
     /* if we return ERROR_INVALID_PARAMETER, Windows translates that to
      * success!! */
     case ERROR_INVALID_PARAMETER:   return STATUS_LOCK_NOT_GRANTED;

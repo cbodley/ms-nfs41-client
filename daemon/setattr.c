@@ -440,14 +440,14 @@ static int handle_setattr(nfs41_upcall *upcall)
     case FileEndOfFileInformation:
         if (!state->do_close) {
             // get a stateid
-            uint32_t allow = 0, deny = 0;
             StringCchPrintfA((LPSTR)state->owner.owner, NFS4_OPAQUE_LIMIT,
                 "%u", args->open_owner_id);
             state->owner.owner_len = (uint32_t)strlen(
                 (const char*)state->owner.owner);
-            map_access_2_allowdeny(args->access_mask, args->access_mode, &allow, &deny);
-            status = nfs41_open(state->session, allow, deny,
-                OPEN4_NOCREATE, 0, state, NULL);
+            map_access_2_allowdeny(args->access_mask, args->access_mode,
+                &state->share_access, &state->share_deny);
+            status = nfs41_open(state->session, state->share_access,
+                state->share_deny, OPEN4_NOCREATE, 0, TRUE, state, NULL);
             if (status) {
                 dprintf(1, "nfs41_open() failed with %s\n", nfs_error_string(status));
                 status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);

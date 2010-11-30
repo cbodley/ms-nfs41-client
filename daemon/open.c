@@ -440,7 +440,7 @@ static int handle_open(nfs41_upcall *upcall)
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
             status = nfs41_open(state->session, state->share_access,
-                state->share_deny, create, args->mode, state, &info);
+                state->share_deny, create, args->mode, TRUE, state, &info);
 
             if (status == NFS4_OK) {
                 /* add to the client's list of state for recovery */

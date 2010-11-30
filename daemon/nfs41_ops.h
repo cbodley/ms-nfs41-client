@@ -915,8 +915,9 @@ int nfs41_open(
     IN uint32_t deny,
     IN uint32_t create,
     IN uint32_t mode,
+    IN bool_t try_recovery,
     IN OUT nfs41_open_state *state,
-    OUT nfs41_file_info *info);
+    OUT OPTIONAL nfs41_file_info *info);
 
 int nfs41_open_reclaim(
     IN nfs41_session *session,
@@ -976,6 +977,7 @@ int nfs41_lock(
     IN uint64_t offset,
     IN uint64_t length,
     IN bool_t reclaim,
+    IN bool_t try_recovery,
     IN OUT stateid_arg *stateid);
 
 int nfs41_unlock(
