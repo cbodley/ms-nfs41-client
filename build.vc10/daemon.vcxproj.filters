@@ -86,9 +86,6 @@
     <ClCompile Include="..\daemon\lookup.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\daemon\rbtree.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\daemon\name_cache.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -151,9 +148,6 @@
     <ClInclude Include="..\daemon\list.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\daemon\rbtree.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\daemon\name_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -164,6 +158,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\daemon\idmap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\daemon\tree.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

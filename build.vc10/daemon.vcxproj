@@ -215,7 +215,6 @@
     <ClCompile Include="..\daemon\pnfs_device.c" />
     <ClCompile Include="..\daemon\pnfs_io.c" />
     <ClCompile Include="..\daemon\pnfs_layout.c" />
-    <ClCompile Include="..\daemon\rbtree.c" />
     <ClCompile Include="..\daemon\readdir.c" />
     <ClCompile Include="..\daemon\readwrite.c" />
     <ClCompile Include="..\daemon\service.c" />
@@ -239,8 +238,8 @@
     <ClInclude Include="..\daemon\nfs41_types.h" />
     <ClInclude Include="..\daemon\nfs41_xdr.h" />
     <ClInclude Include="..\daemon\pnfs.h" />
-    <ClInclude Include="..\daemon\rbtree.h" />
     <ClInclude Include="..\daemon\service.h" />
+    <ClInclude Include="..\daemon\tree.h" />
     <ClInclude Include="..\daemon\upcall.h" />
     <ClInclude Include="..\daemon\util.h" />
   </ItemGroup>

@@ -28,7 +28,7 @@
 #include "nfs41_compound.h"
 #include "name_cache.h"
 #include "util.h"
-#include "rbtree.h"
+#include "tree.h"
 #include "daemon_debug.h"
 
 
@@ -56,7 +56,7 @@ enum {
 
 /* attribute cache */
 struct attr_cache_entry {
-    struct rb_node          rbnode;
+    RB_ENTRY(attr_cache_entry) rbnode;
     struct list_entry       free_entry;
     uint64_t                change;
     uint64_t                size;
@@ -75,11 +75,19 @@ struct attr_cache_entry {
 };
 #define ATTR_ENTRY_SIZE sizeof(struct attr_cache_entry)
 
+RB_HEAD(attr_tree, attr_cache_entry);
+
 struct attr_cache {
-    struct rb_root          root;
+    struct attr_tree        head;
     struct attr_cache_entry *pool;
     struct list_entry       free_entries;
 };
+
+int attr_cmp(struct attr_cache_entry *lhs, struct attr_cache_entry *rhs)
+{
+    return lhs->fileid < rhs->fileid ? -1 : lhs->fileid > rhs->fileid;
+}
+RB_GENERATE(attr_tree, attr_cache_entry, rbnode, attr_cmp)
 
 
 /* attr_cache_entry */
@@ -112,7 +120,7 @@ static __inline void attr_cache_entry_free(
     IN struct attr_cache_entry *entry)
 {
     dprintf(NCLVL1, "attr_cache_entry_free(%llu)\n", entry->fileid);
-    rb_erase(&entry->rbnode, &cache->root);
+    RB_REMOVE(attr_tree, &cache->head, entry);
     /* add it back to free_entries */
     list_add_tail(&cache->free_entries, &entry->free_entry);
 }
@@ -176,32 +184,10 @@ static struct attr_cache_entry* attr_cache_search(
     IN struct attr_cache *cache,
     IN uint64_t fileid)
 {
-    struct rb_node *node;
-    struct attr_cache_entry *entry;
-
-    dprintf(NCLVL2, "--> attr_cache_search(%llu)\n", fileid);
-
-    entry = NULL;
-    node = cache->root.rb_node;
-
-    while (node) {
-        entry = rb_entry(node, struct attr_cache_entry, rbnode);
-
-        if (fileid < entry->fileid)
-            node = node->rb_left;
-        else if (fileid > entry->fileid)
-            node = node->rb_right;
-        else {
-            dprintf(NCLVL2, "<-- attr_cache_search() "
-                "found existing entry 0x%p\n", entry);
-            goto out_success;
-        }
-    }
-    entry = NULL;
-    dprintf(NCLVL2, "<-- attr_cache_search() returning NULL\n");
-
-out_success:
-    return entry;
+    /* find an entry that matches fileid */
+    struct attr_cache_entry tmp;
+    tmp.fileid = fileid;
+    return RB_FIND(attr_tree, &cache->head, &tmp);
 }
 
 static int attr_cache_insert(
@@ -209,31 +195,12 @@ static int attr_cache_insert(
     IN struct attr_cache_entry *entry)
 {
     int status = NO_ERROR;
-    struct rb_node **node, *prev;
-    struct attr_cache_entry *current;
 
     dprintf(NCLVL2, "--> attr_cache_insert(%llu)\n", entry->fileid);
 
-    node = &cache->root.rb_node;
-    prev = NULL;
+    if (RB_INSERT(attr_tree, &cache->head, entry))
+        status = ERROR_FILE_EXISTS;
 
-    while (*node) {
-        current = rb_entry(*node, struct attr_cache_entry, rbnode);
-
-        prev = *node;
-        if (entry->fileid < current->fileid)
-            node = &(*node)->rb_left;
-        else if (entry->fileid > current->fileid)
-            node = &(*node)->rb_right;
-        else {
-            status = ERROR_FILE_EXISTS;
-            goto out;
-        }
-    }
-
-    rb_link_node(&entry->rbnode, prev, node);
-    rb_insert_color(&entry->rbnode, &cache->root);
-out:
     dprintf(NCLVL2, "<-- attr_cache_insert() returning %d\n", status);
     return status;
 }
@@ -331,11 +298,12 @@ static void copy_attrs(
 
 
 /* name cache */
+RB_HEAD(name_tree, name_cache_entry);
 struct name_cache_entry {
     char                    component[NFS41_MAX_COMPONENT_SIZE];
     nfs41_fh                fh;
-    struct rb_node          rbnode;
-    struct rb_root          rbchildren;
+    RB_ENTRY(name_cache_entry) rbnode;
+    struct name_tree        rbchildren;
     struct attr_cache_entry *attributes;
     struct name_cache_entry *parent;
     struct list_entry       exp_entry;
@@ -343,6 +311,13 @@ struct name_cache_entry {
     unsigned short          component_len;
 };
 #define NAME_ENTRY_SIZE sizeof(struct name_cache_entry)
+
+int name_cmp(struct name_cache_entry *lhs, struct name_cache_entry *rhs)
+{
+    const int diff = rhs->component_len - lhs->component_len;
+    return diff ? diff : strncmp(lhs->component, rhs->component, lhs->component_len);
+}
+RB_GENERATE(name_tree, name_cache_entry, rbnode, name_cmp)
 
 struct nfs41_name_cache {
     struct name_cache_entry *root;
@@ -380,7 +355,7 @@ static __inline void name_cache_remove(
     IN struct name_cache_entry *entry,
     IN struct name_cache_entry *parent)
 {
-    rb_erase(&entry->rbnode, &parent->rbchildren);
+    RB_REMOVE(name_tree, &parent->rbchildren, entry);
     entry->parent = NULL;
 }
 
@@ -414,14 +389,9 @@ static void name_cache_unlink_children_recursive(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *parent)
 {
-    struct name_cache_entry *entry;
-    struct rb_node *node = rb_first(&parent->rbchildren);
-
-    while (node) {
-        entry = rb_entry(node, struct name_cache_entry, rbnode);
-        node = rb_next(node);
+    struct name_cache_entry *entry, *tmp;
+    RB_FOREACH_SAFE(entry, name_tree, &parent->rbchildren, tmp)
         name_cache_unlink(cache, entry);
-    }
 }
 
 static int name_cache_entry_create(
@@ -531,51 +501,26 @@ static void name_cache_entry_invalidate(
     name_cache_unlink(cache, entry);
 }
 
-static int component_cmp(
-    IN const char *lhs,
-    IN unsigned short lhs_len,
-    IN const char *rhs,
-    IN unsigned short rhs_len)
-{
-    const int diff = rhs_len - lhs_len;
-    return diff ? diff : strncmp(lhs, rhs, lhs_len);
-}
-
 static struct name_cache_entry* name_cache_search(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *parent,
     IN const nfs41_component *component)
 {
-    struct rb_node *node;
-    struct name_cache_entry *entry;
-    int result;
+    struct name_cache_entry tmp, *entry;
 
     dprintf(NCLVL2, "--> name_cache_search('%.*s' under '%s')\n",
         component->len, component->name, parent->component);
 
-    entry = NULL;
-    node = parent->rbchildren.rb_node;
+    StringCchCopyNA(tmp.component, NFS41_MAX_COMPONENT_SIZE,
+        component->name, component->len);
+    tmp.component_len = component->len;
 
-    while (node) {
-        entry = rb_entry(node, struct name_cache_entry, rbnode);
-
-        result = component_cmp(component->name, component->len,
-            entry->component, entry->component_len);
-
-        if (result < 0)
-            node = node->rb_left;
-        else if (result > 0)
-            node = node->rb_right;
-        else {
-            dprintf(NCLVL2, "<-- name_cache_search() "
-                "found existing entry 0x%p\n", entry);
-            goto out_success;
-        }
-    }
-    entry = NULL;
-    dprintf(NCLVL2, "<-- name_cache_search() returning NULL\n");
-
-out_success:
+    entry = RB_FIND(name_tree, &parent->rbchildren, &tmp);
+    if (entry)
+        dprintf(NCLVL2, "<-- name_cache_search() "
+            "found existing entry 0x%p\n", entry);
+    else
+        dprintf(NCLVL2, "<-- name_cache_search() returning NULL\n");
     return entry;
 }
 
@@ -654,38 +599,13 @@ static int name_cache_insert(
     IN struct name_cache_entry *entry,
     IN struct name_cache_entry *parent)
 {
-    int result, status = NO_ERROR;
-    struct rb_node **node, *prev;
-    struct name_cache_entry *current;
+    int status = NO_ERROR;
 
     dprintf(NCLVL2, "--> name_cache_insert('%s')\n", entry->component);
 
-    node = &parent->rbchildren.rb_node;
-    prev = NULL;
+    if (RB_INSERT(name_tree, &parent->rbchildren, entry))
+        status = ERROR_FILE_EXISTS;
 
-    while (*node) {
-        current = rb_entry(*node, struct name_cache_entry, rbnode);
-
-        result = component_cmp(entry->component, entry->component_len,
-            current->component, current->component_len);
-
-        prev = *node;
-        if (result < 0)
-            node = &(*node)->rb_left;
-        else if (result > 0)
-            node = &(*node)->rb_right;
-        else {
-            status = ERROR_FILE_EXISTS;
-            goto out;
-        }
-    }
-    current = NULL;
-
-    rb_link_node(&entry->rbnode, prev, node);
-    rb_insert_color(&entry->rbnode, &parent->rbchildren);
-    entry->parent = parent;
-
-out:
     dprintf(NCLVL2, "<-- name_cache_insert() returning %u\n", status);
     return status;
 }

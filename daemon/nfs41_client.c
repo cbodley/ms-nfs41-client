@@ -28,7 +28,7 @@
 #include <iphlpapi.h> /* for GetAdaptersAddresses() */
 #include <wincrypt.h> /* for Crypt*() functions */
 
-#include "rbtree.h"
+#include "tree.h"
 #include "daemon_debug.h"
 #include "nfs41_ops.h"
 
@@ -253,47 +253,36 @@ void nfs41_client_free(
 
 /* use an rbtree to sort mac address entries */
 struct mac_entry {
-    struct rb_node          rbnode;
+    RB_ENTRY(mac_entry)     rbnode;
     PBYTE                   address;
     ULONG                   length;
 };
 
+int mac_cmp(struct mac_entry *lhs, struct mac_entry *rhs)
+{
+    const int diff = rhs->length - lhs->length;
+    return diff ? diff : strncmp((const char*)lhs->address,
+        (const char*)rhs->address, lhs->length);
+}
+RB_HEAD(mac_tree, mac_entry);
+RB_GENERATE(mac_tree, mac_entry, rbnode, mac_cmp)
+
 static void mac_entry_insert(
-    IN struct rb_root *root,
+    IN struct mac_tree *root,
     IN PBYTE address,
     IN ULONG length)
 {
-    struct rb_node **node, *prev;
     struct mac_entry *entry;
-    int diff;
-
-    node = &root->rb_node;
-    prev = NULL;
-
-    while (*node) {
-        entry = rb_entry(*node, struct mac_entry, rbnode);
-        prev = *node;
-
-        diff = length - entry->length;
-        if (diff == 0)
-            diff = memcmp(address, entry->address, length);
-
-        if (diff < 0)
-            node = &(*node)->rb_left;
-        else if (diff > 0)
-            node = &(*node)->rb_right;
-        else
-            return;
-    }
 
     entry = calloc(1, sizeof(struct mac_entry));
-    if (entry) {
-        entry->address = address;
-        entry->length = length;
+    if (entry == NULL)
+        return;
 
-        rb_link_node(&entry->rbnode, prev, node);
-        rb_insert_color(&entry->rbnode, root);
-    }
+    entry->address = address;
+    entry->length = length;
+
+    if (RB_INSERT(mac_tree, root, entry))
+        free(entry);
 }
 
 static int adapter_valid(
@@ -316,9 +305,8 @@ static DWORD hash_mac_addrs(
     IN HCRYPTHASH hash)
 {
     PIP_ADAPTER_ADDRESSES addr, addrs = NULL;
-    struct rb_root rbtree = { NULL };
-    struct rb_node *node;
-    struct mac_entry *entry;
+    struct mac_tree rbtree = RB_INITIALIZER(rbtree);
+    struct mac_entry *entry, *node;
     ULONG len;
     DWORD status;
 
@@ -353,18 +341,15 @@ static DWORD hash_mac_addrs(
                 addr->PhysicalAddressLength);
 
     /* require at least one valid address */
-    node = rb_first(&rbtree);
-    if (node == NULL) {
+    if (RB_EMPTY(&rbtree)) {
         status = ERROR_FILE_NOT_FOUND;
         eprintf("GetAdaptersAddresses() did not return "
             "any valid mac addresses, failing with %d.\n", status);
         goto out;
     }
 
-    while (node) {
-        entry = rb_entry(node, struct mac_entry, rbnode);
-        node = rb_next(node);
-        rb_erase(&entry->rbnode, &rbtree);
+    RB_FOREACH_SAFE(entry, mac_tree, &rbtree, node) {
+        RB_REMOVE(mac_tree, &rbtree, entry);
 
         if (!CryptHashData(hash, entry->address, entry->length, 0)) {
             status = GetLastError();
