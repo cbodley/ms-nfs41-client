@@ -43,6 +43,7 @@ struct pnfs_file_device_list {
 
 static enum pnfs_status file_device_create(
     IN const unsigned char *deviceid,
+    IN struct pnfs_file_device_list *devices,
     OUT pnfs_file_device **device_out)
 {
     enum pnfs_status status = PNFS_SUCCESS;
@@ -55,7 +56,8 @@ static enum pnfs_status file_device_create(
     }
 
     memcpy(device->device.deviceid, deviceid, PNFS_DEVICEID_SIZE);
-    InitializeSRWLock(&device->lock);
+    device->devices = devices;
+    InitializeCriticalSection(&device->device.lock);
     *device_out = device;
 out:
     return status;
@@ -94,7 +96,7 @@ static enum pnfs_status file_device_find_or_create(
     if (entry == NULL) {
         /* create a new device */
         pnfs_file_device *device;
-        status = file_device_create(deviceid, &device);
+        status = file_device_create(deviceid, devices, &device);
         if (status == PNFS_SUCCESS) {
             /* add it to the list */
             list_add_tail(&devices->head, &device->entry);
@@ -172,37 +174,64 @@ enum pnfs_status pnfs_file_device_get(
     if (status)
         goto out;
 
-    AcquireSRWLockShared(&device->lock);
-    status = device->device.type == 0 ? PNFS_PENDING : PNFS_SUCCESS;
-    ReleaseSRWLockShared(&device->lock);
+    EnterCriticalSection(&device->device.lock);
 
-    if (status == PNFS_PENDING) {
-        AcquireSRWLockExclusive(&device->lock);
+    /* don't give out a device that's been revoked */
+    if (device->device.status & PNFS_DEVICE_REVOKED)
+        status = PNFSERR_NO_DEVICE;
+    else if (device->device.status & PNFS_DEVICE_GRANTED)
+        status = PNFS_SUCCESS;
+    else {
+        nfsstat = pnfs_rpc_getdeviceinfo(session, deviceid, device);
+        if (nfsstat == NFS4_OK) {
+            device->device.status = PNFS_DEVICE_GRANTED;
+            status = PNFS_SUCCESS;
 
-        status = device->device.type == 0 ? PNFS_PENDING : PNFS_SUCCESS;
-        if (status == PNFS_PENDING) {
-            nfsstat = pnfs_rpc_getdeviceinfo(session, deviceid, device);
-            if (nfsstat == NFS4_OK) {
-                status = PNFS_SUCCESS;
+            dprintf(FDLVL, "Received device info:\n");
+            dprint_device(FDLVL, device);
+        } else {
+            status = PNFSERR_NO_DEVICE;
 
-                dprintf(FDLVL, "Received device info:\n");
-                dprint_device(FDLVL, device);
-            } else {
-                status = PNFSERR_NO_DEVICE;
-
-                eprintf("pnfs_rpc_getdeviceinfo() failed with %s\n",
-                    nfs_error_string(nfsstat));
-            }
+            eprintf("pnfs_rpc_getdeviceinfo() failed with %s\n",
+                nfs_error_string(nfsstat));
         }
-
-        ReleaseSRWLockExclusive(&device->lock);
     }
 
-    *device_out = device;
+    if (status == PNFS_SUCCESS) {
+        device->device.layout_count++;
+        dprintf(FDLVL, "pnfs_file_device_get() -> %u\n",
+            device->device.layout_count);
+        *device_out = device;
+    }
+
+    LeaveCriticalSection(&device->device.lock);
 out:
     dprintf(FDLVL, "<-- pnfs_file_device_get() returning %s\n",
         pnfs_error_string(status));
     return status;
+}
+
+void pnfs_file_device_put(
+    IN pnfs_file_device *device)
+{
+    uint32_t count;
+    EnterCriticalSection(&device->device.lock);
+    count = --device->device.layout_count;
+    dprintf(FDLVL, "pnfs_file_device_put() -> %u\n", count);
+
+    /* if the device was revoked, remove/free the device on last reference */
+    if (count == 0 && device->device.status & PNFS_DEVICE_REVOKED) {
+        EnterCriticalSection(&device->devices->lock);
+        list_remove(&device->entry);
+        LeaveCriticalSection(&device->devices->lock);
+
+        LeaveCriticalSection(&device->device.lock);
+
+        file_device_free(device);
+        dprintf(FDLVL, "revoked file device freed after last reference\n");
+    } else {
+        LeaveCriticalSection(&device->device.lock);
+    }
 }
 
 static enum pnfs_status data_client_status(

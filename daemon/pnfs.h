@@ -99,6 +99,13 @@ enum pnfs_layout_status {
     PNFS_LAYOUT_NOT_RW      = 0x20,
 };
 
+enum pnfs_device_status {
+    /* GETDEVICEINFO was successful */
+    PNFS_DEVICE_GRANTED     = 0x1,
+    /* a bulk recall or lease expiration led to device invalidation */
+    PNFS_DEVICE_REVOKED     = 0x2,
+};
+
 enum pnfs_return_type {
     PNFS_RETURN_FILE        = 1,
     PNFS_RETURN_FSID        = 2,
@@ -117,6 +124,9 @@ enum pnfs_return_type {
 typedef struct __pnfs_device {
     unsigned char           deviceid[PNFS_DEVICEID_SIZE];
     enum pnfs_layout_type   type;
+    enum pnfs_device_status status;
+    uint32_t                layout_count; /* layouts using this device */
+    CRITICAL_SECTION        lock;
 } pnfs_device;
 
 typedef struct __pnfs_stripe_indices {
@@ -139,8 +149,8 @@ typedef struct __pnfs_file_device {
     pnfs_device             device;
     pnfs_stripe_indices     stripes;
     pnfs_data_server_list   servers;
-    struct list_entry       entry; /* position in nfs41_client.devices */
-    SRWLOCK                 lock;
+    struct pnfs_file_device_list *devices; /* -> nfs41_client.devices */
+    struct list_entry       entry; /* position in devices */
 } pnfs_file_device;
 
 
@@ -289,6 +299,9 @@ enum pnfs_status pnfs_file_device_get(
     IN struct pnfs_file_device_list *devices,
     IN unsigned char *deviceid,
     OUT pnfs_file_device **device_out);
+
+void pnfs_file_device_put(
+    IN pnfs_file_device *device);
 
 enum pnfs_status pnfs_data_server_client(
     IN struct __nfs41_root *root,

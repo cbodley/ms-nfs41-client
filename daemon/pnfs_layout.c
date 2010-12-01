@@ -65,6 +65,7 @@ out:
 static void layout_free(
     IN pnfs_file_layout *layout)
 {
+    if (layout->device) pnfs_file_device_put(layout->device);
     free(layout->filehandles.arr);
     free(layout);
 }
