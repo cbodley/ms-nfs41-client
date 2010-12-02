@@ -38,6 +38,7 @@
 /* nfs41_root */
 int nfs41_root_create(
     IN const char *name,
+    IN uint32_t sec_flavor,
     IN uint32_t wsize,
     IN uint32_t rsize,
     OUT nfs41_root **root_out)
@@ -58,9 +59,10 @@ int nfs41_root_create(
     root->rsize = rsize;
     InitializeCriticalSection(&root->lock);
     root->ref_count = 1;
+    root->sec_flavor = sec_flavor;
 
     /* generate a unique client_owner */
-    status = nfs41_client_owner(name, &root->client_owner);
+    status = nfs41_client_owner(name, sec_flavor, &root->client_owner);
     if (status) {
         eprintf("nfs41_client_owner() failed with %d\n", status);
         goto out;

@@ -292,7 +292,8 @@ typedef struct _NFS41_MOUNT_CONFIG {
 typedef struct _NFS41_NETROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
-    HANDLE                  session;
+    HANDLE                  auth_sys_session;
+    HANDLE                  gss_session;
     DWORD                   nfs41d_version;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
@@ -2360,15 +2361,6 @@ NTSTATUS nfs41_CreateVNetRoot(
     pNetRoot->MRxNetRootState = MRX_NET_ROOT_STATE_GOOD;
     pNetRoot->DeviceType = FILE_DEVICE_DISK;
 
-    if (pNetRootContext->session) {
-        /* already established a session for this net root */
-        pVNetRootContext->session = pNetRootContext->session;
-        DbgP("Using existing session 0x%x\n", pVNetRootContext->session);
-        goto out;
-    }
-
-    pVNetRootContext->session = pNetRootContext->session = NULL;
-
     nfs41_MountConfig_InitDefaults(&Config);
 
     if (pCreateNetRootContext->RxContext->Create.EaLength) {
@@ -2394,15 +2386,30 @@ NTSTATUS nfs41_CreateVNetRoot(
         goto out;
     }
 
+    if (pVNetRootContext->sec_flavor == RPCSEC_AUTH_SYS && 
+            pNetRootContext->auth_sys_session) {
+        pVNetRootContext->session = pNetRootContext->auth_sys_session;
+        DbgP("Using existing AUTH_SYS session 0x%x\n", pVNetRootContext->session);
+        goto out;
+    } else if (pVNetRootContext->sec_flavor != RPCSEC_AUTH_SYS &&
+                pNetRootContext->gss_session) {    
+        pVNetRootContext->session = pNetRootContext->gss_session;
+        DbgP("Using existing AUTHGSS session 0x%x\n", pVNetRootContext->session);
+        goto out;
+    }
+
     /* send the mount upcall */
-    DbgP("Server Name %wZ Mount Point %wZ\n",
-        &Config.SrvName, &Config.MntPt);
+    DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
+        &Config.SrvName, &Config.MntPt, &Config.SecFlavor);
     status = nfs41_mount(&Config.SrvName, &Config.MntPt, pVNetRootContext->sec_flavor,
         &pVNetRootContext->session, &nfs41d_version);
     if (status != STATUS_SUCCESS)
         goto out;
     pNetRootContext->nfs41d_version = nfs41d_version;
-    pNetRootContext->session = pVNetRootContext->session;
+    if (pVNetRootContext->sec_flavor == RPCSEC_AUTH_SYS)
+        pNetRootContext->auth_sys_session = pVNetRootContext->session;
+    else
+        pNetRootContext->gss_session = pVNetRootContext->session;
     DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
 
 out:
@@ -2499,7 +2506,8 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }        
 
-    if (pNetRootContext == NULL || pNetRootContext->session == NULL) {
+    if (pNetRootContext == NULL || (pNetRootContext->auth_sys_session == NULL &&
+            pNetRootContext->gss_session == NULL)) {
         print_error("No valid session has been established\n");
         goto out;
     }
@@ -2510,12 +2518,20 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }
 
-    status = nfs41_unmount(pNetRootContext->session, pNetRootContext->nfs41d_version);
-    if (status) {
-        print_error("nfs41_mount failed with %d\n", status);
-        goto out;
+    if (pNetRootContext->auth_sys_session) {
+        status = nfs41_unmount(pNetRootContext->auth_sys_session, pNetRootContext->nfs41d_version);
+        if (status) {
+            print_error("nfs41_mount AUTH_SYS failed with %d\n", status);
+            goto out;
+        }
     }
-
+    if (pNetRootContext->gss_session) {
+        status = nfs41_unmount(pNetRootContext->gss_session, pNetRootContext->nfs41d_version);
+        if (status) {
+            print_error("nfs41_mount AUTHGSS failed with %d\n", status);
+            goto out;
+        }
+    }
     // check if there is anything waiting in the upcall or downcall queue
     do {
         nfs41_GetFirstEntry(upcallLock, upcall, tmp);
@@ -2674,7 +2690,7 @@ NTSTATUS nfs41_Create(
         goto out;
     }
     
-    if (pNetRootContext->session == NULL) {
+    if (pNetRootContext->auth_sys_session == NULL && pNetRootContext->gss_session == NULL) {
         print_error("No valid session established\n");
         goto out;
     }

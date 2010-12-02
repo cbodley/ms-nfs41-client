@@ -66,7 +66,7 @@ static int handle_mount(nfs41_upcall *upcall)
         goto out;
     }
     // create root
-    status = nfs41_root_create(args->hostname,
+    status = nfs41_root_create(args->hostname, args->sec_flavor,
         NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
         NFS41_MAX_FILEIO_SIZE + READ_OVERHEAD, &root);
     if (status) {
@@ -76,7 +76,7 @@ static int handle_mount(nfs41_upcall *upcall)
     // add a mount
     root->uid = upcall->uid;
     root->gid = upcall->gid;
-    root->sec_flavor = args->sec_flavor;
+
     status = nfs41_root_mount_addrs(root, &addrs, 0, 0, &client);
     if (status) {
         eprintf("nfs41_root_mount() failed with %d\n", status);
