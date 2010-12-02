@@ -65,6 +65,7 @@ int nfs41_root_create(
     status = nfs41_client_owner(name, sec_flavor, &root->client_owner);
     if (status) {
         eprintf("nfs41_client_owner() failed with %d\n", status);
+        free(root);
         goto out;
     }
 
