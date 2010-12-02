@@ -71,7 +71,7 @@ static enum pnfs_status pattern_init(
     pattern->threads = calloc(pattern->count, sizeof(pnfs_io_thread));
     if (pattern->threads == NULL) {
         status = PNFSERR_RESOURCES;
-        free(pattern);
+        pnfs_layout_io_finished(&pattern->layout->layout);
         goto out;
     }
 
