@@ -609,14 +609,20 @@ void pnfs_open_state_close(
 
 /* expects the caller to have an exclusive lock */
 static enum pnfs_status layout_recall_return(
-    IN pnfs_layout *layout)
+    IN pnfs_file_layout *layout)
 {
     dprintf(FLLVL, "layout_recall_return() 'forgetting' layout\n");
 
+    /* release our reference on the device */
+    if (layout->device) {
+        pnfs_file_device_put(layout->device);
+        layout->device = NULL;
+    }
+
     /* since we're forgetful, we don't actually return the layout;
      * just zero the stateid since it won't be valid anymore */
-    ZeroMemory(&layout->state, sizeof(layout->state));
-    layout->status = 0;
+    ZeroMemory(&layout->layout.state, sizeof(layout->layout.state));
+    layout->layout.status = 0;
 
     return PNFS_SUCCESS;
 }
@@ -632,7 +638,7 @@ static enum pnfs_status file_layout_recall(
 
     if (layout->layout.io_count == 0) {
         /* if there is no pending io, return the layout now */
-        status = layout_recall_return(&layout->layout);
+        status = layout_recall_return(layout);
     } else {
         /* flag the layout as recalled so it can be returned after io */
         layout->layout.status |= PNFS_LAYOUT_RECALLED;
@@ -649,7 +655,7 @@ static enum pnfs_status file_layout_recall(
 }
 
 static enum pnfs_status file_layout_recall_file(
-    IN struct pnfs_file_layout_list *layouts,
+    IN nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall)
 {
     struct list_entry *entry;
@@ -657,13 +663,13 @@ static enum pnfs_status file_layout_recall_file(
 
     dprintf(FLLVL, "--> file_layout_recall_file()\n");
 
-    EnterCriticalSection(&layouts->lock);
+    EnterCriticalSection(&client->layouts->lock);
 
-    status = layout_entry_find(layouts, &recall->recall.args.file.fh, &entry);
+    status = layout_entry_find(client->layouts, &recall->recall.args.file.fh, &entry);
     if (status == PNFS_SUCCESS)
         status = file_layout_recall(layout_entry(entry), recall);
 
-    LeaveCriticalSection(&layouts->lock);
+    LeaveCriticalSection(&client->layouts->lock);
 
     dprintf(FLLVL, "<-- file_layout_recall_file() returning %s\n",
         pnfs_error_string(status));
@@ -679,7 +685,7 @@ static bool_t fsid_matches(
 }
 
 static enum pnfs_status file_layout_recall_fsid(
-    IN struct pnfs_file_layout_list *layouts,
+    IN nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall)
 {
     struct list_entry *entry;
@@ -690,9 +696,9 @@ static enum pnfs_status file_layout_recall_fsid(
     dprintf(FLLVL, "--> file_layout_recall_fsid(%llu, %llu)\n",
         recall->recall.args.fsid.major, recall->recall.args.fsid.minor);
 
-    EnterCriticalSection(&layouts->lock);
+    EnterCriticalSection(&client->layouts->lock);
 
-    list_for_each(entry, &layouts->head) {
+    list_for_each(entry, &client->layouts->head) {
         layout = layout_entry(entry);
         /* no locks needed to read layout.meta_fh or superblock.fsid,
          * because they are only written once on creation */
@@ -701,7 +707,10 @@ static enum pnfs_status file_layout_recall_fsid(
             status = file_layout_recall(layout, recall);
     }
 
-    LeaveCriticalSection(&layouts->lock);
+    LeaveCriticalSection(&client->layouts->lock);
+
+    /* bulk recalls require invalidation of cached device info */
+    pnfs_file_device_list_invalidate(client->devices);
 
     dprintf(FLLVL, "<-- file_layout_recall_fsid() returning %s\n",
         pnfs_error_string(status));
@@ -709,7 +718,7 @@ static enum pnfs_status file_layout_recall_fsid(
 }
 
 static enum pnfs_status file_layout_recall_all(
-    IN struct pnfs_file_layout_list *layouts,
+    IN nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall)
 {
     struct list_entry *entry;
@@ -717,12 +726,15 @@ static enum pnfs_status file_layout_recall_all(
 
     dprintf(FLLVL, "--> file_layout_recall_all()\n");
 
-    EnterCriticalSection(&layouts->lock);
+    EnterCriticalSection(&client->layouts->lock);
 
-    list_for_each(entry, &layouts->head)
+    list_for_each(entry, &client->layouts->head)
         status = file_layout_recall(layout_entry(entry), recall);
 
-    LeaveCriticalSection(&layouts->lock);
+    LeaveCriticalSection(&client->layouts->lock);
+
+    /* bulk recalls require invalidation of cached device info */
+    pnfs_file_device_list_invalidate(client->devices);
 
     dprintf(FLLVL, "<-- file_layout_recall_all() returning %s\n",
         pnfs_error_string(status));
@@ -730,7 +742,7 @@ static enum pnfs_status file_layout_recall_all(
 }
 
 enum pnfs_status pnfs_file_layout_recall(
-    IN struct pnfs_file_layout_list *layouts,
+    IN nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall)
 {
     enum pnfs_status status = PNFS_SUCCESS;
@@ -748,13 +760,13 @@ enum pnfs_status pnfs_file_layout_recall(
 
     switch (recall->recall.type) {
     case PNFS_RETURN_FILE:
-        status = file_layout_recall_file(layouts, recall);
+        status = file_layout_recall_file(client, recall);
         break;
     case PNFS_RETURN_FSID:
-        status = file_layout_recall_fsid(layouts, recall);
+        status = file_layout_recall_fsid(client, recall);
         break;
     case PNFS_RETURN_ALL:
-        status = file_layout_recall_all(layouts, recall);
+        status = file_layout_recall_all(client, recall);
         break;
 
     default:
@@ -773,45 +785,45 @@ out:
 
 
 enum pnfs_status pnfs_layout_io_start(
-    IN pnfs_layout *layout)
+    IN pnfs_file_layout *layout)
 {
     enum pnfs_status status = PNFS_SUCCESS;
 
-    AcquireSRWLockExclusive(&layout->lock);
+    AcquireSRWLockExclusive(&layout->layout.lock);
 
-    if ((layout->status & PNFS_LAYOUT_RECALLED) != 0) {
+    if ((layout->layout.status & PNFS_LAYOUT_RECALLED) != 0) {
         /* don't start any more io if the layout has been recalled */
         status = PNFSERR_LAYOUT_RECALLED;
         dprintf(FLLVL, "pnfs_layout_io_start() failed, layout was recalled\n");
     } else {
         /* take a reference on the layout, so that it won't be recalled
          * until all io is finished */
-        layout->io_count++;
+        layout->layout.io_count++;
         dprintf(FLLVL, "pnfs_layout_io_start(): count -> %u\n",
-            layout->io_count);
+            layout->layout.io_count);
     }
 
-    ReleaseSRWLockExclusive(&layout->lock);
+    ReleaseSRWLockExclusive(&layout->layout.lock);
     return status;
 }
 
 void pnfs_layout_io_finished(
-    IN pnfs_layout *layout)
+    IN pnfs_file_layout *layout)
 {
-    AcquireSRWLockExclusive(&layout->lock);
+    AcquireSRWLockExclusive(&layout->layout.lock);
 
     /* return the reference to signify that an io request is finished */
-    layout->io_count--;
+    layout->layout.io_count--;
     dprintf(FLLVL, "pnfs_layout_io_finished() count -> %u\n",
-        layout->io_count);
+        layout->layout.io_count);
 
-    if (layout->io_count > 0) /* more io pending */
+    if (layout->layout.io_count > 0) /* more io pending */
         goto out_unlock;
 
     /* once all io is finished, check for layout recalls */
-    if (layout->status & PNFS_LAYOUT_RECALLED)
+    if (layout->layout.status & PNFS_LAYOUT_RECALLED)
         layout_recall_return(layout);
 
 out_unlock:
-    ReleaseSRWLockExclusive(&layout->lock);
+    ReleaseSRWLockExclusive(&layout->layout.lock);
 }

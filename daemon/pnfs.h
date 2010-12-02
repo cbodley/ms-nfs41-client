@@ -258,14 +258,14 @@ void pnfs_open_state_close(
     IN bool_t remove);
 
 enum pnfs_status pnfs_file_layout_recall(
-    IN struct pnfs_file_layout_list *layouts,
+    IN struct __nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall);
 
 enum pnfs_status pnfs_layout_io_start(
-    IN pnfs_layout *layout);
+    IN pnfs_file_layout *layout);
 
 void pnfs_layout_io_finished(
-    IN pnfs_layout *layout);
+    IN pnfs_file_layout *layout);
 
 
 __inline int is_dense(
@@ -292,6 +292,9 @@ enum pnfs_status pnfs_file_device_list_create(
     OUT struct pnfs_file_device_list **devices_out);
 
 void pnfs_file_device_list_free(
+    IN struct pnfs_file_device_list *devices);
+
+void pnfs_file_device_list_invalidate(
     IN struct pnfs_file_device_list *devices);
 
 enum pnfs_status pnfs_file_device_get(

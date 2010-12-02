@@ -58,7 +58,7 @@ static enum pnfs_status pattern_init(
     enum pnfs_status status;
 
     /* take a reference on the layout so we don't return it during io */
-    status = pnfs_layout_io_start(&layout->layout);
+    status = pnfs_layout_io_start(layout);
     if (status)
         goto out;
 
@@ -70,7 +70,7 @@ static enum pnfs_status pattern_init(
     pattern->threads = calloc(pattern->count, sizeof(pnfs_io_thread));
     if (pattern->threads == NULL) {
         status = PNFSERR_RESOURCES;
-        pnfs_layout_io_finished(&pattern->layout->layout);
+        pnfs_layout_io_finished(pattern->layout);
         goto out;
     }
 
@@ -115,7 +115,7 @@ static void pattern_free(
     IN pnfs_io_pattern *pattern)
 {
     /* inform the layout that our io is finished */
-    pnfs_layout_io_finished(&pattern->layout->layout);
+    pnfs_layout_io_finished(pattern->layout);
     free(pattern->threads);
 }
 

@@ -156,6 +156,37 @@ void pnfs_file_device_list_free(
     free(devices);
 }
 
+void pnfs_file_device_list_invalidate(
+    IN struct pnfs_file_device_list *devices)
+{
+    struct list_entry *entry, *tmp;
+    pnfs_file_device *device;
+
+    dprintf(FDLVL, "--> pnfs_file_device_list_invalidate()\n");
+
+    EnterCriticalSection(&devices->lock);
+
+    list_for_each_tmp(entry, tmp, &devices->head) {
+        device = device_entry(entry);
+        EnterCriticalSection(&device->device.lock);
+        /* if there are layouts still using the device, flag it
+         * as revoked and clean up on last reference */
+        if (device->device.layout_count) {
+            device->device.status |= PNFS_DEVICE_REVOKED;
+            LeaveCriticalSection(&device->device.lock);
+        } else {
+            LeaveCriticalSection(&device->device.lock);
+            /* no layouts are using it, so it's safe to free */
+            list_remove(entry);
+            file_device_free(device);
+        }
+    }
+
+    LeaveCriticalSection(&devices->lock);
+
+    dprintf(FDLVL, "<-- pnfs_file_device_list_invalidate()\n");
+}
+
 
 /* pnfs_file_device */
 enum pnfs_status pnfs_file_device_get(

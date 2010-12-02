@@ -50,7 +50,7 @@ static enum_t handle_cb_layoutrecall(
         pnfs_iomode_string(args->iomode), args->recall.type,
         nfs_error_string(res->status));
 
-    status = pnfs_file_layout_recall(rpc_clnt->client->layouts, args);
+    status = pnfs_file_layout_recall(rpc_clnt->client, args);
     if (status)
         eprintf("pnfs_file_layout_recall() failed with %s\n",
             pnfs_error_string(status));
