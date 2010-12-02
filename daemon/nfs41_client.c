@@ -122,6 +122,7 @@ int nfs41_client_create(
     if (client->cond == NULL) {
         status = GetLastError();
         eprintf("CreateEvent failed %d\n", status);
+        free(client);
         goto out_err_rpc;
     }
 
