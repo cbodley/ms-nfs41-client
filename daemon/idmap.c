@@ -869,6 +869,9 @@ int nfs41_idmap_name_to_ids(
     struct idmap_user user;
     int status;
 
+    if (context == NULL)
+        return ERROR_FILE_NOT_FOUND;
+
     dprintf(IDLVL, "--> nfs41_idmap_name_to_ids('%s')\n", username);
 
     lookup.value = username;

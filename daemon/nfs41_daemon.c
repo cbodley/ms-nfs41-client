@@ -159,6 +159,50 @@ VOID ServiceStop()
 }
 #endif
 
+typedef struct _nfsd_args {
+    bool_t ldap_enable;
+    int debug_level;
+} nfsd_args;
+
+static void PrintUsage()
+{
+    fprintf(stderr, "Usage: nfsd.exe -d <debug_level> --noldap\n");
+}
+static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
+{
+    DWORD i;
+
+    /* set defaults. */
+    out->debug_level = 2;
+    out->ldap_enable = TRUE;
+
+    /* parse command line */
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] == TEXT('-')) {
+            if (_tcscmp(argv[i], TEXT("-h")) == 0) { /* help */
+                PrintUsage();
+                return FALSE;
+            }
+            else if (_tcscmp(argv[i], TEXT("-d")) == 0) { /* debug level */
+                ++i;
+                if (i >= argc) {
+                    fprintf(stderr, "Missing debug level value\n");
+                    PrintUsage();
+                    return FALSE;
+                } 
+                out->debug_level = _ttoi(argv[i]);
+            }
+            else if (_tcscmp(argv[i], TEXT("--noldap")) == 0) { /* no LDAP */
+                out->ldap_enable = FALSE;
+            }
+            else
+                fprintf(stderr, "Unrecognized option '%s', disregarding.\n", argv[i]);
+        }
+    }
+    fprintf(stdout, "parse_cmdlineargs: debug_level %d ldap is %d\n", 
+        out->debug_level, out->ldap_enable);
+}
+
 #ifdef STANDALONE_NFSD
 void __cdecl _tmain(int argc, TCHAR *argv[])
 #else
@@ -169,16 +213,15 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
     // handle to our drivers
     HANDLE pipe;
     nfs41_process_thread tids[MAX_NUM_THREADS];
-    nfs41_idmapper *idmapper;
+    nfs41_idmapper *idmapper = NULL;
     int i;
+    nfsd_args cmd_args;
 
-    if (argc > 2) {
-        const char *process = strip_path(argv[0], NULL);
-        printf("Usage: %s [#debug level]\n", process);
-    } else if (argc == 2) {
-        set_debug_level(_ttoi(argv[1]));
-    }
+    if (!parse_cmdlineargs(argc, argv, &cmd_args)) 
+        exit(0);
+    set_debug_level(cmd_args.debug_level);
     open_log_files();
+
 #ifdef _DEBUG
     /* dump memory leaks to stderr on exit; this requires the debug heap,
     /* available only when built in debug mode under visual studio -cbodley */
@@ -190,10 +233,12 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 
     nfs41_server_list_init();
 
-    status = nfs41_idmap_create(&idmapper);
-    if (status) {
-        eprintf("id mapping initialization failed with %d\n", status);
-        goto out_logs;
+    if (cmd_args.ldap_enable) {
+        status = nfs41_idmap_create(&idmapper);
+        if (status) {
+            eprintf("id mapping initialization failed with %d\n", status);
+            goto out_logs;
+        }
     }
 
     NFS41D_VERSION = GetTickCount();
@@ -248,7 +293,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 out_pipe:
     CloseHandle(pipe);
 out_idmap:
-    nfs41_idmap_free(idmapper);
+    if (idmapper) nfs41_idmap_free(idmapper);
 out_logs:
 #ifndef STANDALONE_NFSD
     close_log_files();
