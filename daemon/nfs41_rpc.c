@@ -77,7 +77,8 @@ static int get_client_for_netaddr(
         *client_out = client;
         status = NO_ERROR;
         goto out_free_addr;
-    }
+    } else
+        free(*server_name);
 out_free_addr:
     freenetbuf(addr);
 out_free_conf:
