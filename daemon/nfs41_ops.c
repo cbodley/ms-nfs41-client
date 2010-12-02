@@ -1668,7 +1668,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     layoutget_args.maxcount = session->fore_chan_attrs.ca_maxresponsesize - READ_OVERHEAD;
     layoutget_res.u.res_ok.layout = layout;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
@@ -1783,7 +1783,7 @@ enum nfsstat4 pnfs_rpc_layoutreturn(
     layoutreturn_args.length = layout->layout.length;
     layoutreturn_args.stateid = &layout->layout.state;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
@@ -1831,7 +1831,7 @@ enum nfsstat4 pnfs_rpc_getdeviceinfo(
     getdeviceinfo_args.notify_types.count = 0;
     getdeviceinfo_res.u.res_ok.device = device;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 

@@ -27,6 +27,7 @@
 #include "nfs41_compound.h"
 #include "nfs41_xdr.h"
 #include "nfs41_ops.h"
+#include "nfs41_callback.h"
 #include "name_cache.h"
 #include "daemon_debug.h"
 
@@ -153,6 +154,7 @@ static int recover_open(
 
     AcquireSRWLockExclusive(&open->lock);
 
+    open->layout = NULL;
     stateid.type = STATEID_OPEN;
     stateid.open = open;
 
@@ -187,6 +189,8 @@ static int recover_client_state(
     IN nfs41_session *session,
     IN nfs41_client *client)
 {
+    const struct cb_layoutrecall_args recall = { PNFS_LAYOUTTYPE_FILE,
+        PNFS_IOMODE_ANY, TRUE, { PNFS_RETURN_ALL } };
     struct client_state *state = &session->client->state;
     struct list_entry *entry;
     nfs41_open_state *open;
@@ -201,6 +205,9 @@ static int recover_client_state(
             break;
     }
     LeaveCriticalSection(&state->lock);
+
+    /* revoke all of the client's layouts */
+    pnfs_file_layout_recall(client, &recall);
 
     if (status != NFS4ERR_BADSESSION) {
         /* send reclaim_complete, but don't fail on errors */
