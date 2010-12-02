@@ -32,6 +32,7 @@ typedef struct __mount_upcall_args {
     const char *hostname;
     const char *path;
     nfs41_root *root;
+    DWORD       sec_flavor;
 } mount_upcall_args;
 
 typedef struct __unmount_upcall_args {

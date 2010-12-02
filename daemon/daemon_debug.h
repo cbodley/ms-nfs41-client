@@ -55,7 +55,7 @@ void print_condwait_status(int level, int status);
 void print_sr_status_flags(int level, int flags);
 void open_log_files();
 void close_log_files();
-
+const char* secflavorop2name(DWORD sec_flavor);
 
 /* pnfs_debug.c */
 enum pnfs_status;

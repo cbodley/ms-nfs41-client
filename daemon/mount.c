@@ -41,9 +41,11 @@ static int parse_mount(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
     if(status) goto out;
     status = get_name(&buffer, &length, &args->path);
     if(status) goto out;
+    status = safe_read(&buffer, &length, &args->sec_flavor, sizeof(DWORD));
+    if (status) goto out;
 
-    dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s\n",
-        args->hostname, args->path);
+    dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s sec_flavor=%s\n",
+        args->hostname, args->path, secflavorop2name(args->sec_flavor));
 out:
     return status;
 }
@@ -74,6 +76,7 @@ static int handle_mount(nfs41_upcall *upcall)
     // add a mount
     root->uid = upcall->uid;
     root->gid = upcall->gid;
+    root->sec_flavor = args->sec_flavor;
     status = nfs41_root_mount_addrs(root, &addrs, 0, 0, &client);
     if (status) {
         eprintf("nfs41_root_mount() failed with %d\n", status);

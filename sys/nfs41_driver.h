@@ -70,6 +70,13 @@ typedef enum _nfs41_opcodes {
     INVALID_OPCODE
 } nfs41_opcodes;
 
+enum rpcsec_flavors {
+    RPCSEC_AUTH_SYS,
+    RPCSEC_AUTHGSS_KRB5,
+    RPCSEC_AUTHGSS_KRB5I,
+    RPCSEC_AUTHGSS_KRB5P
+};
+
 typedef enum _nfs41_init_driver_state {
    NFS41_INIT_DRIVER_STARTABLE,
    NFS41_INIT_DRIVER_START_IN_PROGRESS,

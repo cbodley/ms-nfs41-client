@@ -506,3 +506,15 @@ void print_sr_status_flags(int level, int flags)
         fprintf(dlog_file, "SEQ4_STATUS_DEVID_DELETED ");
     fprintf(dlog_file, "\n");
 }
+
+const char* secflavorop2name(DWORD sec_flavor)
+{
+    switch(sec_flavor) {
+    case RPCSEC_AUTH_SYS:      return "AUTH_SYS";
+    case RPCSEC_AUTHGSS_KRB5:  return "AUTHGSS_KRB5";
+    case RPCSEC_AUTHGSS_KRB5I: return "AUTHGSS_KRB5I";
+    case RPCSEC_AUTHGSS_KRB5P: return "AUTHGSS_KRB5P";
+    }
+
+    return "UNKNOWN FLAVOR";
+}

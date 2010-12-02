@@ -122,6 +122,7 @@ typedef struct _updowncall_entry {
         struct {
             PUNICODE_STRING srv_name;
             PUNICODE_STRING root;
+            DWORD sec_flavor;
             HANDLE session;
         } Mount;
         struct {
@@ -264,12 +265,17 @@ nfs41_updowncall_list *upcall = NULL, *downcall = NULL;
 /* In order to cooperate with other network providers,
  * we only claim paths of the format '\\server\nfs4\path' */
 DECLARE_CONST_UNICODE_STRING(NfsPrefix, L"\\nfs4");
+DECLARE_CONST_UNICODE_STRING(AUTH_SYS_NAME, L"sys");
+DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5_NAME, L"krb5");
+DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5I_NAME, L"krb5i");
+DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5P_NAME, L"krb5p");
 
 #define SERVER_NAME_BUFFER_SIZE     1024
 
 #define MOUNT_CONFIG_RW_SIZE_MIN        1024
 #define MOUNT_CONFIG_RW_SIZE_DEFAULT    32768
 #define MOUNT_CONFIG_RW_SIZE_MAX        65536
+#define MAX_SEC_FLAVOR_LEN 12
 
 typedef struct _NFS41_MOUNT_CONFIG {
     DWORD ReadSize;
@@ -279,6 +285,8 @@ typedef struct _NFS41_MOUNT_CONFIG {
     UNICODE_STRING SrvName;
     WCHAR mntpt_buffer[MAX_PATH];
     UNICODE_STRING MntPt;
+    WCHAR sec_flavor[MAX_SEC_FLAVOR_LEN];
+    UNICODE_STRING SecFlavor;
 } NFS41_MOUNT_CONFIG, *PNFS41_MOUNT_CONFIG;
 
 typedef struct _NFS41_NETROOT_EXTENSION {
@@ -301,6 +309,7 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     HANDLE                  session;
     BYTE                    FsAttrs[FS_ATTR_LEN];
     LONG                    FsAttrsLen;
+    DWORD                   sec_flavor;                    
 } NFS41_V_NET_ROOT_EXTENSION, *PNFS41_V_NET_ROOT_EXTENSION;
 #define NFS41GetVNetRootExtension(pVNetRoot)      \
         (((pVNetRoot) == NULL) ? NULL :           \
@@ -474,6 +483,17 @@ out:
     return status;
 }
 
+const char* secflavorop2name(DWORD sec_flavor)
+{
+    switch(sec_flavor) {
+    case RPCSEC_AUTH_SYS:      return "AUTH_SYS";
+    case RPCSEC_AUTHGSS_KRB5:  return "AUTHGSS_KRB5";
+    case RPCSEC_AUTHGSS_KRB5I: return "AUTHGSS_KRB5I";
+    case RPCSEC_AUTHGSS_KRB5P: return "AUTHGSS_KRB5P";
+    }
+
+    return "UNKNOWN FLAVOR";
+}
 NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
                             unsigned char *buf,
                             ULONG buf_len,
@@ -491,7 +511,7 @@ NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
     header_len = *len + length_as_ansi(entry->u.Mount.srv_name) +
-        length_as_ansi(entry->u.Mount.root);
+        length_as_ansi(entry->u.Mount.root) + sizeof(entry->u.Mount.sec_flavor);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -500,11 +520,13 @@ NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
     if (status) goto out;
     status = marshall_unicode_as_ansi(&tmp, entry->u.Mount.root);
     if (status) goto out;
+    RtlCopyMemory(tmp, &entry->u.Mount.sec_flavor, sizeof(entry->u.Mount.sec_flavor));
 
     *len = header_len;
 
-    DbgP("server name=%wZ mount point=%wZ\n", 
-            entry->u.Mount.srv_name, entry->u.Mount.root);
+    DbgP("server name=%wZ mount point=%wZ sec_flavor=%s\n", 
+            entry->u.Mount.srv_name, entry->u.Mount.root, 
+            secflavorop2name(entry->u.Mount.sec_flavor));
 out:
     DbgEx();
     return status;
@@ -2079,7 +2101,7 @@ static NTSTATUS map_mount_errors(DWORD status)
 }
 
 NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root, 
-                     PHANDLE session, DWORD *version)
+                     DWORD sec_flavor, PHANDLE session, DWORD *version)
 {
     NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
@@ -2090,6 +2112,7 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root,
         goto out;
     entry->u.Mount.srv_name = srv_name;
     entry->u.Mount.root = root;
+    entry->u.Mount.sec_flavor = sec_flavor;
     entry->version = *version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
@@ -2124,6 +2147,10 @@ void nfs41_MountConfig_InitDefaults(
     Config->MntPt.Length = 0;
     Config->MntPt.MaximumLength = MAX_PATH;
     Config->MntPt.Buffer = Config->mntpt_buffer;
+    Config->SecFlavor.Length = 0;
+    Config->SecFlavor.MaximumLength = MAX_SEC_FLAVOR_LEN;
+    Config->SecFlavor.Buffer = Config->sec_flavor;
+    RtlCopyUnicodeString(&Config->SecFlavor, &AUTH_SYS_NAME);
 }
 
 static NTSTATUS nfs41_MountConfig_ParseBoolean(
@@ -2229,6 +2256,13 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
             else
                 RtlCopyUnicodeString(&Config->MntPt, &usValue);
         }
+        else if (wcsncmp(L"sec", Name, NameLen) == 0)
+        {
+            if (usValue.Length > Config->SecFlavor.MaximumLength)
+                status = STATUS_NAME_TOO_LONG;
+            else
+                RtlCopyUnicodeString(&Config->SecFlavor, &usValue);
+        }
         else
         {
             status = STATUS_INVALID_PARAMETER;
@@ -2263,6 +2297,22 @@ static NTSTATUS has_nfs_prefix(
             status = STATUS_SUCCESS;
     }
     return status;
+}
+
+static NTSTATUS map_sec_flavor(
+    IN PUNICODE_STRING sec_flavor_name,
+    OUT PDWORD sec_flavor)
+{
+    if (RtlCompareUnicodeString(sec_flavor_name, &AUTH_SYS_NAME, FALSE) == 0)
+        *sec_flavor = RPCSEC_AUTH_SYS;
+    else if (RtlCompareUnicodeString(sec_flavor_name, &AUTHGSS_KRB5_NAME, FALSE) == 0)
+        *sec_flavor = RPCSEC_AUTHGSS_KRB5;
+    else if (RtlCompareUnicodeString(sec_flavor_name, &AUTHGSS_KRB5I_NAME, FALSE) == 0)
+        *sec_flavor = RPCSEC_AUTHGSS_KRB5I;
+    else if (RtlCompareUnicodeString(sec_flavor_name, &AUTHGSS_KRB5P_NAME, FALSE) == 0)
+        *sec_flavor = RPCSEC_AUTHGSS_KRB5P;
+    else return STATUS_INVALID_PARAMETER;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS nfs41_CreateVNetRoot(
@@ -2338,10 +2388,16 @@ NTSTATUS nfs41_CreateVNetRoot(
             pSrvCall->pSrvCallName->MaximumLength - sizeof(WCHAR);
     }
 
+    status = map_sec_flavor(&Config.SecFlavor, &pVNetRootContext->sec_flavor);
+    if (status != STATUS_SUCCESS) {
+        DbgP("Invalid rpcsec security flavor %wZ\n", &Config.SecFlavor);
+        goto out;
+    }
+
     /* send the mount upcall */
     DbgP("Server Name %wZ Mount Point %wZ\n",
         &Config.SrvName, &Config.MntPt);
-    status = nfs41_mount(&Config.SrvName, &Config.MntPt,
+    status = nfs41_mount(&Config.SrvName, &Config.MntPt, pVNetRootContext->sec_flavor,
         &pVNetRootContext->session, &nfs41d_version);
     if (status != STATUS_SUCCESS)
         goto out;

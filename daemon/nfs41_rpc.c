@@ -25,6 +25,7 @@
 #include "daemon_debug.h"
 #include "nfs41_xdr.h"
 #include "nfs41_callback.h"
+#include "nfs41_driver.h" /* for AUTH_SYS, AUTHGSS_KRB5s defines */
 
 #include "rpc/rpc.h"
 #define SECURITY_WIN32
@@ -115,6 +116,7 @@ int nfs41_rpc_clnt_create(
     bool_t needcb,
     IN uint32_t uid,
     IN uint32_t gid,
+    IN uint32_t sec_flavor,
     OUT nfs41_rpc_clnt **rpc_out)
 {
     CLIENT *client;
@@ -148,31 +150,44 @@ int nfs41_rpc_clnt_create(
         status = ERROR_NETWORK_UNREACHABLE;
         goto out_err_auth;
     }
-#if 0
-    // XXX Pick credentials in better manner
-    if (gethostname(machname, sizeof(machname)) == -1) {
-        eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
-        goto out_free_rpc_clnt;
+
+    switch (sec_flavor) {
+    case RPCSEC_AUTH_SYS:
+        if (gethostname(machname, sizeof(machname)) == -1) {
+            eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
+            goto out_free_rpc_clnt;
+        }
+        machname[sizeof(machname) - 1] = '\0';
+        client->cl_auth = authsys_create(machname, uid, gid, 0, gids);
+        break;
+    case RPCSEC_AUTHGSS_KRB5:
+        client->cl_auth = authsspi_create_default(client, server_name, 
+            RPCSEC_SSPI_SVC_NONE);
+        break;
+    case RPCSEC_AUTHGSS_KRB5I:
+        client->cl_auth = authsspi_create_default(client, server_name, 
+            RPCSEC_SSPI_SVC_INTEGRITY);
+        break;
+    case RPCSEC_AUTHGSS_KRB5P:
+        client->cl_auth = authsspi_create_default(client, server_name, 
+            RPCSEC_SSPI_SVC_PRIVACY);
+        break;
+    default:
+        eprintf("nfs41_rpc_clnt_create: unknown rpcsec flavor %d\n", 
+                sec_flavor);
+        client->cl_auth = NULL;
     }
-    machname[sizeof(machname) - 1] = '\0';
-    client->cl_auth = authsys_create(machname, uid, gid, 0, gids);
+
     if (client->cl_auth == NULL) {
         // XXX log failure in auth creation somewhere
         // XXX Better error return
-        eprintf("nfs41_rpc_clnt_create: failed to create AUTHSYS\n");
+        eprintf("nfs41_rpc_clnt_create: failed to create %s\n", 
+                secflavorop2name(sec_flavor));
         status = ERROR_NETWORK_UNREACHABLE;
         goto out_err_client;
-    } else dprintf(1, "nfs41_rpc_clnt_create: successfully created AUTHSYS\n");
-#else
-    client->cl_auth = authsspi_create_default(client, server_name, RPCSEC_SSPI_SVC_NONE);
-#endif
-    if (client->cl_auth == NULL) {
-        // XXX log failure in auth creation somewhere
-        // XXX Better error return
-        eprintf("nfs41_rpc_clnt_create: failed to create AUTHGSS\n");
-        status = ERROR_NETWORK_UNREACHABLE;
-        goto out_err_client;
-    } else dprintf(1, "nfs41_rpc_clnt_create: successfully created AUTHGSS\n");
+    } else 
+        dprintf(1, "nfs41_rpc_clnt_create: successfully created %s\n", 
+            secflavorop2name(sec_flavor));
 
     free(server_name);
     rpc->rpc = client;

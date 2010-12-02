@@ -184,6 +184,7 @@ typedef struct __nfs41_root {
     LONG ref_count;
     uint32_t uid;
     uint32_t gid;
+    DWORD sec_flavor;
 } nfs41_root;
 
 
@@ -352,6 +353,7 @@ int nfs41_rpc_clnt_create(
     IN bool_t needcb,
     IN uint32_t uid,
     IN uint32_t gid,
+    IN uint32_t sec_flavor,
     OUT nfs41_rpc_clnt **rpc_out);
 
 void nfs41_rpc_clnt_free(
