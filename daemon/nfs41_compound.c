@@ -88,26 +88,41 @@ static void set_expected_res(
         compound->res.resarray[i].op = compound->args.argarray[i].op;
 }
 
-int check_renew_in_progress(
-    IN nfs41_session *session)
+/* session/client recovery uses a lock and condition variable in nfs41_client
+ * to prevent multiple threads from attempting to recover at the same time */
+static bool_t recovery_start_or_wait(
+    IN nfs41_client *client)
 {
-    int status = 0;
-    bool_t one = 1, zero = 0;;
-    while (nfs41_renew_in_progress(session->client, NULL)) {
-        status = WaitForSingleObject(session->client->cond, INFINITE);
-        if (status != WAIT_OBJECT_0) {
-            dprintf(1, "nfs41_renew_in_progress: WaitForSingleObject failed\n");
-            print_condwait_status(1, status);
-            status = ERROR_LOCK_VIOLATION;
-            goto out;
-        }
-        nfs41_renew_in_progress(session->client, &zero);
-        status = 1;
+    bool_t status = TRUE;
+
+    EnterCriticalSection(&client->recovery.lock);
+
+    if (!client->recovery.in_recovery) {
+        dprintf(1, "Entering recovery mode for client %llu\n", client->clnt_id);
+        client->recovery.in_recovery = TRUE;
+    } else {
+        status = FALSE;
+        dprintf(1, "Waiting for recovery of client %llu\n", client->clnt_id);
+        while (client->recovery.in_recovery)
+            SleepConditionVariableCS(&client->recovery.cond,
+                &client->recovery.lock, INFINITE);
+        dprintf(1, "Woke up after recovery of client %llu\n", client->clnt_id);
     }
-    nfs41_renew_in_progress(session->client, &one);
-out:
+
+    LeaveCriticalSection(&client->recovery.lock);
     return status;
 }
+
+static void recovery_finish(
+    IN nfs41_client *client)
+{
+    EnterCriticalSection(&client->recovery.lock);
+    dprintf(1, "Finished recovery for client %llu\n", client->clnt_id);
+    client->recovery.in_recovery = FALSE;
+    WakeAllConditionVariable(&client->recovery.cond);
+    LeaveCriticalSection(&client->recovery.lock);
+}
+
 int compound_encode_send_decode(
     nfs41_session *session,
     nfs41_compound *compound,
@@ -117,7 +132,7 @@ int compound_encode_send_decode(
     int status, retry_count = 0, delayby = 0;
     nfs41_sequence_args *args =
         (nfs41_sequence_args *)compound->args.argarray[0].arg;
-    bool_t zero = 0, client_state_lost = FALSE;
+    bool_t client_state_lost = FALSE;
 
 retry:
     /* send compound */
@@ -178,29 +193,24 @@ retry:
         break;
 
     case NFS4ERR_STALE_CLIENTID:
-        //try to create a new client
-        status = check_renew_in_progress(session);
-        if (status == ERROR_LOCK_VIOLATION)
-            goto out_free_slot;
-        else if (status == 1)
+        if (!recovery_start_or_wait(session->client))
             goto do_retry;
+        //try to create a new client
         client_state_lost = TRUE;
         status = nfs41_client_renew(session->client);
         if (status) {
             eprintf("nfs41_exchange_id() failed with %d\n", status);
             status = ERROR_BAD_NET_RESP;
+            recovery_finish(session->client);
             goto out;
         }
         //fallthru and reestablish the session
     case NFS4ERR_BADSESSION:
-        //try to create a new session
         if (compound->res.status == NFS4ERR_BADSESSION) {
-            status = check_renew_in_progress(session);
-            if (status == ERROR_LOCK_VIOLATION)
-                goto out_free_slot;
-            else if (status == 1)
+            if (!recovery_start_or_wait(session->client))
                 goto do_retry;
         }
+        //try to create a new session
         status = nfs41_session_renew(session);
         if (status == NFS4ERR_STALE_CLIENTID) {
             client_state_lost = TRUE;
@@ -208,6 +218,7 @@ retry:
             if (status) {
                 eprintf("nfs41_exchange_id() failed with %d\n", status);
                 status = ERROR_BAD_NET_RESP;
+                recovery_finish(session->client);
                 goto out;
             }
             status = nfs41_session_renew(session);
@@ -215,10 +226,12 @@ retry:
                 eprintf("after reestablishing clientid: nfs41_session_renew() "
                     "failed with %d\n", status);
                 status = ERROR_BAD_NET_RESP;
+                recovery_finish(session->client);
                 goto out;
             }
         } else if (status && status != NFS4ERR_STALE_CLIENTID) {
             eprintf("nfs41_session_renew: failed with %d\n", status);
+            recovery_finish(session->client);
             goto out;
         }
         /* do client state recovery */
@@ -249,8 +262,7 @@ retry:
                 eprintf("nfs41_reclaim_complete() failed with %s\n",
                     nfs_error_string(status));
         }
-        if (nfs41_renew_in_progress(session->client, NULL))
-            nfs41_renew_in_progress(session->client, &zero);
+        recovery_finish(session->client);
         goto do_retry;
 
     case NFS4ERR_STALE_STATEID:
@@ -296,13 +308,11 @@ retry:
                 switch (stateid->type) {
                 case STATEID_OPEN:
                     /* if there's recovery in progress, wait for it to finish */
-                    while (nfs41_renew_in_progress(session->client, NULL)) {
-                        DWORD wait = WaitForSingleObject(session->client->cond, INFINITE);
-                        if (wait != WAIT_OBJECT_0) {
-                            print_condwait_status(1, wait);
-                            break;
-                        }
-                    }
+                    EnterCriticalSection(&session->client->recovery.lock);
+                    while (session->client->recovery.in_recovery)
+                        SleepConditionVariableCS(&session->client->recovery.cond,
+                            &session->client->recovery.lock, INFINITE);
+                    LeaveCriticalSection(&session->client->recovery.lock);
 
                     /* if the open stateid is different, update and retry */
                     AcquireSRWLockShared(&stateid->open->lock);

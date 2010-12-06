@@ -131,9 +131,13 @@ typedef struct __nfs41_client {
     struct pnfs_file_layout_list *layouts;
     struct pnfs_file_device_list *devices;
     struct list_entry root_entry; /* position in nfs41_root.clients */
-    HANDLE cond;
     struct __nfs41_root *root;
-    bool_t in_recovery;
+
+    struct {
+        CONDITION_VARIABLE cond;
+        CRITICAL_SECTION lock;
+        bool_t in_recovery;
+    } recovery;
 
     /* for state recovery on server reboot */
     struct client_state state;

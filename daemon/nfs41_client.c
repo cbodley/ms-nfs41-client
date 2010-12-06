@@ -118,14 +118,6 @@ int nfs41_client_create(
         goto out_err_rpc;
     }
 
-    client->cond = CreateEvent(NULL, TRUE, FALSE, "client_recovery_cond");
-    if (client->cond == NULL) {
-        status = GetLastError();
-        eprintf("CreateEvent failed %d\n", status);
-        free(client);
-        goto out_err_rpc;
-    }
-
     memcpy(&client->owner, owner, sizeof(client_owner4));
     client->rpc = rpc;
     client->is_data = is_data;
@@ -136,6 +128,9 @@ int nfs41_client_create(
 
     //initialize a lock used to protect access to client id and client id seq#
     InitializeSRWLock(&client->exid_lock);
+
+    InitializeConditionVariable(&client->recovery.cond);
+    InitializeCriticalSection(&client->recovery.lock);
 
     status = pnfs_client_init(client);
     if (status) {
@@ -203,25 +198,6 @@ out:
     return status;
 }
 
-bool_t nfs41_renew_in_progress(nfs41_client *client, bool_t *value)
-{
-    bool_t status = FALSE;
-    if (value) {
-        dprintf(1, "nfs41_renew_in_progress: setting value %d\n", *value);
-        AcquireSRWLockExclusive(&client->exid_lock);
-        client->in_recovery = *value;
-        if (!client->in_recovery) 
-            SetEvent(client->cond);
-        ReleaseSRWLockExclusive(&client->exid_lock);
-    } else {
-        AcquireSRWLockShared(&client->exid_lock);
-        status = client->in_recovery;
-        ReleaseSRWLockShared(&client->exid_lock);
-        dprintf(1, "nfs41_renew_in_progress: returning value %d\n", status);
-    }
-    return status;
-}
-
 void nfs41_client_free(
     IN nfs41_client *client)
 {
@@ -231,7 +207,6 @@ void nfs41_client_free(
     nfs41_rpc_clnt_free(client->rpc);
     if (client->layouts) pnfs_file_layout_list_free(client->layouts);
     if (client->devices) pnfs_file_device_list_free(client->devices);
-    CloseHandle(client->cond);
     free(client);
 }
 
