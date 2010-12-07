@@ -605,6 +605,7 @@ static int name_cache_insert(
 
     if (RB_INSERT(name_tree, &parent->rbchildren, entry))
         status = ERROR_FILE_EXISTS;
+    entry->parent = parent;
 
     dprintf(NCLVL2, "<-- name_cache_insert() returning %u\n", status);
     return status;
