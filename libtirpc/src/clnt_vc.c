@@ -159,9 +159,10 @@ static cond_t   *vc_cv;
 
 #define acquire_fd_lock(fd) { \
 	mutex_lock(&clnt_fd_lock); \
-	while (vc_fd_locks[WINSOCK_HANDLE_HASH(fd)]) \
+	while (vc_fd_locks[WINSOCK_HANDLE_HASH(fd)] && \
+            vc_fd_locks[WINSOCK_HANDLE_HASH(fd)] != GetCurrentThreadId()) \
 		cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(fd)], &clnt_fd_lock); \
-	vc_fd_locks[WINSOCK_HANDLE_HASH(fd)] = 1; \
+	vc_fd_locks[WINSOCK_HANDLE_HASH(fd)] = GetCurrentThreadId(); \
 	mutex_unlock(&clnt_fd_lock); \
 }
 
@@ -554,10 +555,11 @@ call_again:
 	
 	while (TRUE) {
         mutex_lock(&clnt_fd_lock);
-	    while (vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] || 
+	    while ((vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] && 
+                vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] != GetCurrentThreadId()) || 
                 (ct->reply_msg.rm_xid && ct->reply_msg.rm_xid != x_id))
 		    cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(ct->ct_fd)], &clnt_fd_lock);
-	    vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] = 1;
+	    vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] = GetCurrentThreadId();
 	    mutex_unlock(&clnt_fd_lock);
 
         xdrs->x_op = XDR_DECODE;

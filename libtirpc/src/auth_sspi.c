@@ -351,8 +351,19 @@ authsspi_refresh(AUTH *auth, void *tmp)
 
 	gd = AUTH_PRIVATE(auth);
 
-	if (gd->established)
+	if (gd->established && tmp == NULL)
 		return (TRUE);
+    else if (tmp) {
+        log_debug("trying to refresh credentials\n");
+        DeleteSecurityContext(&gd->ctx);
+        sspi_release_buffer(&gd->gc.gc_ctx);
+        SecInvalidateHandle(&gd->ctx);
+        mem_free(gd->gc_wire_verf.value, gd->gc_wire_verf.length);
+        gd->gc_wire_verf.value = NULL;
+        gd->gc_wire_verf.length = 0;
+        gd->established = FALSE;        
+        gd->gc.gc_proc = RPCSEC_SSPI_INIT;
+    }
 
 	/* GSS context establishment loop. */
 	memset(&gr, 0, sizeof(gr));
