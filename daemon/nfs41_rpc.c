@@ -143,20 +143,20 @@ int nfs41_rpc_clnt_create(
                 &server_name, &client, &addr_index);
     if (status) {
         clnt_pcreateerror("connecting failed");
-        goto out_free_rpc_clnt;
+        goto out_free_rpc_cond;
     }
     if (send_null(client) != RPC_SUCCESS) {
         // XXX Do what here?
         eprintf("nfs41_rpc_clnt_create: send_null failed\n");
         status = ERROR_NETWORK_UNREACHABLE;
-        goto out_err_auth;
+        goto out_err_client;
     }
 
     switch (sec_flavor) {
     case RPCSEC_AUTH_SYS:
         if (gethostname(machname, sizeof(machname)) == -1) {
             eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
-            goto out_free_rpc_clnt;
+            goto out_err_client;
         }
         machname[sizeof(machname) - 1] = '\0';
         client->cl_auth = authsys_create(machname, uid, gid, 0, gids);
@@ -207,11 +207,11 @@ int nfs41_rpc_clnt_create(
     *rpc_out = rpc;
 out:
     return status;
-out_err_auth:
-    auth_destroy(client->cl_auth);
 out_err_client:
-    CloseHandle(rpc->cond);
     clnt_destroy(client);
+out_free_rpc_cond:
+    CloseHandle(rpc->cond);
+    free(server_name);
 out_free_rpc_clnt:
     free(rpc);
     goto out;
@@ -269,6 +269,7 @@ static int rpc_reconnect(
     if (status)
         goto out_unlock;
 
+    free(server_name);
     client->cl_auth = rpc->rpc->cl_auth;
     if (send_null(client) != RPC_SUCCESS)
         goto out_err_client;
