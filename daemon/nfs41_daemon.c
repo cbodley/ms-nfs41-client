@@ -265,7 +265,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 #ifndef STANDALONE_NFSD
     stop_event = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (stop_event == NULL)
-      goto quit;
+      goto out_pipe;
 #endif
 
     for (i = 0; i < MAX_NUM_THREADS; i++) {
