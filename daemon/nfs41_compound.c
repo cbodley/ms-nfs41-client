@@ -210,6 +210,72 @@ static int recover_client_state(
     return status;
 }
 
+static bool_t do_recovery(nfs_argop4 *argop, nfs41_session *session)
+{
+    stateid_arg *stateid = NULL;
+    stateid4 *source = NULL;
+    bool_t retry = FALSE;
+
+    if (argop->op == OP_CLOSE) {
+        nfs41_op_close_args *close = (nfs41_op_close_args*)argop->arg;
+        stateid = close->stateid;
+    } else if (argop->op == OP_READ) {
+        nfs41_read_args *read = (nfs41_read_args*)argop->arg;
+        stateid = read->stateid;
+    } else if (argop->op == OP_WRITE) {
+        nfs41_write_args *write = (nfs41_write_args*)argop->arg;
+        stateid = write->stateid;
+    } else if (argop->op == OP_LOCK) {
+        nfs41_lock_args *lock = (nfs41_lock_args*)argop->arg;
+        if (lock->locker.new_lock_owner)
+            stateid = lock->locker.u.open_owner.open_stateid;
+        else
+            stateid = lock->locker.u.lock_owner.lock_stateid;
+    } else if (argop->op == OP_LOCKU) {
+        nfs41_locku_args *locku = (nfs41_locku_args*)argop->arg;
+        stateid = locku->lock_stateid;
+    } else if (argop->op == OP_SETATTR) {
+        nfs41_setattr_args *setattr = (nfs41_setattr_args*)argop->arg;
+        stateid = setattr->stateid;
+    } else if (argop->op == OP_LAYOUTGET) {
+        pnfs_layoutget_args *lget = (pnfs_layoutget_args*)argop->arg;
+        stateid = lget->stateid;
+    }
+
+    if (stateid) {
+        switch (stateid->type) {
+        case STATEID_OPEN:
+        case STATEID_LOCK:
+            /* if there's recovery in progress, wait for it to finish */
+            EnterCriticalSection(&session->client->recovery.lock);
+            while (session->client->recovery.in_recovery)
+                SleepConditionVariableCS(&session->client->recovery.cond,
+                    &session->client->recovery.lock, INFINITE);
+            LeaveCriticalSection(&session->client->recovery.lock);
+
+            if (stateid->type == STATEID_OPEN)
+                source = &stateid->open->stateid;
+            else
+                source = &stateid->open->locks.stateid;
+
+            /* if the source stateid is different, update and retry */
+            AcquireSRWLockShared(&stateid->open->lock);
+            if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
+                memcpy(&stateid->stateid, source, sizeof(stateid4));
+                retry = TRUE;
+            }
+            ReleaseSRWLockShared(&stateid->open->lock);
+            break;
+
+        default:
+            eprintf("%s can't recover stateid type %u\n",
+                nfs_opnum_to_string(argop->op), stateid->type);
+            break;
+        }
+    }
+    return retry;
+}
+
 int compound_encode_send_decode(
     nfs41_session *session,
     nfs41_compound *compound,
@@ -331,77 +397,10 @@ restart_recovery:
         }
         if (!try_recovery)
             goto out;
-        {
-            nfs_argop4 *argop = &compound->args.argarray[
-                compound->res.resarray_count-1];
-            stateid_arg *stateid = NULL;
-            stateid4 *source = NULL;
 
-            if (argop->op == OP_CLOSE) {
-                nfs41_op_close_args *close = (nfs41_op_close_args*)argop->arg;
-                stateid = close->stateid;
-            } else if (argop->op == OP_READ) {
-                nfs41_read_args *read = (nfs41_read_args*)argop->arg;
-                stateid = read->stateid;
-            } else if (argop->op == OP_WRITE) {
-                nfs41_write_args *write = (nfs41_write_args*)argop->arg;
-                stateid = write->stateid;
-            } else if (argop->op == OP_LOCK) {
-                nfs41_lock_args *lock = (nfs41_lock_args*)argop->arg;
-                if (lock->locker.new_lock_owner)
-                    stateid = lock->locker.u.open_owner.open_stateid;
-                else
-                    stateid = lock->locker.u.lock_owner.lock_stateid;
-            } else if (argop->op == OP_LOCKU) {
-                nfs41_locku_args *locku = (nfs41_locku_args*)argop->arg;
-                stateid = locku->lock_stateid;
-            } else if (argop->op == OP_SETATTR) {
-                nfs41_setattr_args *setattr = (nfs41_setattr_args*)argop->arg;
-                stateid = setattr->stateid;
-            } else if (argop->op == OP_LAYOUTGET) {
-                pnfs_layoutget_args *lget = (pnfs_layoutget_args*)argop->arg;
-                stateid = lget->stateid;
-            }
-
-            if (stateid) {
-                bool_t retry = FALSE;
-
-                switch (stateid->type) {
-                case STATEID_OPEN:
-                case STATEID_LOCK:
-                    /* if there's recovery in progress, wait for it to finish */
-                    EnterCriticalSection(&session->client->recovery.lock);
-                    while (session->client->recovery.in_recovery)
-                        SleepConditionVariableCS(&session->client->recovery.cond,
-                            &session->client->recovery.lock, INFINITE);
-                    LeaveCriticalSection(&session->client->recovery.lock);
-
-                    if (stateid->type == STATEID_OPEN)
-                        source = &stateid->open->stateid;
-                    else
-                        source = &stateid->open->locks.stateid;
-
-                    /* if the source stateid is different, update and retry */
-                    AcquireSRWLockShared(&stateid->open->lock);
-                    if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
-                        memcpy(&stateid->stateid, source, sizeof(stateid4));
-                        retry = TRUE;
-                    }
-                    ReleaseSRWLockShared(&stateid->open->lock);
-                    break;
-
-                default:
-                    eprintf("%s returned %s: can't recover stateid type %u\n",
-                        nfs_opnum_to_string(argop->op),
-                        nfs_error_string(compound->res.status), stateid->type);
-                    break;
-                }
-                if (retry) {
-                    dprintf(1, "Stateid has been reclaimed, retrying..\n");
-                    goto do_retry;
-                }
-            }
-        }
+        if (do_recovery(&compound->args.argarray[compound->res.resarray_count-1], 
+                        session)) 
+            goto retry;
         goto out;
 
     case NFS4ERR_GRACE:
