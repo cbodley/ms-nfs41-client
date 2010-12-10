@@ -481,12 +481,6 @@ static int handle_setattr(nfs41_upcall *upcall)
         status = ERROR_NOT_SUPPORTED;
         break;
     }
-
-    switch (args->set_class) {
-    case FileAllocationInformation:
-    case FileEndOfFileInformation:
-        client_state_remove(state);
-    }
 out:
     free(args->buf);
     return status;

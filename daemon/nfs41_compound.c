@@ -210,7 +210,7 @@ static int recover_client_state(
     return status;
 }
 
-static bool_t do_recovery(nfs_argop4 *argop, nfs41_session *session)
+static bool_t recover_stateid(nfs_argop4 *argop, nfs41_session *session)
 {
     stateid_arg *stateid = NULL;
     stateid4 *source = NULL;
@@ -398,7 +398,7 @@ restart_recovery:
         if (!try_recovery)
             goto out;
 
-        if (do_recovery(&compound->args.argarray[compound->res.resarray_count-1], 
+        if (recover_stateid(&compound->args.argarray[compound->res.resarray_count-1], 
                         session)) 
             goto retry;
         goto out;
