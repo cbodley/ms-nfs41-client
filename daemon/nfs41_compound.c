@@ -400,7 +400,7 @@ restart_recovery:
 
         if (recover_stateid(&compound->args.argarray[compound->res.resarray_count-1], 
                         session)) 
-            goto retry;
+            goto do_retry;
         goto out;
 
     case NFS4ERR_GRACE:
