@@ -39,10 +39,21 @@
 <ul>
     <li>Windows Vista x64, Windows Server 2008 R2 x64, or Windows 7 x64. (Windows XP and previous versions are not supported. 32-bit builds have not been tested.)</li>
     <li>Windows Driver Development Kit (WinDDK 6000 or later)</li>
+    <li>Microsoft Visual Studio 2010</li>
     <li>ms-nfs41-client source code:
     <br/><code>&gt; git clone git://citi.umich.edu/projects/ms-nfs41-client.git</code></li>
 </ul>
-<h3>Instructions</h3>
+<h3>Building the userspace daemon</h3>
+<ul><li>WinDDK does not include the ldap library, so we build the nfs client daemon with Microsoft Visual Studio 2010.</li></ul>
+<ol>
+    <li>Open Windows Explorer and navigate to <strong>ms-nfs41-client\build.vc10</strong>.</li>
+    <li>Make a copy of <strong>env.props.example</strong>, and rename it to <strong>env.props</strong>.
+    <li>Open <strong>env.props</strong> in a text editor, and verify that the value in <code>&lt;WDKPATH&gt;C:\WinDDK\7600.16385.0&lt;/WDKPATH&gt;</code> points to your WinDDK installation.</li>
+    <li>Open the solution file <strong>ms-nfs41-client.sln</strong> in Visual Studio 2010.</li>
+    <li>Select the x64 platform and desired configuration (Debug or Release).</li>
+    <li>Right-click on the <strong>daemon</strong> project and select Build. The project and its dependencies should build without errors. Binaries can be found under build.vc10\x64\(Configuration)\.</li>
+</ol>
+<h3>Building the driver</h3>
 <ol>
     <li>From the Start menu, open the WinDDK 'x64 Checked Build Environment' for the target platform.</li>
     <li>Change directory to <strong>ms-nfs41-client</strong> and type <code>build</code>. The project should build without errors.</li>
