@@ -174,6 +174,8 @@ static int recover_open(
         /* if we got a lock stateid back, save the lock with the open */
         if (stateid.type == STATEID_LOCK)
             memcpy(&open->locks.stateid, &stateid.stateid, sizeof(stateid4));
+        else
+            open->locks.stateid.seqid = 0;
     }
 
     ReleaseSRWLockExclusive(&open->lock);
@@ -261,6 +263,15 @@ static bool_t recover_stateid(nfs_argop4 *argop, nfs41_session *session)
             /* if the source stateid is different, update and retry */
             AcquireSRWLockShared(&stateid->open->lock);
             if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
+                /* if it was a lock stateid that was cleared, resend it with an open stateid */
+                if (argop->op == OP_LOCK && stateid->type == STATEID_LOCK && source->seqid == 0) {
+                    nfs41_lock_args *lock = (nfs41_lock_args*)argop->arg;
+                    lock->locker.new_lock_owner = 1;
+                    lock->locker.u.open_owner.open_stateid = stateid;
+                    lock->locker.u.open_owner.lock_owner = &stateid->open->owner;
+                    source = &stateid->open->stateid;
+                }
+
                 memcpy(&stateid->stateid, source, sizeof(stateid4));
                 retry = TRUE;
             }
