@@ -414,6 +414,11 @@ void nfs41_open_stateid_arg(
     IN nfs41_open_state *state,
     OUT struct __stateid_arg *arg);
 
+void client_state_add(
+    IN nfs41_open_state *state);
+void client_state_remove(
+    IN nfs41_open_state *state);
+
 /* lock.c */
 void nfs41_lock_stateid_arg(
     IN nfs41_open_state *state,

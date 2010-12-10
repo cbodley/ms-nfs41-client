@@ -452,7 +452,8 @@ static int handle_setattr(nfs41_upcall *upcall)
                 dprintf(1, "nfs41_open() failed with %s\n", nfs_error_string(status));
                 status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
                 goto out;
-            }
+            } else
+                client_state_add(state);
             state->do_close = 1;
         }
     }
@@ -481,6 +482,11 @@ static int handle_setattr(nfs41_upcall *upcall)
         break;
     }
 
+    switch (args->set_class) {
+    case FileAllocationInformation:
+    case FileEndOfFileInformation:
+        client_state_remove(state);
+    }
 out:
     free(args->buf);
     return status;

@@ -118,9 +118,8 @@ void nfs41_open_stateid_arg(
     arg->open = state;
 }
 
-
 /* client list of associated open state */
-static void client_state_add(
+void client_state_add(
     IN nfs41_open_state *state)
 {
     nfs41_client *client = state->session->client;
@@ -130,7 +129,7 @@ static void client_state_add(
     LeaveCriticalSection(&client->state.lock);
 }
 
-static void client_state_remove(
+void client_state_remove(
     IN nfs41_open_state *state)
 {
     nfs41_client *client = state->session->client;
