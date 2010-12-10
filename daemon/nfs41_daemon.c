@@ -170,7 +170,7 @@ static void PrintUsage()
 }
 static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
 {
-    DWORD i;
+    int i;
 
     /* set defaults. */
     out->debug_level = 2;
@@ -201,6 +201,7 @@ static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
     }
     fprintf(stdout, "parse_cmdlineargs: debug_level %d ldap is %d\n", 
         out->debug_level, out->ldap_enable);
+    return TRUE;
 }
 
 #ifdef STANDALONE_NFSD
