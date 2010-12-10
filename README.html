@@ -29,6 +29,8 @@
 <ol>
     <li><a href="#build">Building</a></li>
     <li><a href="#install">Installation</a></li>
+    <li><a href="#ldap">Ldap Configuration</a></li>
+    <li><a href="#startup">Starting the Client</a></li>
     <li><a href="#mount">Mounting</a></li>
     <li><a href="#cthon">Connectation</a></li>
     <li><a href="#issues">Known Issues</a></li>
@@ -38,31 +40,31 @@
 <h3>Requirements</h3>
 <ul>
     <li>Windows Vista x64, Windows Server 2008 R2 x64, or Windows 7 x64. (Windows XP and previous versions are not supported. 32-bit builds have not been tested.)</li>
-    <li>Windows Driver Development Kit (WinDDK 6000 or later)</li>
     <li>Microsoft Visual Studio 2010</li>
+    <li>Windows Driver Development Kit (WinDDK 6000 or later)</li>
     <li>ms-nfs41-client source code:
     <br/><code>&gt; git clone git://citi.umich.edu/projects/ms-nfs41-client.git</code></li>
 </ul>
-<h3>Building the userspace daemon</h3>
-<ul><li>WinDDK does not include the ldap library, so we build the nfs client daemon with Microsoft Visual Studio 2010.</li></ul>
+<h3>Building the rpc library and nfs client daemon</h3>
+<ul><li>WinDDK does not include the ldap library, so we build the rpc library and nfs client daemon with Visual Studio 2010.</li></ul>
 <ol>
     <li>Open Windows Explorer and navigate to <strong>ms-nfs41-client\build.vc10</strong>.</li>
     <li>Make a copy of <strong>env.props.example</strong>, and rename it to <strong>env.props</strong>.
     <li>Open <strong>env.props</strong> in a text editor, and verify that the value in <code>&lt;WDKPATH&gt;C:\WinDDK\7600.16385.0&lt;/WDKPATH&gt;</code> points to your WinDDK installation.</li>
     <li>Open the solution file <strong>ms-nfs41-client.sln</strong> in Visual Studio 2010.</li>
-    <li>Select the x64 platform and desired configuration (Debug or Release).</li>
-    <li>Right-click on the <strong>daemon</strong> project and select Build. The project and its dependencies should build without errors. Binaries can be found under build.vc10\x64\(Configuration)\.</li>
+    <li>Select the Debug configuration and x64 platform (accessible via Build->Configuration Manager).</li>
+    <li>Right-click on the <strong>daemon</strong> project and select Build. The project and its dependencies should build without errors. The resulting binaries, <strong>nfsd.exe</strong> and <strong>libtirpc.dll</strong>, can be found under <strong>ms-nfs41-client\build.vc10\x64\Debug\</strong>.</li>
 </ol>
-<h3>Building the driver</h3>
+<h3>Building the driver and utilities</h3>
 <ol>
     <li>From the Start menu, open the WinDDK 'x64 Checked Build Environment' for the target platform.</li>
-    <li>Change directory to <strong>ms-nfs41-client</strong> and type <code>build</code>. The project should build without errors.</li>
+    <li>Change directory to <strong>ms-nfs41-client</strong> and type <code>build</code>. All projects should build without errors.</li>
 </ol>
 <h2>2. <a name="install">Installation</a></h2>
 <h3>Requirements</h3>
 <ul>
     <li>ms-nfs41-client binaries: <strong>nfs41_driver.sys</strong>, <strong>nfs41_np.dll</strong>, <strong>libtirpc.dll</strong>, <strong>nfs_install.exe</strong>, <strong>nfsd.exe</strong>, <strong>nfs_mount.exe</strong></li>
-    <li>ms-nfs41-client configuration files: <strong>nfs41rdr.inf</strong>, <strong>install.bat</strong>, <strong>uninstall.bat</strong>, <strong>etc_netconfig</strong></li>
+    <li>ms-nfs41-client configuration files: <strong>nfs41rdr.inf</strong>, <strong>install.bat</strong>, <strong>uninstall.bat</strong>, <strong>etc_netconfig</strong>, <strong>ms-nfs41-idmap.conf</strong></li>
 </ul>
 <h3>Instructions</h3>
 <ol>
@@ -76,23 +78,44 @@
     <br/><code>&gt; certmgr /add /c nfs41_test.cer /s /r localMachine root</code></li>
     <li>Install the driver and update the registry:
     <br/><code>&gt; install.bat</code></li>
-    <li>Copy the libtirpc configuration:
+    <li>Copy configuration files:
     <br/><code>&gt; mkdir C:\etc</code>
-    <br/><code>&gt; copy etc_netconfig C:\etc\netconfig</code></li>
+    <br/><code>&gt; copy etc_netconfig C:\etc\netconfig</code>
+    <br/><code>&gt; copy ms-nfs41-idmap.conf C:\etc\</code></li>
     <li>Allow windows to load test-signed drivers:
     <br/><code>&gt; bcdedit /set testsigning on</code></li>
     <li>Reboot.</li>
 </ol>
-<h2>3. <a name="mount">Mounting</a></h2>
+<h2>3. <a name="ldap">Ldap Configuration</a></h2>
+<h3>Requirements:</h3>
+<ul>
+    <li><strong>C:\etc\ms-nfs41-idmap.conf</strong> from <a href="#install">Installation</a> step 7.</li>
+</ul>
 <h3>Instructions</h3>
 <ol>
-    <li>From a Windows command prompt, run <strong>nfsd.exe</strong>.</li>
-    <li>Open a new Windows command prompt and run <strong>nfs_mount.exe</strong> to mount a share:
-    <br/><code>&gt; nfs_mount.exe Z: nfs.citi.umich.edu:\</code></li>
+    <li>Open <strong>C:\etc\ms-nfs41-idmap.conf</strong> in a text editor.</li>
+    <li>Uncomment the <code>ldap_hostname</code> and <code>ldap_base</code> lines, and configure as appropriate to match your ldap server configuration (we'll add suggestions later).</li>
+</ol>
+<h2>4. <a name="startup">Starting the Client</a></h2>
+<h3>Instructions</h3>
+<ol>
+    <li>From a Windows command prompt, run <strong>nfsd.exe</strong> to start the nfs client daemon. Leave this running in the background until all mapped drives are unmounted.
+    <br/>Usage:
+    <br/><code>&gt; nfsd.exe -d &lt;debug level&gt; [--noldap]</code></li>
+    <ul>
+        <li><code>&lt;debug level&gt;</code> determines the log verbosity (1, 2, 3 or 0 to disable)</li>
+        <li><code>--noldap</code> disables id mapping and uses a default uid=666 and gid=777</li>
+    </ul>
+</ol>
+<h2>5. <a name="mount">Mounting</a></h2>
+<h3>Instructions</h3>
+<ol>
+    <li>From a Windows command prompt run <strong>nfs_mount.exe</strong> to mount a share:
+    <br/><code>&gt; nfs_mount.exe Z: &lt;server_name&gt;:\</code></li>
     <li>You can later unmount with:
     <br/><code>&gt; nfs_mount.exe -d Z</code></li>
 </ol>
-<h2>4. <a name="cthon">Connectathon</a></h2>
+<h2>6. <a name="cthon">Connectathon</a></h2>
 <h3>Requirements</h3>
 <ul>
     <li><a href="http://www.cygwin.com" title="www.cygwin.com">Cygwin</a>, including packages gcc-core, make, time, tirpc, git</li>
@@ -114,9 +137,10 @@
     <li>Run the test suite on a mounted directory:
     <br/><code>&gt; ./runtests -a -t z:/testdir</code></li>
 </ol>
-<h2>5. <a name="issues">Known Issues</a></h2>
+<h2>7. <a name="issues">Known Issues</a></h2>
 <ul>
-    <li>AUTH_SYS is not fully implemented, and uses a fake uid=666 and gid=777.  Keep this in mind when setting up exports.</li>
+    <li>AUTH_SYS does not handle multiple users, so all operations are sent as the user that established the mount.</li>
+    <li>When recovering opens and locks outside of the server's grace period, client does not check whether the file has been modified by another client.</li>
     <li>When nfs_mount.exe is run without arguments, it does not properly list mounted drives.</li>
     <li>If nfsd.exe is restarted while a drive is mapped, that drive needs to be remounted before further use.</li>
     <li>Symbolic links are not supported in Cygwin. Connectathon's basic test8 and special test nfsidem have been commented out.</li>
