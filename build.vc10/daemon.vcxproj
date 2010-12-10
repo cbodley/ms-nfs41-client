@@ -90,7 +90,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4100 /wd4127 /wd4255 /wd4574 /wd4619 /wd4668 /wd4710 /wd4711 /wd4820 %(AdditionalOptions)</AdditionalOptions>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..\sys;..\xdr;..\dll;..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -116,7 +116,7 @@
       <TargetEnvironment>X64</TargetEnvironment>
     </Midl>
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4100 /wd4127 /wd4255 /wd4574 /wd4619 /wd4668 /wd4710 /wd4711 /wd4820 %(AdditionalOptions)</AdditionalOptions>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..\sys;..\xdr;..\dll;..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;STANDALONE_NFSD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -139,7 +139,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4100 /wd4127 /wd4255 /wd4574 /wd4619 /wd4668 /wd4710 /wd4711 /wd4820 %(AdditionalOptions)</AdditionalOptions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>..\sys;..\xdr;..\dll;..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -167,7 +167,7 @@
       <TargetEnvironment>X64</TargetEnvironment>
     </Midl>
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4100 /wd4127 /wd4255 /wd4574 /wd4619 /wd4668 /wd4710 /wd4711 /wd4820 %(AdditionalOptions)</AdditionalOptions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>..\sys;..\xdr;..\dll;..\libtirpc\tirpc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

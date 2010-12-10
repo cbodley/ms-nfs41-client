@@ -81,10 +81,14 @@
     <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Release|x64'">AllRules.ruleset</CodeAnalysisRuleSet>
     <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
     <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">nfs_mount</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">nfs_mount</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">nfs_mount</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">nfs_mount</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4255 /wd4668 /wd4710 /wd4711 /wd4820</AdditionalOptions>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..\sys;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MinimalRebuild>true</MinimalRebuild>
@@ -104,7 +108,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4255 /wd4668 /wd4710 /wd4711 /wd4820</AdditionalOptions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>..\sys;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -129,7 +133,7 @@
       <TargetEnvironment>X64</TargetEnvironment>
     </Midl>
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4255 /wd4668 /wd4710 /wd4711 /wd4820</AdditionalOptions>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..\sys;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MinimalRebuild>true</MinimalRebuild>
@@ -152,7 +156,7 @@
       <TargetEnvironment>X64</TargetEnvironment>
     </Midl>
     <ClCompile>
-      <AdditionalOptions>/Wall /wd4668 /wd4619 /wd4820 /wd4255 /wd4100 /wd4127 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/Wall /wd4255 /wd4668 /wd4710 /wd4711 /wd4820</AdditionalOptions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>..\sys;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
