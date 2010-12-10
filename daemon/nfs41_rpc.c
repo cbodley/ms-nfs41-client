@@ -209,9 +209,9 @@ out:
     return status;
 out_err_client:
     clnt_destroy(client);
+    free(server_name);
 out_free_rpc_cond:
     CloseHandle(rpc->cond);
-    free(server_name);
 out_free_rpc_clnt:
     free(rpc);
     goto out;
