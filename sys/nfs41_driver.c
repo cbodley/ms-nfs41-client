@@ -1874,6 +1874,12 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
             status = nfs41_CreateConnection(RxContext, &RxContext->PostRequest);
             break;
         case IOCTL_NFS41_DELCONN:
+            if (RxContext->RxDeviceObject->NumberOfActiveFcbs > 0) {
+                DbgP("device has open handles %d\n", 
+                    RxContext->RxDeviceObject->NumberOfActiveFcbs);
+                status = STATUS_REDIRECTOR_HAS_OPEN_HANDLES;
+                break;
+            }
             status = nfs41_DeleteConnection(RxContext, &RxContext->PostRequest);
             break;
         case IOCTL_NFS41_GETSTATE:
