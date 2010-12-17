@@ -649,13 +649,18 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
     __try {
         entry->u.ReadWrite.buf = 
             MmMapLockedPagesSpecifyCache(entry->u.ReadWrite.MdlAddress, 
-                UserMode, MmCached, NULL, FALSE, NormalPagePriority);
+                UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
         DbgP("MdlAddress=%p Userspace=%p\n", entry->u.ReadWrite.MdlAddress, 
              entry->u.ReadWrite.buf);
+        if (entry->u.ReadWrite.buf == NULL) {
+            print_error("MmMapLockedPagesSpecifyCache failed to map pages\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto out;
+        }
     } __except(EXCEPTION_EXECUTE_HANDLER) { 
         NTSTATUS code; 
         code = GetExceptionCode(); 
-        print_error("Call to MmMapLocked failed due to exception 0x%0x\n", code);
+        print_error("Call to MmMapLocked failed due to exception 0x%x\n", code);
         status = STATUS_ACCESS_DENIED;
         goto out;
     }
@@ -1396,7 +1401,7 @@ nfs41_downcall (
         case NFS41_READ:
             RtlCopyMemory(&cur->u.ReadWrite.len, buf, sizeof(cur->u.ReadWrite.len));
             DbgP("[read/write] returned len %ld\n", cur->u.ReadWrite.len);
-#if 0
+#if 1
             /* 08/27/2010: it looks like we really don't need to call MmUnmapLockedPages()
              * eventhough we called MmMapLockedPagesSpecifyCache() as the MDL passed to us
              * is already locked. 
