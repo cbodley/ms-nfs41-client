@@ -29,6 +29,8 @@
 #include "util.h"
 
 
+#define NFSD_VERSION_MISMATCH 116
+
 extern const nfs41_upcall_op nfs41_op_mount;
 extern const nfs41_upcall_op nfs41_op_unmount;
 extern const nfs41_upcall_op nfs41_op_open;
@@ -96,7 +98,7 @@ int upcall_parse(
         opcode2string(upcall->opcode));
     if (version != NFS41D_VERSION) {
         eprintf("received version %d expecting version %d\n", version, NFS41D_VERSION);
-        upcall->status = status = 116;
+        upcall->status = status = NFSD_VERSION_MISMATCH;
         goto out;
     }
 
@@ -187,7 +189,7 @@ void upcall_cleanup(
     IN nfs41_upcall *upcall)
 {
     const nfs41_upcall_op *op = g_upcall_op_table[upcall->opcode];
-    if (op && op->cleanup)
+    if (op && op->cleanup && upcall->status != NFSD_VERSION_MISMATCH)
         op->cleanup(upcall);
 
     if (upcall->state_ref) {
