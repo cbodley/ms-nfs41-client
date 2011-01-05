@@ -115,6 +115,7 @@ typedef struct __nfs41_rpc_clnt {
     uint32_t version;
     bool_t is_valid_session;
     bool_t in_recovery;
+    bool_t needcb;
 } nfs41_rpc_clnt;
 
 struct client_state {

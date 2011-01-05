@@ -21,7 +21,7 @@
  * such damages.
  */
 
-#include "nfs41.h"
+#include "nfs41_ops.h"
 #include "daemon_debug.h"
 #include "nfs41_xdr.h"
 #include "nfs41_callback.h"
@@ -133,6 +133,7 @@ int nfs41_rpc_clnt_create(
         status = GetLastError();
         goto out;
     }
+    rpc->needcb = needcb;
     rpc->cond = CreateEvent(NULL, TRUE, FALSE, "rpc_recovery_cond");
     if (rpc->cond == NULL) {
         status = GetLastError();
@@ -282,6 +283,16 @@ static int rpc_reconnect(
 
 out_unlock:
     ReleaseSRWLockExclusive(&rpc->lock);
+
+    /* after releasing the rpc lock, send a BIND_CONN_TO_SESSION if
+     * we need to associate the connection with the backchannel */
+    if (status == NO_ERROR && rpc->needcb) {
+        status = nfs41_bind_conn_to_session(rpc,
+            rpc->client->session->session_id, CDFC4_BACK_OR_BOTH);
+        if (status)
+            eprintf("nfs41_bind_conn_to_session() failed with %s\n",
+                nfs_error_string(status));
+    }
     return status;
 
 out_err_client:
