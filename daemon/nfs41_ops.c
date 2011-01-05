@@ -180,8 +180,6 @@ enum nfsstat4 nfs41_bind_conn_to_session(
 {
     int status;
     nfs41_compound compound;
-    nfs41_compound_args *compound_args = &compound.args;
-    nfs41_compound_res *compound_res = &compound.res;
     nfs_argop4 argop;
     nfs_resop4 resop;
     nfs41_bind_conn_to_session_args bind_args;
@@ -195,7 +193,7 @@ enum nfsstat4 nfs41_bind_conn_to_session(
     ZeroMemory(&bind_res, sizeof(bind_res));
 
     status = nfs41_send_compound(rpc,
-        (char*)&compound_args, (char*)&compound_res);
+        (char*)&compound.args, (char*)&compound.res);
     if (status)
         goto out;
 

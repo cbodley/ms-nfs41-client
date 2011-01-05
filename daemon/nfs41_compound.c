@@ -68,10 +68,11 @@ void compound_add_op(
     void *res)
 {
     const uint32_t i = compound->args.argarray_count++;
+    const uint32_t j = compound->res.resarray_count++;
     compound->args.argarray[i].op = opnum;
     compound->args.argarray[i].arg = arg;
-
-    compound->res.resarray[compound->res.resarray_count++].res = res;
+    compound->res.resarray[j].op = opnum;
+    compound->res.resarray[j].res = res;
 }
 
 /* Due to the possibility of replays, we might get a response to a different
