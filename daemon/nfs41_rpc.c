@@ -46,7 +46,7 @@ static int get_client_for_netaddr(
     IN uint32_t wsize,
     IN uint32_t rsize,
     IN nfs41_rpc_clnt *rpc,
-    OUT char **server_name,
+    OUT OPTIONAL char *server_name,
     OUT CLIENT **client_out)
 {
     int status = ERROR_NETWORK_UNREACHABLE;
@@ -62,13 +62,10 @@ static int get_client_for_netaddr(
     if (addr == NULL)
         goto out_free_conf;
 
-    *server_name = calloc(NFS41_HOSTNAME_LEN, sizeof(char));
-    if (*server_name == NULL)
-        goto out_free_addr;
-
-    getnameinfo(addr->buf, addr->len, *server_name, NFS41_HOSTNAME_LEN, NULL, 0, 0);
-    dprintf(1, "servername is %s\n", *server_name);
-
+    if (server_name) {
+        getnameinfo(addr->buf, addr->len, server_name, NI_MAXHOST, NULL, 0, 0);
+        dprintf(1, "servername is %s\n", server_name);
+    }
     dprintf(1, "callback function %p args %p\n", nfs41_handle_callback, rpc);
     client = clnt_tli_create(RPC_ANYFD, nconf, addr,
         NFS41_RPC_PROGRAM, NFS41_RPC_VERSION, wsize, rsize, 
@@ -77,8 +74,7 @@ static int get_client_for_netaddr(
         *client_out = client;
         status = NO_ERROR;
         goto out_free_addr;
-    } else
-        free(*server_name);
+    }
 out_free_addr:
     freenetbuf(addr);
 out_free_conf:
@@ -92,7 +88,7 @@ static int get_client_for_multi_addr(
     IN uint32_t wsize,
     IN uint32_t rsize,
     IN nfs41_rpc_clnt *rpc,
-    OUT char **server_name,
+    OUT OPTIONAL char *server_name,
     OUT CLIENT **client_out,
     OUT uint32_t *addr_index)
 {
@@ -125,8 +121,8 @@ int nfs41_rpc_clnt_create(
     uint32_t addr_index;
     int status;
     char machname[MAXHOSTNAMELEN + 1];
+    char server_name[NI_MAXHOST];
     gid_t gids[1];
-    char *server_name = NULL;
 
     rpc = calloc(1, sizeof(nfs41_rpc_clnt));
     if (rpc == NULL) {
@@ -141,7 +137,7 @@ int nfs41_rpc_clnt_create(
         goto out_free_rpc_clnt;
     }
     status = get_client_for_multi_addr(addrs, wsize, rsize, needcb?rpc:NULL, 
-                &server_name, &client, &addr_index);
+                server_name, &client, &addr_index);
     if (status) {
         clnt_pcreateerror("connecting failed");
         goto out_free_rpc_cond;
@@ -191,7 +187,6 @@ int nfs41_rpc_clnt_create(
         dprintf(1, "nfs41_rpc_clnt_create: successfully created %s\n", 
             secflavorop2name(sec_flavor));
 
-    free(server_name);
     rpc->rpc = client;
 
     /* keep a copy of the address and buffer sizes for reconnect */
@@ -210,7 +205,6 @@ out:
     return status;
 out_err_client:
     clnt_destroy(client);
-    free(server_name);
 out_free_rpc_cond:
     CloseHandle(rpc->cond);
 out_free_rpc_clnt:
@@ -261,16 +255,14 @@ static int rpc_reconnect(
     CLIENT *client = NULL;
     uint32_t addr_index;
     int status;
-    char *server_name = NULL;
 
     AcquireSRWLockExclusive(&rpc->lock);
 
     status = get_client_for_multi_addr(&rpc->addrs, rpc->wsize, rpc->rsize, 
-                rpc, &server_name, &client, &addr_index);
+                rpc, NULL, &client, &addr_index);
     if (status)
         goto out_unlock;
 
-    free(server_name);
     client->cl_auth = rpc->rpc->cl_auth;
     if (send_null(client) != RPC_SUCCESS)
         goto out_err_client;
