@@ -125,7 +125,7 @@ static int lookup_rpc(
     OUT nfs41_lookup_component_res *res)
 {
     int status;
-    uint32_t i, buffer_size;
+    uint32_t i;
     nfs41_compound compound;
     nfs_argop4 argops[4+MAX_LOOKUP_COMPONENTS*3];
     nfs_resop4 resops[4+MAX_LOOKUP_COMPONENTS*3];
@@ -159,7 +159,6 @@ static int lookup_rpc(
             &args->getattr[i], &res->getattr[i]);
     }
 
-    buffer_size = MAX_RPC_RES_SIZE(component_count);
     status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
@@ -169,11 +168,11 @@ out:
     return status;
 }
 
-static int map_lookup_error(int status, bool_t is_last_component)
+static int map_lookup_error(int status, bool_t last_component)
 {
     switch (status) {
     case NFS4ERR_NOENT:
-        if (is_last_component)  return ERROR_FILE_NOT_FOUND;
+        if (last_component)     return ERROR_FILE_NOT_FOUND;
         else                    return ERROR_PATH_NOT_FOUND;
     case NFS4ERR_SYMLINK:       return ERROR_REPARSE;
     case NFS4ERR_MOVED:         return ERROR_FILESYSTEM_ABSENT;
