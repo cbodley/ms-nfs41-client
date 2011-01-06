@@ -70,7 +70,7 @@ static int handle_mount(nfs41_upcall *upcall)
         NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
         NFS41_MAX_FILEIO_SIZE + READ_OVERHEAD, &root);
     if (status) {
-        eprintf("nfs41_rpc_clnt_create failed %d\n", status);
+        eprintf("nfs41_root_create() failed %d\n", status);
         goto out;
     }
     // add a mount
@@ -79,7 +79,7 @@ static int handle_mount(nfs41_upcall *upcall)
 
     status = nfs41_root_mount_addrs(root, &addrs, 0, 0, &client);
     if (status) {
-        eprintf("nfs41_root_mount() failed with %d\n", status);
+        eprintf("nfs41_root_mount_addrs() failed with %d\n", status);
         goto out_err;
     }
 
@@ -87,7 +87,7 @@ static int handle_mount(nfs41_upcall *upcall)
     InitializeSRWLock(&path.lock);
     if (FAILED(StringCchCopyA(path.path, NFS41_MAX_PATH_LEN, args->path))) {
         status = ERROR_BUFFER_OVERFLOW;
-        goto out;
+        goto out_err;
     }
     path.len = (unsigned short)strlen(path.path);
 
@@ -95,8 +95,8 @@ static int handle_mount(nfs41_upcall *upcall)
     status = nfs41_lookup(root, client->session,
         &path, NULL, NULL, NULL, NULL);
     if (status) {
-        eprintf("nfs41_lookup('%s') failed with %d\n",
-            path.path, status);
+        eprintf("nfs41_lookup('%s') failed with %d\n", path.path, status);
+        status = ERROR_BAD_NETPATH;
         goto out_err;
     }
 
