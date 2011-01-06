@@ -70,7 +70,7 @@ out_err_layouts:
     goto out;
 }
 
-static void update_server(
+static int update_server(
     IN nfs41_client *client,
     IN const char *server_scope,
     IN const server_owner4 *owner)
@@ -81,25 +81,28 @@ static void update_server(
     /* find a server matching the owner.major_id and scope */
     status = nfs41_server_find_or_create(owner->so_major_id,
         server_scope, nfs41_rpc_netaddr(client->rpc), &server);
+    if (status)
+        goto out;
 
-    if (status == NO_ERROR) {
-        /* if the server is the same, we now have an extra reference. if
-         * the servers are different, we still need to deref the old server.
-         * so both cases can be treated the same */
-        if (client->server)
-            nfs41_server_deref(client->server);
-        client->server = server;
-    }
+    /* if the server is the same, we now have an extra reference. if
+     * the servers are different, we still need to deref the old server.
+     * so both cases can be treated the same */
+    if (client->server)
+        nfs41_server_deref(client->server);
+    client->server = server;
+out:
+    return status;
 }
 
-static void update_exchangeid_res(
+static int update_exchangeid_res(
     IN nfs41_client *client,
     IN const nfs41_exchange_id_res *exchangeid)
 {
-    update_server(client, exchangeid->server_scope, &exchangeid->server_owner);
     client->clnt_id = exchangeid->clientid;
     client->seq_id = exchangeid->sequenceid;
     client->roles = exchangeid->flags & EXCHGID4_FLAG_MASK_PNFS;
+    return update_server(client, exchangeid->server_scope,
+        &exchangeid->server_owner);
 }
 
 int nfs41_client_create(
@@ -121,7 +124,10 @@ int nfs41_client_create(
     memcpy(&client->owner, owner, sizeof(client_owner4));
     client->rpc = rpc;
     client->is_data = is_data;
-    update_exchangeid_res(client, exchangeid);
+
+    status = update_exchangeid_res(client, exchangeid);
+    if (status)
+        goto out_err_client;
 
     list_init(&client->state.opens);
     InitializeCriticalSection(&client->state.lock);
@@ -192,7 +198,7 @@ int nfs41_client_renew(
     dprint_roles(2, exchangeid.flags);
 
     AcquireSRWLockExclusive(&client->exid_lock);
-    update_exchangeid_res(client, &exchangeid);
+    status = update_exchangeid_res(client, &exchangeid);
     ReleaseSRWLockExclusive(&client->exid_lock);
 out:
     return status;

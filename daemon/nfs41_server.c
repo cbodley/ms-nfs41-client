@@ -111,10 +111,20 @@ static int server_create(
     StringCchCopyA(server->owner, NFS4_OPAQUE_LIMIT, info->owner);
     InitializeSRWLock(&server->addrs.lock);
     nfs41_superblock_list_init(&server->superblocks);
-    nfs41_name_cache_create(&server->name_cache);
-    *server_out = server;
+
+    status = nfs41_name_cache_create(&server->name_cache);
+    if (status) {
+        eprintf("nfs41_name_cache_create() failed with %d\n", status);
+        goto out_free;
+    }
 out:
+    *server_out = server;
     return status;
+
+out_free:
+    free(server);
+    server = NULL;
+    goto out;
 }
 
 static void server_free(
