@@ -118,6 +118,7 @@ typedef struct _updowncall_entry {
     DWORD errno;
     BOOLEAN async_op;
     SECURITY_CLIENT_CONTEXT sec_ctx;
+    PSECURITY_CLIENT_CONTEXT psec_ctx;
     union {
         struct {
             PUNICODE_STRING srv_name;
@@ -341,6 +342,7 @@ typedef struct _NFS41_FOBX {
     NODE_BYTE_SIZE          NodeByteSize;
 
     HANDLE nfs41_open_state;
+    SECURITY_CLIENT_CONTEXT sec_ctx;
 } NFS41_FOBX, *PNFS41_FOBX;
 #define NFS41GetFileObjectExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
@@ -1123,7 +1125,7 @@ handle_upcall(
     ULONG cbOut = LowIoContext->ParamsFor.IoCtl.OutputBufferLength;
     unsigned char *pbOut = LowIoContext->ParamsFor.IoCtl.pOutputBuffer;
 
-    status = SeImpersonateClientEx(&entry->sec_ctx, NULL);
+    status = SeImpersonateClientEx(entry->psec_ctx, NULL);
     if (status != STATUS_SUCCESS)
         print_error("SeImpersonateClientEx failed %x\n", status);
 
@@ -1188,6 +1190,7 @@ handle_upcall(
 
 NTSTATUS nfs41_UpcallCreate(
     IN DWORD opcode,
+    IN PSECURITY_CLIENT_CONTEXT clnt_sec_ctx,
     OUT nfs41_updowncall_entry **entry_out)
 {
     NTSTATUS status = STATUS_SUCCESS;
@@ -1210,18 +1213,22 @@ NTSTATUS nfs41_UpcallCreate(
     KeInitializeEvent(&entry->cond, SynchronizationEvent, FALSE);
     ExInitializeFastMutex(&entry->lock);
 
-    SeCaptureSubjectContext(&sec_ctx);
-    sec_qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
-    sec_qos.ImpersonationLevel = SecurityImpersonation;
-    sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
-    sec_qos.EffectiveOnly = 0;
-    status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &entry->sec_ctx);
-    if (status != STATUS_SUCCESS) {
-        print_error("SeCreateClientSecurityFromSubjectContext "
-            "failed with %x\n", status);
-        RxFreePool(entry);
-    }
-    SeReleaseSubjectContext(&sec_ctx);
+    if (clnt_sec_ctx == NULL) {
+        SeCaptureSubjectContext(&sec_ctx);
+        sec_qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+        sec_qos.ImpersonationLevel = SecurityImpersonation;
+        sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+        sec_qos.EffectiveOnly = 0;
+        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &entry->sec_ctx);
+        if (status != STATUS_SUCCESS) {
+            print_error("SeCreateClientSecurityFromSubjectContext "
+                "failed with %x\n", status);
+            RxFreePool(entry);
+        }
+        entry->psec_ctx = &entry->sec_ctx;
+        SeReleaseSubjectContext(&sec_ctx);
+    } else
+        entry->psec_ctx = clnt_sec_ctx;
 
     *entry_out = entry;
 out:
@@ -1376,10 +1383,12 @@ nfs41_downcall (
     }
 
     ExAcquireFastMutex(&cur->lock);
+    SeStopImpersonatingClient();
     if (cur->state == NFS41_NOT_WAITING) {
             print_error("[downcall] Nobody is waiting for this request!!!\n");
             ExReleaseFastMutex(&cur->lock);
             nfs41_RemoveEntry(downcallLock, downcall, cur);
+            SeDeleteClientSecurity(cur->psec_ctx);
             RxFreePool(cur);
             status = STATUS_UNSUCCESSFUL;
             goto out_free;
@@ -1486,7 +1495,6 @@ nfs41_downcall (
         }
     }
     DbgP("[downcall] About to signal waiting IO thread\n");
-    SeDeleteClientSecurity(&cur->sec_ctx);
     ExReleaseFastMutex(&cur->lock);
     if (cur->async_op) {
         if (cur->status == STATUS_SUCCESS) {
@@ -1514,7 +1522,7 @@ NTSTATUS nfs41_shutdown_daemon(DWORD version)
     nfs41_updowncall_entry *entry = NULL;
 
     DbgEn();
-    status = nfs41_UpcallCreate(NFS41_SHUTDOWN, &entry);
+    status = nfs41_UpcallCreate(NFS41_SHUTDOWN, NULL, &entry);
     if (status)
         goto out;
     entry->version = version;
@@ -1523,6 +1531,7 @@ NTSTATUS nfs41_shutdown_daemon(DWORD version)
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
+    SeDeleteClientSecurity(&entry->sec_ctx);
     RxFreePool(entry);
 out:
     DbgEx();
@@ -1766,7 +1775,7 @@ NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
     nfs41_updowncall_entry *entry;
 
     DbgEn();
-    status = nfs41_UpcallCreate(NFS41_UNMOUNT, &entry);
+    status = nfs41_UpcallCreate(NFS41_UNMOUNT, NULL, &entry);
     if (status)
         goto out;
     entry->u.Mount.session = session;
@@ -1776,6 +1785,7 @@ NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
+    SeDeleteClientSecurity(&entry->sec_ctx);
     RxFreePool(entry);
 out:
     DbgEx();
@@ -2119,7 +2129,7 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root,
     nfs41_updowncall_entry *entry;
 
     DbgEn();
-    status = nfs41_UpcallCreate(NFS41_MOUNT, &entry);
+    status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, &entry);
     if (status)
         goto out;
     entry->u.Mount.srv_name = srv_name;
@@ -2131,6 +2141,7 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root,
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
+    SeDeleteClientSecurity(&entry->sec_ctx);
     *session = entry->u.Mount.session;
 
     /* map windows ERRORs to NTSTATUS */
@@ -2706,7 +2717,7 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_OPEN, &entry);
+    status = nfs41_UpcallCreate(NFS41_OPEN, NULL, &entry);
     if (status)
         goto out;
     entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
@@ -2738,6 +2749,7 @@ NTSTATUS nfs41_Create(
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
+    SeDeleteClientSecurity(&entry->sec_ctx);
 
     if (entry->status == NO_ERROR && entry->errno == ERROR_REPARSE) {
         /* symbolic link handling. when attempting to open a symlink when the
@@ -2800,10 +2812,27 @@ NTSTATUS nfs41_Create(
     if( RxContext->pFobx == NULL ) {
         status =  STATUS_INSUFFICIENT_RESOURCES;
         goto out_free;
-    } 
+    }
     print_fobx(1, RxContext->pFobx);
     nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     nfs41_fobx->nfs41_open_state = entry->u.Open.open_state;
+    {
+        SECURITY_SUBJECT_CONTEXT sec_ctx;
+        SECURITY_QUALITY_OF_SERVICE sec_qos;
+        SeCaptureSubjectContext(&sec_ctx);
+        sec_qos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
+        sec_qos.ImpersonationLevel = SecurityImpersonation;
+        sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+        sec_qos.EffectiveOnly = 0;
+        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &nfs41_fobx->sec_ctx);
+        if (status != STATUS_SUCCESS) {
+            print_error("SeCreateClientSecurityFromSubjectContext "
+                "failed with %x\n", status);
+            RxFreePool(entry);
+        }
+        DbgP("Created client security token %p\n", nfs41_fobx->sec_ctx.ClientToken);
+        SeReleaseSubjectContext(&sec_ctx);
+    }
 
     // we get attributes only for data access and file (not directories)
     if (Fcb->OpenCount > 0)
@@ -3022,7 +3051,7 @@ NTSTATUS nfs41_CloseSrvOpen (
     DbgEn();
     print_close_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_CLOSE, &entry);
+    status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.Close.open_state = nfs41_fobx->nfs41_open_state;
@@ -3045,6 +3074,7 @@ NTSTATUS nfs41_CloseSrvOpen (
     /* map windows ERRORs to NTSTATUS */
     status = map_close_errors(entry->status);
     RxFreePool(entry);
+    SeDeleteClientSecurity(&nfs41_fobx->sec_ctx);
 out:
     DbgEx();
     return status;
@@ -3174,7 +3204,7 @@ NTSTATUS nfs41_QueryDirectory (
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &entry);
+    status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.QueryFile.open_state = nfs41_fobx->nfs41_open_state;
@@ -3247,6 +3277,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     nfs41_updowncall_entry *entry;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
@@ -3325,7 +3356,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
             goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &entry);
+    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.Volume.session = pVNetRootContext->session;
@@ -3533,7 +3564,7 @@ NTSTATUS nfs41_SetEaInformation (
     } else
         goto out;
 
-    status = nfs41_UpcallCreate(NFS41_EA_SET, &entry);
+    status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.SetEa.open_state = nfs41_fobx->nfs41_open_state;
@@ -3682,7 +3713,7 @@ NTSTATUS nfs41_QueryFileInformation (
     }
     print_queryfile_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &entry);
+    status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.QueryFile.open_state = nfs41_fobx->nfs41_open_state;
@@ -3874,7 +3905,7 @@ NTSTATUS nfs41_SetFileInformation (
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_FILE_SET, &entry);
+    status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.SetFile.open_state = nfs41_fobx->nfs41_open_state;
@@ -4063,7 +4094,7 @@ NTSTATUS nfs41_Read (
     DbgEn();
     print_readwrite_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_READ, &entry);
+    status = nfs41_UpcallCreate(NFS41_READ, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.ReadWrite.open_state = nfs41_fobx->nfs41_open_state;
@@ -4128,7 +4159,7 @@ NTSTATUS nfs41_Write (
     DbgEn();
     print_readwrite_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_WRITE, &entry);
+    status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.ReadWrite.open_state = nfs41_fobx->nfs41_open_state;
@@ -4268,7 +4299,7 @@ NTSTATUS nfs41_Lock(
 /*  RxReleaseFcbResourceForThreadInMRx(RxContext, RxContext->pFcb,
         LowIoContext->ResourceThreadId); */
 
-    status = nfs41_UpcallCreate(NFS41_LOCK, &entry);
+    status = nfs41_UpcallCreate(NFS41_LOCK, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.Lock.open_state = nfs41_fobx->nfs41_open_state;
@@ -4352,7 +4383,7 @@ NTSTATUS nfs41_Unlock(
 /*  RxReleaseFcbResourceForThreadInMRx(RxContext, RxContext->pFcb,
         LowIoContext->ResourceThreadId); */
 
-    status = nfs41_UpcallCreate(NFS41_UNLOCK, &entry);
+    status = nfs41_UpcallCreate(NFS41_UNLOCK, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.Unlock.open_state = nfs41_fobx->nfs41_open_state;
@@ -4455,7 +4486,7 @@ static NTSTATUS nfs41_SetReparsePoint(
     TargetName.Buffer = &Reparse->SymbolicLinkReparseBuffer.PathBuffer[
         Reparse->SymbolicLinkReparseBuffer.PrintNameOffset/sizeof(WCHAR)];
 
-    status = nfs41_UpcallCreate(NFS41_SYMLINK, &entry);
+    status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, &entry);
     if (status)
         goto out;
 
@@ -4510,7 +4541,7 @@ static NTSTATUS nfs41_GetReparsePoint(
     TargetName.Buffer = (PWCH)((PBYTE)FsCtl->pOutputBuffer + HeaderLen);
     TargetName.MaximumLength = (USHORT)min(FsCtl->OutputBufferLength - HeaderLen, 0xFFFF);
 
-    status = nfs41_UpcallCreate(NFS41_SYMLINK, &entry);
+    status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, &entry);
     if (status)
         goto out;
 
