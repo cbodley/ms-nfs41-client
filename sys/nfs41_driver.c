@@ -1245,7 +1245,7 @@ NTSTATUS nfs41_UpcallWaitForReply(
     KeSetEvent(&upcallEvent, 0, FALSE);
     DbgP("@@@ Creating %s upcall entry=%p xid=%d\n", opstring, entry, entry->xid);
     if (!entry->async_op) {
-        status = KeWaitForSingleObject(&entry->cond, Executive, UserMode, TRUE, NULL);
+        status = KeWaitForSingleObject(&entry->cond, Executive, KernelMode, FALSE, NULL);
         print_wait_status(1, "[downcall]", status, opcode2string(entry->opcode), 
             entry, entry->xid);
     } else
