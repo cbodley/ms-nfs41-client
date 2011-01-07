@@ -314,23 +314,16 @@ int nfs41_session_renew(
     status = reinit_slot_table(&session->table);
     if (status) {
         eprintf("init_slot_table failed %d\n", status);
-        goto out_err_session;
+        goto out_unlock;
     }
     status = nfs41_create_session(session->client, session, FALSE);
-    if (status && status != NFS4ERR_STALE_CLIENTID) {
+    if (status) {
         eprintf("nfs41_create_session failed %d\n", status);
-        status = ERROR_BAD_NET_RESP;
-        goto out_err_slot;
+        goto out_unlock;
     }
+out_unlock:
     ReleaseSRWLockExclusive(&session->client->session_lock);
-out:
     return status;
-out_err_slot:
-    free_slot_table(&session->table);
-out_err_session:
-    ReleaseSRWLockExclusive(&session->client->session_lock);
-    free(session);
-    goto out;
 }
 
 int nfs41_session_set_lease(
