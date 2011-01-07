@@ -284,7 +284,7 @@ int nfs41_session_create(
         session->flags |= CREATE_SESSION4_FLAG_CONN_BACK_CHAN;
     ReleaseSRWLockShared(&client->exid_lock);
 
-    status = nfs41_create_session(client, session);
+    status = nfs41_create_session(client, session, TRUE);
     if (status) {
         eprintf("nfs41_create_session failed %d\n", status);
         status = ERROR_BAD_NET_RESP;
@@ -316,7 +316,7 @@ int nfs41_session_renew(
         eprintf("init_slot_table failed %d\n", status);
         goto out_err_session;
     }
-    status = nfs41_create_session(session->client, session);
+    status = nfs41_create_session(session->client, session, FALSE);
     if (status && status != NFS4ERR_STALE_CLIENTID) {
         eprintf("nfs41_create_session failed %d\n", status);
         status = ERROR_BAD_NET_RESP;

@@ -363,22 +363,21 @@ retry:
         if (!recovery_start_or_wait(session->client))
             goto do_retry;
         //try to create a new client
-        client_state_lost = TRUE;
         status = nfs41_client_renew(session->client);
+
+        recovery_finish(session->client);
         if (status) {
             eprintf("nfs41_exchange_id() failed with %d\n", status);
             status = ERROR_BAD_NET_RESP;
-            recovery_finish(session->client);
             goto out;
         }
-        //fallthru and reestablish the session
+        goto do_retry;
+
     case NFS4ERR_BADSESSION:
-        if (compound->res.status == NFS4ERR_BADSESSION) {
-            if (!try_recovery)
-                goto out;
-            if (!recovery_start_or_wait(session->client))
-                goto do_retry;
-        }
+        if (!try_recovery)
+            goto out;
+        if (!recovery_start_or_wait(session->client))
+            goto do_retry;
 restart_recovery:
         //try to create a new session
         status = nfs41_session_renew(session);

@@ -43,40 +43,28 @@ int nfs41_exchange_id(
     OUT nfs41_exchange_id_res *res_out)
 {
     int status = 0;
+    nfs41_compound compound;
+    nfs_argop4 argop;
+    nfs_resop4 resop;
     nfs41_exchange_id_args ex_id;
 
-    nfs41_compound_args compound_args;
-    nfs_argop4 argop;
-    nfs41_compound_res compound_res;
-    nfs_resop4 resop;
+    compound_init(&compound, &argop, &resop, "exchange_id");
 
-    /* set compound_args.tag, compound_args.tag_len */
-    compound_args.tag_len = 11;
-    memcpy(compound_args.tag, "exchange_id", 11);
-    compound_args.minorversion = 1;
-    compound_args.argarray_count = 1;
-    compound_args.argarray = &argop;
-    argop.op = OP_EXCHANGE_ID;
-    argop.arg = &ex_id;
-
-    compound_res.resarray_count = 1;
-    compound_res.resarray = &resop;
-    compound_res.resarray[0].op = compound_args.argarray[0].op;
-    resop.res = res_out;
-
+    compound_add_op(&compound, OP_EXCHANGE_ID, &ex_id, res_out);
     ex_id.eia_clientowner = owner;
     ex_id.eia_flags = flags_in;
     ex_id.eia_state_protect.spa_how = SP4_NONE;
     ex_id.eia_client_impl_id = NULL;
-    
+
     res_out->server_owner.so_major_id_len = NFS4_OPAQUE_LIMIT;
     res_out->server_scope_len = NFS4_OPAQUE_LIMIT;
-    status = nfs41_send_compound(rpc, (char *)&compound_args,
-        (char *)&compound_res);
+
+    status = nfs41_send_compound(rpc, (char *)&compound.args,
+        (char *)&compound.res);
     if (status)
         goto out;
 
-    compound_error(status = compound_res.status);
+    compound_error(status = compound.res.status);
 out:
     return status;
 }
@@ -113,30 +101,18 @@ static int set_back_channel_attrs(
     return 0;
 }
 
-int nfs41_create_session(nfs41_client *clnt, nfs41_session *session)
+int nfs41_create_session(nfs41_client *clnt, nfs41_session *session, bool_t try_recovery)
 {
     int status = 0;
+    nfs41_compound compound;
+    nfs_argop4 argop;
+    nfs_resop4 resop;
     nfs41_create_session_args req;
     nfs41_create_session_res reply;
 
-    nfs41_compound_args compound_args;
-    nfs_argop4 argop;
-    nfs41_compound_res compound_res;
-    nfs_resop4 resop;
+    compound_init(&compound, &argop, &resop, "create_session");
 
-    dprintf(2, "nfs41_create_session begin\n");
-    /* set compound_args.tag, compound_args.tag_len */
-    compound_args.tag_len = 14;
-    memcpy(compound_args.tag, "create_session", 14);
-    compound_args.minorversion = 1;
-    compound_args.argarray_count = 1;
-    compound_args.argarray = &argop;
-    argop.op = OP_CREATE_SESSION;
-    argop.arg = &req;
-
-    compound_res.resarray_count = 1;
-    compound_res.resarray = &resop;
-    resop.res = &reply;
+    compound_add_op(&compound, OP_CREATE_SESSION, &req, &reply);
 
     ZeroMemory(&req, sizeof(req));
     AcquireSRWLockShared(&clnt->exid_lock);
@@ -156,14 +132,12 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session)
     reply.csr_sessionid = session->session_id;
     reply.csr_fore_chan_attrs = &session->fore_chan_attrs;
     reply.csr_back_chan_attrs = &session->back_chan_attrs;
-    compound_res.resarray[0].op = compound_args.argarray[0].op;
 
-    status = nfs41_send_compound(clnt->rpc, (char *)&compound_args,
-        (char *)&compound_res);
+    status = compound_encode_send_decode(session, &compound, try_recovery);
     if (status)
         goto out;
 
-    if (compound_error(status = compound_res.status))
+    if (compound_error(status = compound.res.status))
         goto out;
 
     print_hexbuf(1, (unsigned char *)"session id: ", session->session_id, NFS4_SESSIONID_SIZE);

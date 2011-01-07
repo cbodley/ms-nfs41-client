@@ -884,7 +884,8 @@ int nfs41_exchange_id(
 
 int nfs41_create_session(
     IN nfs41_client *clnt,
-    OUT nfs41_session *session);
+    OUT nfs41_session *session,
+    IN bool_t try_recovery);
 
 enum nfsstat4 nfs41_bind_conn_to_session(
     IN nfs41_rpc_clnt *rpc,
