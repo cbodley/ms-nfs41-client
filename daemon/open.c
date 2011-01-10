@@ -254,19 +254,18 @@ static int check_execute_access(nfs41_open_state *state)
     int status = nfs41_access(state->session, &state->file,
         ACCESS4_EXECUTE | ACCESS4_READ, &supported, &access);
     if (status) {
-        dprintf(1, "nfs41_access() failed with %s\n",
-            nfs_error_string(status));
+        eprintf("nfs41_access() failed with %s\n", nfs_error_string(status));
         status = ERROR_ACCESS_DENIED;
     } else if ((supported & ACCESS4_EXECUTE) == 0) {
         /* server can't verify execute access;
          * for now, assume that read access is good enough */
         if ((supported & ACCESS4_READ) == 0 || (access & ACCESS4_READ) == 0) {
-            dprintf(2, "server can't verify execute access, and user does "
+            eprintf("server can't verify execute access, and user does "
                 "not have read access\n");
             status = ERROR_ACCESS_DENIED;
         }
     } else if ((access & ACCESS4_EXECUTE) == 0) {
-        dprintf(2, "user does not have execute access to file\n");
+        eprintf("user does not have execute access to file\n");
         status = ERROR_ACCESS_DENIED;
     } else
         dprintf(2, "user has execute access to file\n");
