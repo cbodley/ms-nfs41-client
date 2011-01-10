@@ -102,11 +102,11 @@ static enum_t handle_cb_sequence(
     }
 
     /* 20.9.3.: If the difference between csa_sequenceid and the client's 
-        * cachedsequence ID at the slot ID is two (2) or more, or if
-        * csa_sequenceid is less than the cached sequence ID (accounting for
-        * wraparound of the unsigned sequence ID value), then the client
-        * MUST return NFS4ERR_SEQ_MISORDERED.
-        */
+     * cachedsequence ID at the slot ID is two (2) or more, or if
+     * csa_sequenceid is less than the cached sequence ID (accounting for
+     * wraparound of the unsigned sequence ID value), then the client
+     * MUST return NFS4ERR_SEQ_MISORDERED.
+     */
     if (args->sequenceid < cb_session->cb_seqnum ||
         (args->sequenceid - cb_session->cb_seqnum >= 2)) {
             eprintf("[cb] bad received seq#=%d, expected=%d\n", 
@@ -238,15 +238,12 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
     XDR *xdr = (XDR*)req->xdr;
     uint32_t i, status = NFS4_OK;
 
-    dprintf(CBSLVL, "--> handle_compound()\n");
+    dprintf(CBSLVL, "--> handle_cb_compound()\n");
 
     /* decode the arguments */
-    proc_cb_compound_args(xdr, &args);
-    dprintf(CBSLVL, "CB_COMPOUND('%s', %u)\n", args.tag.str, args.argarray_count);
-    if (args.minorversion != 1) {
-        status = NFS4ERR_MINOR_VERS_MISMATCH; //XXXXX
-        eprintf("args.minorversion %u != 1\n", args.minorversion);
-        goto out;
+    if (!proc_cb_compound_args(xdr, &args)) {
+        status = NFS4ERR_BADXDR;
+        eprintf("failed to decode compound arguments\n");
     }
 
     /* allocate the compound results */
@@ -255,13 +252,20 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
         status = NFS4ERR_RESOURCE;
         goto out;
     }
-    res->status = NFS4_OK;
+    res->status = status;
     StringCchCopyA(res->tag.str, CB_COMPOUND_MAX_TAG, g_server_tag);
     res->tag.str[CB_COMPOUND_MAX_TAG-1] = 0;
     res->tag.len = (uint32_t)strlen(res->tag.str);
     res->resarray = calloc(args.argarray_count, sizeof(struct cb_resop));
     if (res->resarray == NULL) {
         res->status = NFS4ERR_RESOURCE;
+        goto out;
+    }
+
+    dprintf(CBSLVL, "CB_COMPOUND('%s', %u)\n", args.tag.str, args.argarray_count);
+    if (args.minorversion != 1) {
+        res->status = NFS4ERR_MINOR_VERS_MISMATCH; //XXXXX
+        eprintf("args.minorversion %u != 1\n", args.minorversion);
         goto out;
     }
 
@@ -281,8 +285,8 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
             goto out;
         }
         if (i != 0 && argop->opnum == OP_CB_SEQUENCE) {
-                res->status = NFS4ERR_SEQUENCE_POS;
-                goto out;
+            res->status = NFS4ERR_SEQUENCE_POS;
+            goto out;
         }
         resop->opnum = argop->opnum;
         if (status == NFS4ERR_RETRY_UNCACHED_REP) {
@@ -363,8 +367,9 @@ out:
     proc_cb_compound_args(xdr, &args);
 
     *reply = res;
-    dprintf(CBSLVL, "<-- handle_compound() returning %s (%u results)\n",
-        nfs_error_string(res->status), res->resarray_count);
+    dprintf(CBSLVL, "<-- handle_cb_compound() returning %s (%u results)\n",
+        nfs_error_string(res ? res->status : status),
+        res ? res->resarray_count : 0);
 }
 
 int nfs41_handle_callback(void *rpc_clnt, void *cb, struct cb_compound_res **reply)
