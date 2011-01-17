@@ -264,8 +264,11 @@ static int rpc_reconnect(
         goto out_unlock;
 
     client->cl_auth = rpc->rpc->cl_auth;
-    if (send_null(client) != RPC_SUCCESS)
+    if (send_null(client) != RPC_SUCCESS) {
+        eprintf("rpc_reconnect: send_null failed\n");
+        status = ERROR_NETWORK_UNREACHABLE;
         goto out_err_client;
+    }
 
     clnt_destroy(rpc->rpc);
     rpc->rpc = client;
