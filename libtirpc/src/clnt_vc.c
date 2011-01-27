@@ -523,13 +523,14 @@ call_again:
 	if ((! XDR_PUTBYTES(xdrs, ct->ct_u.ct_mcallc, ct->ct_mpos)) ||
 	    (! XDR_PUTINT32(xdrs, (int32_t *)&proc)) ||
 	    (! AUTH_MARSHALL(cl->cl_auth, xdrs, &seq)) ||
-	    (! (*xdr_args)(xdrs, args_ptr))) {
+	    (! AUTH_WRAP(cl->cl_auth, xdrs, xdr_args, args_ptr))) {
 		if (ct->ct_error.re_status == RPC_SUCCESS)
 			ct->ct_error.re_status = RPC_CANTENCODEARGS;
 		(void)xdrrec_endofrecord(xdrs, TRUE);
 		release_fd_lock(ct->ct_fd, mask);
 		return (ct->ct_error.re_status);
 	}
+
 	if (! xdrrec_endofrecord(xdrs, shipnow)) {
 		release_fd_lock(ct->ct_fd, mask);
         ct->ct_error.re_status = RPC_CANTSEND;
@@ -552,7 +553,7 @@ call_again:
 	/*
 	 * Keep receiving until we get a valid transaction id
 	 */
-	
+
 	while (TRUE) {
         mutex_lock(&clnt_fd_lock);
 	    while ((vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] && 
@@ -613,7 +614,8 @@ call_again:
 		    &ct->reply_msg.acpted_rply.ar_verf, seq)) {
 			ct->ct_error.re_status = RPC_AUTHERROR;
 			ct->ct_error.re_why = AUTH_INVALIDRESP;
-		} else if (! (*xdr_results)(xdrs, results_ptr)) {
+        }
+        else if (! AUTH_UNWRAP(cl->cl_auth, xdrs, xdr_results, results_ptr, seq)) {
 			if (ct->ct_error.re_status == RPC_SUCCESS)
 				ct->ct_error.re_status = RPC_CANTDECODERES;
 		}

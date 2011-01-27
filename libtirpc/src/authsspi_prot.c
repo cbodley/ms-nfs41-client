@@ -108,7 +108,7 @@ xdr_rpc_sspi_wrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 
     /* Skip databody length. */
 	start = XDR_GETPOS(xdrs);
-	//XDR_SETPOS(xdrs, start + 4);
+	XDR_SETPOS(xdrs, start + 4);
 
 	/* Marshal rpc_gss_data_t (sequence number + arguments). */
 	if (!xdr_u_int(xdrs, &seq) || !(*xdr_func)(xdrs, xdr_ptr))
@@ -117,15 +117,14 @@ xdr_rpc_sspi_wrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 
 	/* Set databuf to marshalled rpc_gss_data_t. */
 	databuf.length = end - start - 4;
-	//XDR_SETPOS(xdrs, start + 4);
-	//databuf.value = XDR_INLINE(xdrs, databuf.length);
-	databuf.value = xdrrec_getoutbase(xdrs) + 1;
+	XDR_SETPOS(xdrs, start + 4);
+	databuf.value = XDR_INLINE(xdrs, databuf.length);
 
 	xdr_stat = FALSE;
 
 	if (svc == RPCSEC_SSPI_SVC_INTEGRITY) {
 		/* Marshal databody_integ length. */
-		//XDR_SETPOS(xdrs, start);
+		XDR_SETPOS(xdrs, start);
 		if (!xdr_u_int(xdrs, (u_int *)&databuf.length))
 			return (FALSE);
 
@@ -141,9 +140,9 @@ xdr_rpc_sspi_wrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 			return (FALSE);
 		}
 		/* Marshal checksum. */
-		//XDR_SETPOS(xdrs, end);
+		XDR_SETPOS(xdrs, end);
 		xdr_stat = xdr_bytes(xdrs, (char **)&wrapbuf.value,
-                            (u_int *)&wrapbuf.length, MAX_NETOBJ_SZ);
+                            (u_int *)&wrapbuf.length, (u_int)-1);
 #if 0
 		gss_release_buffer(&min_stat, &wrapbuf);
 #else
@@ -155,6 +154,8 @@ xdr_rpc_sspi_wrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 #if 0
 		maj_stat = gss_wrap(&min_stat, ctx, TRUE, qop, &databuf,
 				    &conf_state, &wrapbuf);
+#else
+        maj_stat = sspi_wrap(ctx, 0, &databuf, &wrapbuf, &conf_state);
 #endif
 		if (maj_stat != SEC_E_OK) {
 			log_debug("xdr_rpc_sspi_wrap_data: sspi_wrap failed with %x", maj_stat);
@@ -163,7 +164,7 @@ xdr_rpc_sspi_wrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 		/* Marshal databody_priv. */
 		XDR_SETPOS(xdrs, start);
 		xdr_stat = xdr_bytes(xdrs, (char **)&wrapbuf.value,
-                            (u_int *)&wrapbuf.length, MAX_NETOBJ_SZ);
+                            (u_int *)&wrapbuf.length, (u_int)-1);
 #if 0
 		gss_release_buffer(&min_stat, &wrapbuf);
 #else
@@ -196,7 +197,7 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 	if (svc == RPCSEC_SSPI_SVC_INTEGRITY) {
 		/* Decode databody_integ. */
 		if (!xdr_bytes(xdrs, (char **)&databuf.value, (u_int *)&databuf.length,
-                        MAX_NETOBJ_SZ)) {
+                        (u_int)-1)) {
 			log_debug("xdr_rpc_sspi_unwrap_data: xdr decode databody_integ failed");
 			return (FALSE);
 		}
@@ -224,7 +225,7 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
         sspi_release_buffer(&wrapbuf);
 #endif
 
-		if (maj_stat != SEC_E_OK || qop_state != qop) {
+		if (maj_stat != SEC_E_OK) {
 #if 0
 			gss_release_buffer(&min_stat, &databuf);
 #else
@@ -238,7 +239,7 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 	else if (svc == RPCSEC_SSPI_SVC_PRIVACY) {
 		/* Decode databody_priv. */
 		if (!xdr_bytes(xdrs, (char **)&wrapbuf.value, (u_int *)&wrapbuf.length,
-                        MAX_NETOBJ_SZ)) {
+                        (u_int)-1)) {
 			log_debug("xdr_rpc_sspi_unwrap_data: xdr decode databody_priv failed");
 			return (FALSE);
 		}
@@ -246,6 +247,8 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 #if 0
 		maj_stat = gss_unwrap(&min_stat, ctx, &wrapbuf, &databuf,
 				      &conf_state, &qop_state);
+#else
+        maj_stat = sspi_upwrap(ctx, &wrapbuf, &databuf, &conf_state, &qop_state);
 #endif
 #if 0
 		gss_release_buffer(&min_stat, &wrapbuf);
@@ -253,8 +256,7 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
         sspi_release_buffer(&wrapbuf);
 #endif
 		/* Verify encryption and QOP. */
-		if (maj_stat != SEC_E_OK || qop_state != qop ||
-			conf_state != TRUE) {
+		if (maj_stat != SEC_E_OK) {
 #if 0
 			gss_release_buffer(&min_stat, &databuf);
 #else
@@ -272,11 +274,12 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 #if 0
 	gss_release_buffer(&min_stat, &databuf);
 #else
-        sspi_release_buffer(&databuf);
+    sspi_release_buffer(&databuf);
 #endif
 	/* Verify sequence number. */
 	if (xdr_stat == TRUE && seq_num != seq) {
-		log_debug("wrong sequence number in databody");
+		log_debug("wrong sequence number in databody received %d expected %d",
+            seq_num, seq);
 		return (FALSE);
 	}
 

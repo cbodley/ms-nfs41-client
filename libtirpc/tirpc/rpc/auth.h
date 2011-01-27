@@ -198,7 +198,7 @@ typedef struct __auth {
 		/* encode data for wire */
 		int     (*ah_wrap) (struct __auth *, XDR *, xdrproc_t, caddr_t);
 		/* decode data for wire */
-		int     (*ah_unwrap) (struct __auth *, XDR *, xdrproc_t, caddr_t);
+		int     (*ah_unwrap) (struct __auth *, XDR *, xdrproc_t, caddr_t, u_int);
 
 	} *ah_ops;
 	void *ah_private;
@@ -245,12 +245,12 @@ typedef struct __auth {
 		((*((auth)->ah_ops->ah_wrap))(auth, xdrs, \
 		xfunc, xwhere))
 
-#define AUTH_UNWRAP(auth, xdrs, xfunc, xwhere)          \
+#define AUTH_UNWRAP(auth, xdrs, xfunc, xwhere, seq)          \
 		((*((auth)->ah_ops->ah_unwrap))(auth, xdrs, \
-		xfunc, xwhere))
-#define auth_unwrap(auth, xdrs, xfunc, xwhere)          \
+		xfunc, xwhere, seq))
+#define auth_unwrap(auth, xdrs, xfunc, xwhere, seq)          \
 		((*((auth)->ah_ops->ah_unwrap))(auth, xdrs, \
-		xfunc, xwhere))
+		xfunc, xwhere, seq))
 
 
 __BEGIN_DECLS

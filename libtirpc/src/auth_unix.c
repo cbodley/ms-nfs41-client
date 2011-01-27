@@ -353,6 +353,12 @@ marshal_new_auth(auth)
 	XDR_DESTROY(xdrs);
 }
 
+static bool_t
+authunix_wrap(AUTH *auth, XDR *xdrs, xdrproc_t func, caddr_t args, u_int seq)
+{
+    return ((*func)(xdrs, args));
+}
+
 static struct auth_ops *
 authunix_ops()
 {
@@ -368,6 +374,8 @@ authunix_ops()
 		ops.ah_validate = authunix_validate;
 		ops.ah_refresh = authunix_refresh;
 		ops.ah_destroy = authunix_destroy;
+		ops.ah_wrap = authunix_wrap;
+		ops.ah_unwrap = authunix_wrap;
 	}
 	mutex_unlock(&ops_lock);
 	return (&ops);

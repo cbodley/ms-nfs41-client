@@ -324,7 +324,7 @@ authsspi_validate(AUTH *auth, struct opaque_auth *verf, u_int seq)
 #else
     maj_stat = sspi_verify_mic(&gd->ctx, cur_seq, &signbuf, &checksum, &qop_state);
 #endif
-	if (maj_stat != SEC_E_OK || qop_state != gd->sec->qop) {
+	if (maj_stat != SEC_E_OK) {
 		log_debug("authsspi_validate: VerifySignature failed with %x", maj_stat);
 		if (maj_stat == SEC_E_NO_AUTHENTICATING_AUTHORITY) {
 			gd->established = FALSE;
@@ -373,7 +373,10 @@ authsspi_refresh(AUTH *auth, void *tmp)
 
 	print_rpc_gss_sec(gd->sec);
 
-	for (i=0;;i++) {
+    if (gd->sec->svc == RPCSEC_SSPI_SVC_PRIVACY)
+        flags |= ISC_REQ_CONFIDENTIALITY;
+
+    for (i=0;;i++) {
 		/* print the token we just received */
 		if (recv_tokenp != SSPI_C_NO_BUFFER) {
 			log_debug("The token we just received (length %d):",
@@ -498,7 +501,7 @@ authsspi_refresh(AUTH *auth, void *tmp)
 #else
             maj_stat = sspi_verify_mic(&gd->ctx, 0, &bufin, &gd->gc_wire_verf, &qop_state);
 #endif
-			if (maj_stat != SEC_E_OK || qop_state != gd->sec->qop) {
+			if (maj_stat != SEC_E_OK) {
 				log_debug("authgss_refresh: sspi_verify_mic failed with %x", maj_stat);
 				if (maj_stat == SEC_E_NO_AUTHENTICATING_AUTHORITY) {
 					gd->established = FALSE;
@@ -623,7 +626,7 @@ authsspi_wrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr)
 }
 
 bool_t
-authsspi_unwrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr)
+authsspi_unwrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr, u_int seq)
 {
 	struct rpc_sspi_data	*gd;
 
@@ -636,7 +639,7 @@ authsspi_unwrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr)
 	}
 	return (xdr_rpc_sspi_data(xdrs, xdr_func, xdr_ptr,
 				 &gd->ctx, gd->sec->qop,
-				 gd->sec->svc, gd->gc.gc_seq));
+				 gd->sec->svc, seq));
 }
 
 uint32_t sspi_get_mic(PCtxtHandle ctx, u_int qop, u_int seq, 
@@ -720,6 +723,98 @@ uint32_t sspi_import_name(sspi_buffer_desc *name_in, sspi_name_t *name_out)
 
     return SEC_E_OK;
 }
+
+uint32_t sspi_wrap(PCtxtHandle ctx, u_int seq, sspi_buffer_desc *bufin, 
+                   sspi_buffer_desc *bufout, u_int *conf_state)
+{
+    uint32_t maj_stat;
+    SecBufferDesc BuffDesc;
+    SecBuffer SecBuff[3];
+    ULONG ulQop = 0;
+    SecPkgContext_Sizes ContextSizes;
+    PBYTE p;
+
+    maj_stat = QueryContextAttributes(ctx, SECPKG_ATTR_SIZES,
+       &ContextSizes);
+    if (maj_stat != SEC_E_OK) 
+        goto out;
+
+    BuffDesc.ulVersion = 0;
+    BuffDesc.cBuffers = 3;
+    BuffDesc.pBuffers = SecBuff;
+
+    SecBuff[0].cbBuffer = ContextSizes.cbSecurityTrailer;
+    SecBuff[0].BufferType = SECBUFFER_TOKEN;
+    SecBuff[0].pvBuffer = malloc(ContextSizes.cbSecurityTrailer);
+
+    SecBuff[1].cbBuffer = bufin->length;
+    SecBuff[1].BufferType = SECBUFFER_DATA;
+    SecBuff[1].pvBuffer = bufin->value;
+    log_hexdump(0, "plaintext:", bufin->value, bufin->length, 0);
+
+    SecBuff[2].cbBuffer = ContextSizes.cbBlockSize;
+    SecBuff[2].BufferType = SECBUFFER_PADDING;
+    SecBuff[2].pvBuffer = malloc(ContextSizes.cbBlockSize);
+
+    maj_stat = EncryptMessage(ctx, ulQop, &BuffDesc, 0);
+    if (maj_stat != SEC_E_OK)
+        goto out_free;
+
+    bufout->length = SecBuff[0].cbBuffer + SecBuff[1].cbBuffer + SecBuff[2].cbBuffer;
+    p = bufout->value = malloc(bufout->length);
+    memcpy(p, SecBuff[0].pvBuffer, SecBuff[0].cbBuffer);
+    p += SecBuff[0].cbBuffer;
+    memcpy(p, SecBuff[1].pvBuffer, SecBuff[1].cbBuffer);
+    p += SecBuff[1].cbBuffer;
+    memcpy(p, SecBuff[2].pvBuffer, SecBuff[2].cbBuffer);
+out_free:
+    free(SecBuff[0].pvBuffer);
+    free(SecBuff[2].pvBuffer);
+
+    if (!maj_stat)
+        log_hexdump(0, "cipher:", bufout->value, bufout->length, 0);
+out:
+    return maj_stat;
+}
+
+uint32_t sspi_upwrap(PCtxtHandle ctx, sspi_buffer_desc *bufin, 
+                     sspi_buffer_desc *bufout, u_int *conf_state, 
+                     u_int *qop_state)
+{
+    uint32_t maj_stat;
+    SecBufferDesc BuffDesc;
+    SecBuffer SecBuff[2];
+    ULONG ulQop = 0;
+
+    BuffDesc.ulVersion    = 0;
+    BuffDesc.cBuffers     = 2;
+    BuffDesc.pBuffers     = SecBuff;
+
+    SecBuff[0].cbBuffer   = bufin->length;
+    SecBuff[0].BufferType = SECBUFFER_STREAM;
+    SecBuff[0].pvBuffer   = bufin->value;
+
+    SecBuff[1].cbBuffer   = 0;
+    SecBuff[1].BufferType = SECBUFFER_DATA;
+    SecBuff[1].pvBuffer   = NULL;
+
+    log_hexdump(0, "cipher:", bufin->value, bufin->length, 0);
+
+    maj_stat = DecryptMessage(ctx, &BuffDesc, 0, &ulQop);
+    if (maj_stat != SEC_E_OK) return maj_stat;
+
+    bufout->length = SecBuff[1].cbBuffer;
+    bufout->value = malloc(bufout->length);
+    memcpy(bufout->value, SecBuff[1].pvBuffer, bufout->length);
+
+    log_hexdump(0, "data:", bufout->value, bufout->length, 0);
+
+    *conf_state = 1;
+    *qop_state = 0;
+
+    return SEC_E_OK;
+}
+
 /* useful as i add more mechanisms */
 #define DEBUG
 #ifdef DEBUG
