@@ -279,8 +279,13 @@ int nfs41_session_create(
     }
 
     AcquireSRWLockShared(&client->exid_lock);
+#ifdef NO_CB_4_KRB5P
+    if ((client->roles & (EXCHGID4_FLAG_USE_PNFS_MDS |
+        EXCHGID4_FLAG_USE_NON_PNFS)) && client->rpc->needcb)
+#else
     if (client->roles & (EXCHGID4_FLAG_USE_PNFS_MDS |
         EXCHGID4_FLAG_USE_NON_PNFS))
+#endif
         session->flags |= CREATE_SESSION4_FLAG_CONN_BACK_CHAN;
     ReleaseSRWLockShared(&client->exid_lock);
 

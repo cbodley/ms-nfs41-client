@@ -549,19 +549,26 @@ call_again:
 		return(ct->ct_error.re_status);
 	}
 
-    release_fd_lock(ct->ct_fd, mask);
+#ifdef NO_CB_4_KRB5P
+    if (cl->cb_thread != INVALID_HANDLE_VALUE)
+        release_fd_lock(ct->ct_fd, mask);
+#endif
 	/*
 	 * Keep receiving until we get a valid transaction id
 	 */
 
 	while (TRUE) {
-        mutex_lock(&clnt_fd_lock);
-	    while ((vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] && 
-                vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] != GetCurrentThreadId()) || 
-                (ct->reply_msg.rm_xid && ct->reply_msg.rm_xid != x_id))
-		    cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(ct->ct_fd)], &clnt_fd_lock);
-	    vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] = GetCurrentThreadId();
-	    mutex_unlock(&clnt_fd_lock);
+#ifdef NO_CB_4_KRB5P
+        if (cl->cb_thread != INVALID_HANDLE_VALUE) {
+            mutex_lock(&clnt_fd_lock);
+	        while ((vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] && 
+                    vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] != GetCurrentThreadId()) || 
+                    (ct->reply_msg.rm_xid && ct->reply_msg.rm_xid != x_id))
+		        cond_wait(&vc_cv[WINSOCK_HANDLE_HASH(ct->ct_fd)], &clnt_fd_lock);
+	        vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] = GetCurrentThreadId();
+	        mutex_unlock(&clnt_fd_lock);
+        }
+#endif
 
         xdrs->x_op = XDR_DECODE;
 		ct->reply_msg.acpted_rply.ar_verf = _null_auth;

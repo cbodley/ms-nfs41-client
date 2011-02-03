@@ -129,6 +129,10 @@ int nfs41_rpc_clnt_create(
         status = GetLastError();
         goto out;
     }
+#ifdef NO_CB_4_KRB5P
+    if (sec_flavor == RPCSEC_AUTHGSS_KRB5P)
+        needcb = 0;
+#endif
     rpc->needcb = needcb;
     rpc->cond = CreateEvent(NULL, TRUE, FALSE, "rpc_recovery_cond");
     if (rpc->cond == NULL) {
