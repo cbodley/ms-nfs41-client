@@ -1245,7 +1245,26 @@ NTSTATUS nfs41_UpcallWaitForReply(
     KeSetEvent(&upcallEvent, 0, FALSE);
     DbgP("@@@ Creating %s upcall entry=%p xid=%d\n", opstring, entry, entry->xid);
     if (!entry->async_op) {
+        /* 02/03/2011 AGLO: it is not clear what the "right" waiting design should be.
+         * Having non-interruptable waiting seems to be the right approach. However,
+         * when things go wrong, the only wait to proceed is a reboot (since "waits" 
+         * are not interruptable we can't stop a hung task. 
+         * Having interruptable wait causes issues with security context.
+         * For now, I'm making CLOSE non-interruptable but keeping the rest interruptable
+         * so that we don't have to reboot all the time
+         */
+#define MAKE_WAITONCLOSE_NONITERRUPTABLE
+#ifdef MAKE_WAITONCLOSE_NONITERRUPTABLE
+        if (entry->opcode == NFS41_CLOSE)
+            status = KeWaitForSingleObject(&entry->cond, Executive, 
+                        KernelMode, FALSE, NULL);
+        else
+            status = KeWaitForSingleObject(&entry->cond, Executive, 
+                        UserMode, TRUE, NULL);
+#else
+
         status = KeWaitForSingleObject(&entry->cond, Executive, KernelMode, FALSE, NULL);
+#endif
         print_wait_status(1, "[downcall]", status, opcode2string(entry->opcode), 
             entry, entry->xid);
     } else
