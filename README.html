@@ -112,6 +112,8 @@
 <ol>
     <li>From a Windows command prompt run <strong>nfs_mount.exe</strong> to mount a share:
     <br/><code>&gt; nfs_mount.exe Z: &lt;server_name&gt;:\</code></li>
+    <li>To specify the security flavor, add the 'sec=' mount option with sys, krb5, krb5i, or krb5p:
+    <br/><code>&gt; nfs_mount.exe -o sec=&lt;flavor&gt; Z: &lt;server_name&gt;:\</code></li>
     <li>You can later unmount with:
     <br/><code>&gt; nfs_mount.exe -d Z</code></li>
 </ol>
@@ -140,12 +142,14 @@
 <h2>7. <a name="issues">Known Issues</a></h2>
 <ul>
     <li>AUTH_SYS does not handle multiple users, so all operations are sent as the user that established the mount.</li>
+    <li>krb5p security has only been tested with DES, as the linux server does not support gss krb5 v2 tokens with rotated date.</li>
     <li>When recovering opens and locks outside of the server's grace period, client does not check whether the file has been modified by another client.</li>
     <li>When nfs_mount.exe is run without arguments, it does not properly list mounted drives.</li>
     <li>If nfsd.exe is restarted while a drive is mapped, that drive needs to be remounted before further use.</li>
     <li>Symbolic links are not supported in Cygwin. Connectathon's basic test8 and special test nfsidem have been commented out.</li>
     <li>Does not properly handle renaming a file on top of an existing open file- the existing file is removed on rename, and not preserved until last close. Connectathon's special test op_ren has been commented out.</li>
 </ul>
+<p>Please direct any questions to <a href="mailto:msv4-devel@citi.umich.edu">msv4-devel@citi.umich.edu</a>.</p>
 </div>
 </div>
 </body>
