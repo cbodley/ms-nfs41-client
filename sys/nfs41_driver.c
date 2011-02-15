@@ -1253,9 +1253,12 @@ NTSTATUS nfs41_UpcallWaitForReply(
          * For now, I'm making CLOSE non-interruptable but keeping the rest interruptable
          * so that we don't have to reboot all the time
          */
+        /* 02/15/2011 cbodley: added NFS41_UNLOCK for the same reason. locking
+         * tests were triggering an interrupted unlock, which led to a bugcheck
+         * in CloseSrvOpen() */
 #define MAKE_WAITONCLOSE_NONITERRUPTABLE
 #ifdef MAKE_WAITONCLOSE_NONITERRUPTABLE
-        if (entry->opcode == NFS41_CLOSE)
+        if (entry->opcode == NFS41_CLOSE || entry->opcode == NFS41_UNLOCK)
             status = KeWaitForSingleObject(&entry->cond, Executive, 
                         KernelMode, FALSE, NULL);
         else
