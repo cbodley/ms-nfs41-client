@@ -680,12 +680,21 @@ static bool_t xdr_channel_attrs4(
     }
 }
 
+static bool_t encode_backchannel_sec_parms(
+    XDR *xdr,
+    nfs41_create_session_args *args)
+{
+    uint32_t one = 1, auth_none = 0;
+
+    /* encore an array with only { AUTH_NONE } */
+    return xdr_u_int32_t(xdr, &one)
+        && xdr_u_int32_t(xdr, &auth_none);
+}
 
 static bool_t encode_op_create_session(
     XDR *xdr,
     nfs_argop4 *argop)
 {
-    uint32_t zero = 0;
     nfs41_create_session_args *args = (nfs41_create_session_args*)argop->arg;
 
     if (unexpected_op(argop->op, OP_CREATE_SESSION))
@@ -715,8 +724,7 @@ static bool_t encode_op_create_session(
     if (!xdr_u_int32_t(xdr, &args->csa_cb_program))
         return FALSE;
 
-    /* TODO: callback_sec_parms4 csa_sec_parms<> = {} */
-    return xdr_u_int32_t(xdr, &zero);
+    return encode_backchannel_sec_parms(xdr, args);
 }
 
 static bool_t decode_op_create_session(
