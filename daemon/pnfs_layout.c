@@ -539,10 +539,11 @@ enum pnfs_status pnfs_open_state_layout(
         if (status) {
             status = file_layout_find_or_create(layouts, &state->file.fh, &layout);
             if (status == PNFS_SUCCESS) {
+                LONG open_count = InterlockedIncrement(&layout->layout.open_count);
                 state->layout = layout;
 
-                dprintf(FLLVL, "pnfs_open_state_layout() caching layout %p\n",
-                    state->layout);
+                dprintf(FLLVL, "pnfs_open_state_layout() caching layout %p "
+                    "(%u opens)\n", state->layout, open_count);
             }
         }
 
@@ -576,7 +577,7 @@ void pnfs_open_state_close(
     IN bool_t remove)
 {
     pnfs_file_layout *layout;
-    bool_t return_on_close;
+    bool_t return_layout;
     enum pnfs_status status;
 
     AcquireSRWLockExclusive(&state->lock);
@@ -585,12 +586,14 @@ void pnfs_open_state_close(
     ReleaseSRWLockExclusive(&state->lock);
 
     if (layout) {
-        /* check if we need to return the layout on close */
+        LONG open_count = InterlockedDecrement(&layout->layout.open_count);
+
         AcquireSRWLockShared(&layout->layout.lock);
-        return_on_close = layout->layout.return_on_close;
+        /* only return on close if it's the last close */
+        return_layout = layout->layout.return_on_close && (open_count <= 0);
         ReleaseSRWLockShared(&layout->layout.lock);
 
-        if (return_on_close) {
+        if (return_layout) {
             status = file_layout_return(session, &state->file, layout);
             if (status)
                 eprintf("file_layout_return() failed with %s\n",
