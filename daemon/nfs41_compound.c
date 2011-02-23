@@ -407,6 +407,7 @@ restart_recovery:
         goto do_retry;
 
     case NFS4ERR_EXPIRED: /* revoked by lease expiration */
+    case NFS4ERR_BAD_STATEID:
     case NFS4ERR_STALE_STATEID: /* server reboot */
         if (compound->args.argarray[0].op == OP_SEQUENCE) {
             nfs41_sequence_args *seq = (nfs41_sequence_args*)
