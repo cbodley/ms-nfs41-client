@@ -85,7 +85,7 @@ static enum pnfs_status pattern_init(
     pos = pattern->offset_start;
     for (i = 0; i < pattern->count; i++) {
         pattern->threads[i].pattern = pattern;
-        pattern->threads[i].stable = DATA_SYNC4;
+        pattern->threads[i].stable = FILE_SYNC4;
 #ifdef PNFS_THREAD_BY_SERVER
         pattern->threads[i].offset = pattern->offset_start;
         pattern->threads[i].offset_end = pattern->offset_end;
@@ -247,15 +247,12 @@ static uint64_t pattern_bytes_transferred(
     uint64_t lowest_offset = pattern->offset_end;
     uint32_t i;
 
-    if (stable) *stable = DATA_SYNC4;
+    if (stable) *stable = FILE_SYNC4;
 
     for (i = 0; i < pattern->count; i++) {
-        if (lowest_offset > pattern->threads[i].offset)
-            lowest_offset = pattern->threads[i].offset;
-        if (stable && pattern->threads[i].stable == UNSTABLE4)
-            *stable = UNSTABLE4;
+        lowest_offset = min(lowest_offset, pattern->threads[i].offset);
+        if (stable) *stable = min(*stable, pattern->threads[i].stable);
     }
-
     return lowest_offset - pattern->offset_start;
 }
 
@@ -397,7 +394,7 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
 
 retry_write:
     thread->offset = offset_start;
-    thread->stable = DATA_SYNC4;
+    thread->stable = FILE_SYNC4;
     commit_file = NULL;
     total_written = 0;
 
@@ -507,7 +504,6 @@ enum pnfs_status pnfs_write(
     OUT ULONG *len_out)
 {
     pnfs_io_pattern pattern;
-    uint64_t new_last_offset;
     enum stable_how4 stable;
     enum pnfs_status status;
     enum nfsstat4 nfsstat;
@@ -534,32 +530,28 @@ enum pnfs_status pnfs_write(
         goto out_free_pattern;
 
     if (stable == UNSTABLE4) {
-        /* not all data was committed, so commit to metadata server.
-         * pass do_getattr=0 to nfs41_commit() because we'll GETATTR
-         * after LAYOUTCOMMIT */
+        /* not all data was committed, so commit to metadata server */
         dprintf(1, "sending COMMIT to meta server for offset=%d and len=%d\n",
             offset, *len_out);
-        nfsstat = nfs41_commit(session, &state->file, offset, *len_out, 0);
+        nfsstat = nfs41_commit(session, &state->file, offset, *len_out, 1);
         if (nfsstat) {
             dprintf(IOLVL, "nfs41_commit() failed with %s\n",
                 nfs_error_string(nfsstat));
             status = PNFSERR_IO;
-            goto out_free_pattern;
+        }
+    } else if (stable == DATA_SYNC4) {
+        /* send LAYOUTCOMMIT to sync the metadata */
+        uint64_t new_last_offset = offset + *len_out - 1;
+
+        nfsstat = pnfs_rpc_layoutcommit(session, &state->file,
+            &pattern.layout->layout.state, offset, *len_out,
+            &new_last_offset, NULL);
+        if (nfsstat) {
+            dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
+                nfs_error_string(nfsstat));
+            status = PNFSERR_IO;
         }
     }
-
-    /* send LAYOUTCOMMIT */
-    new_last_offset = offset + *len_out - 1;
-
-    nfsstat = pnfs_rpc_layoutcommit(session, &state->file,
-        &pattern.layout->layout.state, offset, *len_out,
-        &new_last_offset, NULL);
-    if (nfsstat) {
-        dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
-            nfs_error_string(nfsstat));
-        /* acceptable failure? if COMMIT worked, return success */
-    }
-
 out_free_pattern:
     pattern_free(&pattern);
 out:
