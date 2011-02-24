@@ -400,8 +400,6 @@ static __inline netaddr4* nfs41_rpc_netaddr(
     return &rpc->addrs.arr[id];
 }
 
-bool_t nfs41_renew_in_progress(nfs41_client *client, bool_t *value);
-
 
 /* open.c */
 void nfs41_open_state_ref(
