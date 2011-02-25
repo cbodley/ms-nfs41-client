@@ -247,6 +247,52 @@ static bool_t xdr_layout_types(
     return TRUE;
 }
 
+static bool_t xdr_threshold_item(
+    XDR *xdr,
+    threshold_item4 *item)
+{
+    bitmap4 bitmap;
+
+    if (!xdr_u_int32_t(xdr, &item->type))
+        return FALSE;
+
+    if (!xdr_bitmap4(xdr, &bitmap))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &bitmap.count))
+        return FALSE;
+
+    if (bitmap.count) {
+        if (bitmap.arr[0] & 0x1 && !xdr_u_hyper(xdr, &item->hints[0]))
+            return FALSE;
+        if (bitmap.arr[0] & 0x2 && !xdr_u_hyper(xdr, &item->hints[1]))
+            return FALSE;
+        if (bitmap.arr[0] & 0x4 && !xdr_u_hyper(xdr, &item->hints[2]))
+            return FALSE;
+        if (bitmap.arr[0] & 0x8 && !xdr_u_hyper(xdr, &item->hints[3]))
+            return FALSE;
+    }
+    return TRUE;
+}
+
+static bool_t xdr_mdsthreshold(
+    XDR *xdr,
+    mdsthreshold4 *mdsthreshold)
+{
+    uint32_t i;
+
+    if (!xdr_u_int32_t(xdr, &mdsthreshold->count))
+        return FALSE;
+
+    if (mdsthreshold->count > MAX_MDSTHRESHOLD_ITEMS)
+        return FALSE;
+
+    for (i = 0; i < mdsthreshold->count; i++)
+        if (!xdr_threshold_item(xdr, &mdsthreshold->items[i]))
+            return FALSE;
+    return TRUE;
+}
+
 /* pathname4
  * decode a variable array of components into a nfs41_abs_path */
 static bool_t decode_pathname4(
@@ -1649,6 +1695,12 @@ static bool_t decode_file_attrs(
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_FS_LAYOUT_TYPE) {
             if (!xdr_layout_types(xdr, &info->fs_layout_types))
+                return FALSE;
+        }
+    }
+    if (attrs->attrmask.count >= 3) {
+        if (attrs->attrmask.arr[2] & FATTR4_WORD2_MDSTHRESHOLD) {
+            if (!xdr_mdsthreshold(xdr, &info->mdsthreshold))
                 return FALSE;
         }
     }

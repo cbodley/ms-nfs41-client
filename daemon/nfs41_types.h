@@ -161,8 +161,28 @@ typedef struct __fs_locations4 {
     uint32_t        location_count;
 } fs_locations4;
 
+enum {
+    MDSTHRESH_READ = 0,
+    MDSTHRESH_WRITE,
+    MDSTHRESH_READ_IO,
+    MDSTHRESH_WRITE_IO,
+
+    MAX_MDSTHRESH_HINTS
+};
+typedef struct __threshold_item4 {
+    uint32_t        type;
+    uint64_t        hints[MAX_MDSTHRESH_HINTS];
+} threshold_item4;
+
+#define MAX_MDSTHRESHOLD_ITEMS 1
+typedef struct __mdsthreshold4 {
+    uint32_t        count;
+    threshold_item4 items[MAX_MDSTHRESHOLD_ITEMS];
+} mdsthreshold4;
+
 typedef struct __nfs41_file_info {
     nfs41_fsid              fsid;
+    mdsthreshold4           mdsthreshold;
     nfstime4                time_access;
     nfstime4                time_create;
     nfstime4                time_modify;
