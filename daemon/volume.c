@@ -49,6 +49,9 @@ static int parse_volume(unsigned char *buffer, uint32_t length, nfs41_upcall *up
     status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
     if (status) goto out;
     upcall_root_ref(upcall, args->root);
+    status = safe_read(&buffer, &length, &args->state, sizeof(HANDLE));
+    if (status) goto out;
+    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->query, sizeof(FS_INFORMATION_CLASS));
     if (status) goto out;
 
@@ -60,6 +63,7 @@ out:
 
 static int get_volume_size_info(
     IN nfs41_session *session,
+    IN nfs41_open_state *state,
     IN const char *query,
     OUT OPTIONAL PLONGLONG total_out,
     OUT OPTIONAL PLONGLONG user_out,
@@ -71,7 +75,7 @@ static int get_volume_size_info(
     int status;
 
     /* query the space_ attributes of the root filesystem */
-    status = nfs41_getattr(session, NULL, &attr_request, &info);
+    status = nfs41_getattr(session, &state->file, &attr_request, &info);
     if (status) {
         eprintf("nfs41_getattr() failed with %s\n",
             nfs_error_string(status));
@@ -101,7 +105,7 @@ static int handle_volume_attributes(
     PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
     int status = NO_ERROR;
 
-    status = nfs41_getattr(session, NULL, &attr_request, &info);
+    status = nfs41_getattr(session, &args->state->file, &attr_request, &info);
     if (status) {
         eprintf("nfs41_getattr() failed with %s\n",
             nfs_error_string(status));
@@ -145,7 +149,8 @@ static int handle_volume(nfs41_upcall *upcall)
         args->info.size.SectorsPerAllocationUnit = SECTORS_PER_UNIT;
         args->info.size.BytesPerSector = BYTES_PER_SECTOR;
 
-        status = get_volume_size_info(session, "FileFsSizeInformation",
+        status = get_volume_size_info(session, args->state,
+            "FileFsSizeInformation",
             &args->info.size.TotalAllocationUnits.QuadPart,
             &args->info.size.AvailableAllocationUnits.QuadPart,
             NULL);
@@ -156,7 +161,8 @@ static int handle_volume(nfs41_upcall *upcall)
         args->info.fullsize.SectorsPerAllocationUnit = SECTORS_PER_UNIT;
         args->info.fullsize.BytesPerSector = BYTES_PER_SECTOR;
 
-        status = get_volume_size_info(session, "FileFsFullSizeInformation",
+        status = get_volume_size_info(session, args->state,
+            "FileFsFullSizeInformation",
             &args->info.fullsize.TotalAllocationUnits.QuadPart,
             &args->info.fullsize.CallerAvailableAllocationUnits.QuadPart,
             &args->info.fullsize.ActualAvailableAllocationUnits.QuadPart);

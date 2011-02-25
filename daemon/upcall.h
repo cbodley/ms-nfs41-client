@@ -145,6 +145,7 @@ typedef struct __symlink_upcall_args {
 
 typedef struct __volume_upcall_args {
     nfs41_root *root;
+    nfs41_open_state *state;
     FS_INFORMATION_CLASS query;
     int len;
     union {

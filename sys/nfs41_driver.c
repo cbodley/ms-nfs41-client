@@ -210,6 +210,7 @@ typedef struct _updowncall_entry {
             BOOLEAN set;
         } Symlink;
         struct {
+            HANDLE open_state;
             HANDLE session;
             FS_INFORMATION_CLASS query;
             PVOID buf;
@@ -1068,13 +1069,15 @@ NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + sizeof(HANDLE) + sizeof(FS_INFORMATION_CLASS);
+    header_len = *len + 2 * sizeof(HANDLE) + sizeof(FS_INFORMATION_CLASS);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
     RtlCopyMemory(tmp, &entry->u.Volume.session, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    RtlCopyMemory(tmp, &entry->u.Volume.open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(FS_INFORMATION_CLASS));
     *len = header_len;
@@ -3381,6 +3384,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
     status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
+    entry->u.Volume.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.Volume.session = pVNetRootContext->session;
     entry->u.Volume.query = InfoClass;
     entry->u.Volume.buf = RxContext->Info.Buffer;
