@@ -169,7 +169,7 @@ authsspi_create_default(CLIENT *clnt, char *service, int svc)
 
 	auth = authsspi_create(clnt, name, sec);
     if (auth == NULL)
-        goto out_free_cred;
+        goto out_free_sec;
 
 out:
 	if (name != SSPI_C_NO_NAME) {
@@ -181,10 +181,11 @@ out:
 	}
 
 	return (auth);
-out_free_cred:
-    FreeCredentialsHandle(&sec->cred);
 out_free_sec:
-    free(sec);
+    if (rpc_createerr.cf_error.re_errno == ENOMEM) {
+        FreeCredentialsHandle(&sec->cred);
+        free(sec);
+    }
 out_err:
     rpc_createerr.cf_stat = RPC_SYSTEMERROR;
 	rpc_createerr.cf_error.re_errno = ENOMEM;
