@@ -285,7 +285,8 @@ out_unlock:
 
     /* after releasing the rpc lock, send a BIND_CONN_TO_SESSION if
      * we need to associate the connection with the backchannel */
-    if (status == NO_ERROR && rpc->needcb) {
+    if (status == NO_ERROR && rpc->needcb && 
+            rpc->client && rpc->client->session) {
         status = nfs41_bind_conn_to_session(rpc,
             rpc->client->session->session_id, CDFC4_BACK_OR_BOTH);
         if (status)
