@@ -298,6 +298,9 @@ authsspi_validate(AUTH *auth, struct opaque_auth *verf, u_int seq)
 		return (TRUE);
   	}
 
+    if (gd->gc.gc_proc == RPCSEC_SSPI_DESTROY) 
+        return TRUE;
+
 	if (gd->gc.gc_proc == RPCSEC_SSPI_INIT ||
 	        gd->gc.gc_proc == RPCSEC_SSPI_CONTINUE_INIT) {
 		num = htonl(gd->win);
