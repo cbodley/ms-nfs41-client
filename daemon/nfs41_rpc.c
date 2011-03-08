@@ -34,7 +34,7 @@
 
 static enum clnt_stat send_null(CLIENT *client)
 {
-    struct timeval timeout = {10, 0};
+    struct timeval timeout = {0, 100};
 
     return clnt_call(client, 0,
                      (xdrproc_t)xdr_void, NULL,
@@ -305,7 +305,7 @@ int nfs41_send_compound(
     IN char *inbuf,
     OUT char *outbuf)
 {
-    struct timeval timeout = {10, 0};
+    struct timeval timeout = {0, 100};
     enum clnt_stat rpc_status;
     int status, count = 0, one = 1, zero = 0;
     uint32_t version;

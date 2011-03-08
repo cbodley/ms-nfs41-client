@@ -182,13 +182,13 @@ static unsigned int WINAPI clnt_cb_thread(void *args)
 	XDR *xdrs = &(ct->ct_xdrs);
     long saved_timeout_sec = ct->ct_wait.tv_sec;
     long saved_timeout_usec = ct->ct_wait.tv_usec;
-    struct rpc_msg reply_msg;
-    void *res = NULL;
+    struct rpc_msg reply_msg;    
     char cred_area[2 * MAX_AUTH_BYTES + RQCRED_SIZE];
 
     fprintf(stderr/*stdout*/, "%04x: Creating callback thread\n", GetCurrentThreadId());
     while(1) {
         cb_req header;
+        void *res = NULL;
         mutex_lock(&clnt_fd_lock);
 	    while (vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] || 
                 !ct->use_stored_reply_msg ||
@@ -200,7 +200,7 @@ static unsigned int WINAPI clnt_cb_thread(void *args)
                 if (!vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)])
                     break;
         }
-	    vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] = 1;
+	    vc_fd_locks[WINSOCK_HANDLE_HASH(ct->ct_fd)] = GetCurrentThreadId();
 	    mutex_unlock(&clnt_fd_lock);
 
         if (cl->shutdown) {
@@ -211,12 +211,14 @@ static unsigned int WINAPI clnt_cb_thread(void *args)
 
         saved_timeout_sec = ct->ct_wait.tv_sec;
         saved_timeout_usec = ct->ct_wait.tv_usec;
+        xdrs->x_op = XDR_DECODE;
         if (ct->use_stored_reply_msg && ct->reply_msg.rm_direction == CALL) {
             goto process_rpc_call;
         } else if (!ct->use_stored_reply_msg) {
-            xdrs->x_op = XDR_DECODE;
             ct->ct_wait.tv_sec = ct->ct_wait.tv_usec = 0;
-		    xdrrec_skiprecord(xdrs);
+            __xdrrec_setnonblock(xdrs, 0);
+		    if (!xdrrec_skiprecord(xdrs))
+                goto skip_process;
             if (!xdr_getxiddir(xdrs, &ct->reply_msg)) {
                 goto skip_process;
             }
@@ -232,6 +234,7 @@ static unsigned int WINAPI clnt_cb_thread(void *args)
         }
 process_rpc_call:
         //call to get call headers
+        ct->use_stored_reply_msg = FALSE;
         ct->reply_msg.rm_call.cb_cred.oa_base = cred_area;
         ct->reply_msg.rm_call.cb_verf.oa_base = &(cred_area[MAX_AUTH_BYTES]);
         if (!xdr_getcallbody(xdrs, &ct->reply_msg)) {
@@ -250,9 +253,12 @@ process_rpc_call:
         if (status) {
             fprintf(stderr, "%04x: callback function failed with %d\n", status);
         }
-        ct->use_stored_reply_msg = FALSE;
+        
         xdrs->x_op = XDR_ENCODE;
+        __xdrrec_setblock(xdrs);
         reply_msg.rm_xid = ct->reply_msg.rm_xid;
+        fprintf(stdout, "%04x: cb: replying to xid %d\n", GetCurrentThreadId(), 
+            ct->reply_msg.rm_xid);
         ct->reply_msg.rm_xid = 0;
         reply_msg.rm_direction = REPLY;
         reply_msg.rm_reply.rp_stat = MSG_ACCEPTED;
@@ -495,6 +501,7 @@ clnt_vc_call(cl, proc, xdr_args, args_ptr, xdr_results, results_ptr, timeout)
 #else
 	/* XXX Need Windows signal/event stuff XXX */
 #endif
+    enum clnt_stat status;
 
 	assert(cl != NULL);
 
@@ -516,6 +523,7 @@ clnt_vc_call(cl, proc, xdr_args, args_ptr, xdr_results, results_ptr, timeout)
 	    && timeout.tv_usec == 0) ? FALSE : TRUE;
 
 call_again:
+    __xdrrec_setblock(xdrs);
 	xdrs->x_op = XDR_ENCODE;
 	ct->ct_error.re_status = RPC_SUCCESS;
 	x_id = ntohl(--(*msg_x_id));
@@ -527,26 +535,16 @@ call_again:
 		if (ct->ct_error.re_status == RPC_SUCCESS)
 			ct->ct_error.re_status = RPC_CANTENCODEARGS;
 		(void)xdrrec_endofrecord(xdrs, TRUE);
-		release_fd_lock(ct->ct_fd, mask);
-		return (ct->ct_error.re_status);
+        goto out;
 	}
 
 	if (! xdrrec_endofrecord(xdrs, shipnow)) {
-		release_fd_lock(ct->ct_fd, mask);
         ct->ct_error.re_status = RPC_CANTSEND;
-		return (ct->ct_error.re_status);
+        goto out;
 	}
 	if (! shipnow) {
 		release_fd_lock(ct->ct_fd, mask);
 		return (RPC_SUCCESS);
-	}
-	/*
-	 * Hack to provide rpc-based message passing
-	 */
-	if (timeout.tv_sec == 0 && timeout.tv_usec == 0) {
-		release_fd_lock(ct->ct_fd, mask);
-        ct->ct_error.re_status = RPC_TIMEDOUT;
-		return(ct->ct_error.re_status);
 	}
 
 #ifdef NO_CB_4_KRB5P
@@ -569,21 +567,23 @@ call_again:
 	        mutex_unlock(&clnt_fd_lock);
         }
 #endif
-
+        __xdrrec_setnonblock(xdrs, 0);
         xdrs->x_op = XDR_DECODE;
 		ct->reply_msg.acpted_rply.ar_verf = _null_auth;
 		ct->reply_msg.acpted_rply.ar_results.where = NULL;
 		ct->reply_msg.acpted_rply.ar_results.proc = (xdrproc_t)xdr_void;
         if (!ct->use_stored_reply_msg) {
-		    if (! xdrrec_skiprecord(xdrs)) {
+		    if (!xdrrec_skiprecord(xdrs)) {
 			    release_fd_lock(ct->ct_fd, mask);
-			    return (ct->ct_error.re_status);
+                SwitchToThread();
+			    continue;
 		    }
             if (!xdr_getxiddir(xdrs, &ct->reply_msg)) {
-			    release_fd_lock(ct->ct_fd, mask);
-			    if (ct->ct_error.re_status == RPC_SUCCESS)
+			    if (ct->ct_error.re_status == RPC_SUCCESS) {
+                    release_fd_lock(ct->ct_fd, mask);
 				    continue;
-			    return (ct->ct_error.re_status);
+                }
+                goto out;
             } 
 
             if (ct->reply_msg.rm_direction != REPLY) {
@@ -593,16 +593,15 @@ call_again:
                     ct->use_stored_reply_msg = TRUE;
                 }
                 release_fd_lock(ct->ct_fd, mask);
+                SwitchToThread();
                 continue;
             }
         }
 		if (ct->reply_msg.rm_xid == x_id) {
             ct->use_stored_reply_msg = FALSE;
             ct->reply_msg.rm_xid = 0;
-            if (!xdr_getreplyunion(xdrs, &ct->reply_msg)) {
-                release_fd_lock(ct->ct_fd, mask);
-                return (ct->ct_error.re_status);
-            }
+            if (!xdr_getreplyunion(xdrs, &ct->reply_msg))
+                goto out;
 			break;
         }
         else {
@@ -639,8 +638,10 @@ call_again:
 			goto call_again;
 	}  /* end of unsuccessful completion */
     ct->reply_msg.rm_direction = -1;
+out:
+    status = ct->ct_error.re_status;
 	release_fd_lock(ct->ct_fd, mask);
-	return (ct->ct_error.re_status);
+	return status;
 }
 
 static void
@@ -927,7 +928,7 @@ read_vc(ctp, buf, len)
 				continue;
 			ct->ct_error.re_status = RPC_CANTRECV;
 			ct->ct_error.re_errno = errno;
-			return (-1);
+			return (-2);
 		}
 		break;
 	}

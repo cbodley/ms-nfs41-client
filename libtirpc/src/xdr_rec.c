@@ -480,11 +480,10 @@ xdrrec_skiprecord(xdrs)
 	enum xprt_stat xstat;
 
 	if (rstrm->nonblock) {
-		if (__xdrrec_getrec(xdrs, &xstat, FALSE)) {
-			rstrm->fbtbc = 0;
+		if (__xdrrec_getrec(xdrs, &xstat, FALSE))
 			return TRUE;
-		}
-		if (rstrm->in_finger == rstrm->in_boundry &&
+
+        if (rstrm->in_finger == rstrm->in_boundry &&
 		    xstat == XPRT_MOREREQS) {
 			rstrm->fbtbc = 0;
 			return TRUE;
@@ -592,6 +591,7 @@ __xdrrec_getrec(xdrs, statp, expectdata)
 			*statp = XPRT_DIED;
 			return FALSE;
 		}
+        rstrm->fbtbc = rstrm->in_header & (~LAST_FRAG);
 		rstrm->in_reclen += fraglen;
 		if (rstrm->in_reclen > rstrm->recvsize)
 			realloc_stream(rstrm, rstrm->in_reclen);
@@ -601,35 +601,39 @@ __xdrrec_getrec(xdrs, statp, expectdata)
 		}
 	}
 
-	n =  rstrm->readit(rstrm->tcp_handle,
-	    rstrm->in_base + rstrm->in_received,
-	    (rstrm->in_reclen - rstrm->in_received));
+    do {
+	    n =  rstrm->readit(rstrm->tcp_handle,
+	        rstrm->in_base + rstrm->in_received,
+	        (rstrm->in_reclen - rstrm->in_received));
 
-	if (n < 0) {
-		*statp = XPRT_DIED;
-		return FALSE;
-	}
+        /* this case is needed for non-block as socket returns TIMEDOUT and -1
+         * -2 is an error case and covered by the next if() statement */
+        if (n == -1) continue;
 
-	if (n == 0) {
-		*statp = expectdata ? XPRT_DIED : XPRT_IDLE;
-		return FALSE;
-	}
+	    if (n < 0) {
+		    *statp = XPRT_DIED;
+		    return FALSE;
+	    }
 
-	rstrm->in_received += n;
+	    if (n == 0) {
+		    *statp = expectdata ? XPRT_DIED : XPRT_IDLE;
+		    return FALSE;
+	    }
 
-	if (rstrm->in_received == rstrm->in_reclen) {
-		rstrm->in_haveheader = FALSE;
-		rstrm->in_hdrp = (char *)(void *)&rstrm->in_header;
-		rstrm->in_hdrlen = 0;
-		if (rstrm->last_frag) {
-			rstrm->fbtbc = rstrm->in_reclen;
-			rstrm->in_boundry = rstrm->in_base + rstrm->in_reclen;
-			rstrm->in_finger = rstrm->in_base;
-			rstrm->in_reclen = rstrm->in_received = 0;
-			*statp = XPRT_MOREREQS;
-			return TRUE;
-		}
-	}
+	    rstrm->in_received += n;
+	    if (rstrm->in_received == rstrm->in_reclen) {
+		    rstrm->in_haveheader = FALSE;
+		    rstrm->in_hdrp = (char *)(void *)&rstrm->in_header;
+		    rstrm->in_hdrlen = 0;
+		    if (rstrm->last_frag) {
+			    rstrm->in_boundry = rstrm->in_base + rstrm->in_reclen;
+			    rstrm->in_finger = rstrm->in_base;
+			    rstrm->in_reclen = rstrm->in_received = 0;
+			    *statp = XPRT_MOREREQS;
+			    return TRUE;
+		    }
+        } 
+    } while (1);
 
 	*statp = XPRT_MOREREQS;
 	return FALSE;
@@ -649,6 +653,15 @@ __xdrrec_setnonblock(xdrs, maxrec)
 	return TRUE;
 }
 
+bool_t
+__xdrrec_setblock(xdrs)
+	XDR *xdrs;
+{
+	RECSTREAM *rstrm = (RECSTREAM *)(xdrs->x_private);
+
+	rstrm->nonblock = FALSE;
+	return TRUE;
+}
 /*
  * Internal useful routines
  */

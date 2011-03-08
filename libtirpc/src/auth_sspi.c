@@ -913,7 +913,7 @@ void log_hexdump(bool_t on, const u_char *title, const u_char *buf,
 
     if (!on) return;
 
-	fprintf(fd_out, "%s\n", title);
+	fprintf(fd_out, "%04x: %s (len=%d)\n", GetCurrentThreadId(), title, len);
 	for (i = 0; i < len; i += 0x10) {
 		fprintf(fd_out, "  %04x: ", (u_int)(i + offset));
 		jm = len - i;
