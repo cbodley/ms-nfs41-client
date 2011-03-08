@@ -1007,7 +1007,8 @@ void init_getattr_request(bitmap4 *attr_request)
         FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE;
     attr_request->arr[1] = FATTR4_WORD1_NUMLINKS |
         FATTR4_WORD1_TIME_ACCESS | FATTR4_WORD1_TIME_CREATE |
-        FATTR4_WORD1_TIME_MODIFY | FATTR4_WORD1_MODE;
+        FATTR4_WORD1_TIME_MODIFY | FATTR4_WORD1_MODE |
+        FATTR4_WORD1_OWNER | FATTR4_WORD1_OWNER_GROUP;
     attr_request->arr[2] = 0;
 }
 

@@ -212,6 +212,10 @@ typedef struct __nfs41_file_info {
     bool_t                  symlink_dir;
     bool_t                  symlink_support;
     bool_t                  link_support;
+    unsigned char           owner[NFS4_OPAQUE_LIMIT];
+    uint32_t                owner_len;
+    unsigned char           owner_group[NFS4_OPAQUE_LIMIT];
+    uint32_t                owner_group_len;
 } nfs41_file_info;
 
 #endif /* !__NFS41_DAEMON_TYPES_H__ */

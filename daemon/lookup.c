@@ -98,7 +98,8 @@ static void init_component_args(
         | FATTR4_WORD0_FSID | FATTR4_WORD0_FILEID;
     args->attr_request.arr[1] = FATTR4_WORD1_MODE
         | FATTR4_WORD1_NUMLINKS | FATTR4_WORD1_TIME_ACCESS
-        | FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY;
+        | FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY |
+        FATTR4_WORD1_OWNER | FATTR4_WORD1_OWNER_GROUP;
 
     args->getrootattr.attr_request = &args->attr_request;
     res->root.path = path;

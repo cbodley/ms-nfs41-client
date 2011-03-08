@@ -489,13 +489,13 @@ static int handle_readdir(nfs41_upcall *upcall)
         }
     }
 
-    entry_buf = malloc(args->buf_len);
+    entry_buf = malloc(max(args->buf_len, 4096));
     if (entry_buf == NULL) {
         status = GetLastError();
         goto out_free_cookie;
     }
 fetch_entries:
-    entry_buf_len = args->buf_len;
+    entry_buf_len = max(args->buf_len, 4096);
 
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_RDATTR_ERROR;
