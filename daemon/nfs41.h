@@ -91,7 +91,7 @@ typedef struct __nfs41_open_state {
     bool_t do_close;
     stateid4 stateid;
     state_owner4 owner;
-    struct __pnfs_file_layout *layout;
+    struct __pnfs_layout_state *layout;
     struct list_entry client_entry; /* entry in nfs41_client.opens */
     SRWLOCK lock;
     LONG ref_count;

@@ -195,8 +195,90 @@ static enum pnfs_status layout_state_find_and_delete(
 
 
 /* pnfs_file_layout */
+static enum pnfs_status layout_update_range(
+    IN OUT pnfs_layout_state *state,
+    IN const struct list_entry *layouts)
+{
+    struct list_entry *entry, *tmp;
+    pnfs_layout *layout;
+    enum pnfs_status status = PNFSERR_NO_LAYOUT;
+
+    list_for_each_tmp(entry, tmp, layouts) {
+        layout = list_container(entry, pnfs_layout, entry);
+
+        /* don't know what to do with non-file layouts */
+        if (layout->type != PNFS_LAYOUTTYPE_FILE)
+            continue;
+
+        if (state->layout == NULL) {
+            /* store the first file layout returned */
+            dprintf(FLLVL, "Saving layout:\n");
+            dprint_layout(FLLVL, (pnfs_file_layout*)layout);
+
+            state->layout = (pnfs_file_layout*)layout;
+            status = PNFS_SUCCESS;
+        } else {
+            /* free anything else */
+            /* TODO: attempt to merge with existing segments */
+            dprintf(FLLVL, "Discarding extra layout:\n");
+            dprint_layout(FLLVL, (pnfs_file_layout*)layout);
+
+            file_layout_free((pnfs_file_layout*)layout);
+        }
+    }
+    return status;
+}
+
+static enum pnfs_status layout_update_stateid(
+    IN OUT pnfs_layout_state *state,
+    IN const stateid4 *stateid)
+{
+    enum pnfs_status status = PNFS_SUCCESS;
+
+    if (state->stateid.seqid == 0) {
+        /* save a new layout stateid */
+        memcpy(&state->stateid, stateid, sizeof(stateid4));
+    } else if (memcmp(&state->stateid.other, stateid->other, 12) == 0) {
+        /* update an existing layout stateid */
+        state->stateid.seqid = stateid->seqid;
+    } else {
+        status = PNFSERR_NO_LAYOUT;
+    }
+    return status;
+}
+
+static enum pnfs_status layout_update(
+    IN OUT pnfs_layout_state *state,
+    IN const pnfs_layoutget_res_ok *layoutget_res)
+{
+    enum pnfs_status status;
+
+    /* update the layout ranges held by the client */
+    status = layout_update_range(state, &layoutget_res->layouts);
+    if (status) {
+        eprintf("LAYOUTGET didn't return any file layouts\n");
+        goto out;
+    }
+    /* update the layout stateid */
+    status = layout_update_stateid(state, &layoutget_res->stateid);
+    if (status) {
+        eprintf("LAYOUTGET returned a new stateid when we already had one\n");
+        goto out_free;
+    }
+    /* if a previous LAYOUTGET set return_on_close, don't overwrite it */
+    if (!state->return_on_close)
+        state->return_on_close = layoutget_res->return_on_close;
+out:
+    return status;
+
+out_free:
+    file_layout_free(state->layout);
+    state->layout = NULL;
+    goto out;
+}
+
 static enum pnfs_status file_layout_fetch(
-    IN OUT pnfs_file_layout *layout,
+    IN OUT pnfs_layout_state *state,
     IN nfs41_session *session,
     IN nfs41_path_fh *meta_file,
     IN stateid_arg *stateid,
@@ -204,14 +286,17 @@ static enum pnfs_status file_layout_fetch(
     IN uint64_t offset,
     IN uint64_t length)
 {
+    pnfs_layoutget_res_ok layoutget_res = { 0 };
     enum pnfs_status pnfsstat = PNFS_SUCCESS;
     enum nfsstat4 nfsstat;
 
     dprintf(FLLVL, "--> file_layout_fetch(%s, seqid=%u)\n",
-        pnfs_iomode_string(iomode), layout->layout.state.seqid);
+        pnfs_iomode_string(iomode), state->stateid.seqid);
+
+    list_init(&layoutget_res.layouts);
 
     nfsstat = pnfs_rpc_layoutget(session, meta_file,
-        stateid, iomode, offset, length, layout);
+        stateid, iomode, offset, length, &layoutget_res);
     if (nfsstat) {
         dprintf(FLLVL, "pnfs_rpc_layoutget() failed with %s\n",
             nfs_error_string(nfsstat));
@@ -220,24 +305,26 @@ static enum pnfs_status file_layout_fetch(
 
     switch (nfsstat) {
     case NFS4_OK:
-        /* mark granted and clear other flags */
-        layout->layout.status = PNFS_LAYOUT_GRANTED;
+        /* use the LAYOUTGET results to update our view of the layout */
+        pnfsstat = layout_update(state, &layoutget_res);
+        if (pnfsstat)
+            break;
 
-        dprintf(FLLVL, "Received layout:\n");
-        dprint_layout(FLLVL, layout);
+        /* mark granted and clear other flags */
+        state->status = PNFS_LAYOUT_GRANTED;
         break;
 
     case NFS4ERR_BADIOMODE:
         /* don't try RW again */
         if (iomode == PNFS_IOMODE_RW)
-            layout->layout.status |= PNFS_LAYOUT_NOT_RW;
+            state->status |= PNFS_LAYOUT_NOT_RW;
         break;
 
     case NFS4ERR_LAYOUTUNAVAILABLE:
     case NFS4ERR_UNKNOWN_LAYOUTTYPE:
     case NFS4ERR_BADLAYOUT:
         /* don't try again at all */
-        layout->layout.status |= PNFS_LAYOUT_UNAVAILABLE;
+        state->status |= PNFS_LAYOUT_UNAVAILABLE;
         break;
     }
 
@@ -247,7 +334,7 @@ static enum pnfs_status file_layout_fetch(
 }
 
 static enum pnfs_status layout_grant_status(
-    IN const pnfs_layout *layout,
+    IN const pnfs_layout_state *layout,
     IN enum pnfs_iomode iomode)
 {
     enum pnfs_status status = PNFS_PENDING;
@@ -268,7 +355,7 @@ static enum pnfs_status layout_grant_status(
 }
 
 static enum pnfs_status file_layout_cache(
-    IN OUT pnfs_file_layout *layout,
+    IN OUT pnfs_layout_state *state,
     IN nfs41_session *session,
     IN nfs41_path_fh *meta_file,
     IN stateid_arg *stateid,
@@ -279,51 +366,56 @@ static enum pnfs_status file_layout_cache(
     enum pnfs_status status;
 
     /* use a shared lock to see if it's already been granted */
-    AcquireSRWLockShared(&layout->layout.lock);
-    status = layout_grant_status(&layout->layout, iomode);
-    ReleaseSRWLockShared(&layout->layout.lock);
+    AcquireSRWLockShared(&state->lock);
+    status = layout_grant_status(state, iomode);
+    ReleaseSRWLockShared(&state->lock);
 
     if (status == PNFS_PENDING) {
         /* use an exclusive lock while attempting to get a new layout */
-        AcquireSRWLockExclusive(&layout->layout.lock);
+        AcquireSRWLockExclusive(&state->lock);
 
-        status = layout_grant_status(&layout->layout, iomode);
+        status = layout_grant_status(state, iomode);
         if (status == PNFS_PENDING) {
             /* if there's an existing layout stateid, use it */
-            if (layout->layout.state.seqid) {
-                memcpy(&stateid->stateid, &layout->layout.state,
-                    sizeof(stateid4));
+            if (state->stateid.seqid) {
+                memcpy(&stateid->stateid, &state->stateid, sizeof(stateid4));
                 stateid->type = STATEID_LAYOUT;
             }
 
-            if ((layout->layout.status & PNFS_LAYOUT_NOT_RW) == 0) {
+            if ((state->status & PNFS_LAYOUT_NOT_RW) == 0) {
                 /* try to get a RW layout first */
-                status = file_layout_fetch(layout, session,
+                status = file_layout_fetch(state, session,
                     meta_file, stateid, PNFS_IOMODE_RW, offset, length);
             }
 
             if (status && iomode == PNFS_IOMODE_READ) {
                 /* fall back on READ if necessary */
-                status = file_layout_fetch(layout, session,
+                status = file_layout_fetch(state, session,
                     meta_file, stateid, iomode, offset, length);
             }
         }
 
-        ReleaseSRWLockExclusive(&layout->layout.lock);
+        ReleaseSRWLockExclusive(&state->lock);
     }
     return status;
 }
 
 static enum pnfs_status layout_compatible(
-    IN OUT pnfs_layout *layout,
+    IN OUT pnfs_layout_state *state,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length)
 {
+    pnfs_layout *layout;
     enum pnfs_status status = PNFS_SUCCESS;
 
-    AcquireSRWLockShared(&layout->lock);
+    AcquireSRWLockShared(&state->lock);
 
+    if (state->layout == NULL) {
+        status = PNFSERR_NOT_SUPPORTED;
+        goto out_unlock;
+    }
+    layout = &state->layout->layout;
     if (iomode == PNFS_IOMODE_RW && layout->iomode == PNFS_IOMODE_READ) {
         status = PNFSERR_NOT_SUPPORTED;
         goto out_unlock;
@@ -334,19 +426,21 @@ static enum pnfs_status layout_compatible(
         goto out_unlock;
     }
 out_unlock:
-    ReleaseSRWLockShared(&layout->lock);
+    ReleaseSRWLockShared(&state->lock);
     return status;
 }
 
 static enum pnfs_status file_device_status(
-    IN const pnfs_layout *layout)
+    IN const pnfs_layout_state *state)
 {
     enum pnfs_status status = PNFS_PENDING;
 
-    if (layout->status & PNFS_LAYOUT_RECALLED) {
+    if (state->layout == NULL) {
+        status = PNFSERR_NO_LAYOUT;
+    } else if (state->status & PNFS_LAYOUT_RECALLED) {
         /* don't fetch deviceinfo for a recalled layout */
         status = PNFSERR_LAYOUT_RECALLED;
-    } else if (layout->status & PNFS_LAYOUT_HAS_DEVICE) {
+    } else if (state->status & PNFS_LAYOUT_HAS_DEVICE) {
         /* deviceinfo already cached */
         status = PNFS_SUCCESS;
     }
@@ -354,35 +448,35 @@ static enum pnfs_status file_device_status(
 }
 
 static enum pnfs_status file_layout_device(
-    IN OUT pnfs_file_layout *layout,
+    IN OUT pnfs_layout_state *state,
     IN nfs41_session *session)
 {
     enum pnfs_status status = PNFS_PENDING;
 
     /* use a shared lock to see if we already have a device */
-    AcquireSRWLockShared(&layout->layout.lock);
-    status = file_device_status(&layout->layout);
-    ReleaseSRWLockShared(&layout->layout.lock);
+    AcquireSRWLockShared(&state->lock);
+    status = file_device_status(state);
+    ReleaseSRWLockShared(&state->lock);
 
     if (status == PNFS_PENDING) {
         /* use an exclusive lock to look up device info */
-        AcquireSRWLockExclusive(&layout->layout.lock);
+        AcquireSRWLockExclusive(&state->lock);
 
-        status = file_device_status(&layout->layout);
+        status = file_device_status(state);
         if (status == PNFS_PENDING) {
             status = pnfs_file_device_get(session, session->client->devices,
-                layout->deviceid, &layout->device);
+                state->layout->deviceid, &state->layout->device);
             if (status == PNFS_SUCCESS)
-                layout->layout.status |= PNFS_LAYOUT_HAS_DEVICE;
+                state->status |= PNFS_LAYOUT_HAS_DEVICE;
         }
 
-        ReleaseSRWLockExclusive(&layout->layout.lock);
+        ReleaseSRWLockExclusive(&state->lock);
     }
     return status;
 }
 
 static enum pnfs_status file_layout_get(
-    IN OUT pnfs_file_layout *layout,
+    IN OUT pnfs_layout_state *state,
     IN nfs41_session *session,
     IN nfs41_path_fh *meta_file,
     IN stateid_arg *stateid,
@@ -393,8 +487,8 @@ static enum pnfs_status file_layout_get(
     enum pnfs_status status;
 
     /* request a range for the entire file */
-    status = file_layout_cache(layout, session,
-        meta_file, stateid, iomode, 0, NFS4_UINT64_MAX);
+    status = file_layout_cache(state, session, meta_file,
+        stateid, iomode, 0, NFS4_UINT64_MAX);
     if (status) {
         dprintf(FLLVL, "file_layout_cache() failed with %s\n",
             pnfs_error_string(status));
@@ -402,7 +496,7 @@ static enum pnfs_status file_layout_get(
     }
 
     /* fail if we don't get everything we asked for */
-    status = layout_compatible(&layout->layout, iomode, offset, length);
+    status = layout_compatible(state, iomode, offset, length);
     if (status) {
         dprintf(FLLVL, "file_layout_compatible() failed with %s\n",
             pnfs_error_string(status));
@@ -410,7 +504,7 @@ static enum pnfs_status file_layout_get(
     }
 
     /* make sure we have a device for the layout */
-    status = file_layout_device(layout, session);
+    status = file_layout_device(state, session);
     if (status) {
         dprintf(FLLVL, "file_layout_device() failed with %s\n",
             pnfs_error_string(status));
@@ -421,16 +515,16 @@ out:
 }
 
 static enum pnfs_status layout_return_status(
-    IN const pnfs_file_layout *layout)
+    IN const pnfs_layout_state *state)
 {
-    return (layout->layout.status & PNFS_LAYOUT_GRANTED) == 0
+    return (state->status & PNFS_LAYOUT_GRANTED) == 0
         ? PNFS_SUCCESS : PNFS_PENDING;
 }
 
 static enum pnfs_status file_layout_return(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN pnfs_file_layout *layout)
+    IN pnfs_layout_state *state)
 {
     enum pnfs_status status;
     enum nfsstat4 nfsstat;
@@ -438,30 +532,53 @@ static enum pnfs_status file_layout_return(
     dprintf(FLLVL, "--> file_layout_return()\n");
 
     /* under shared lock, determine whether we need to return the layout */
-    AcquireSRWLockShared(&layout->layout.lock);
-    status = layout_return_status(layout);
-    ReleaseSRWLockShared(&layout->layout.lock);
+    AcquireSRWLockShared(&state->lock);
+    status = layout_return_status(state);
+    ReleaseSRWLockShared(&state->lock);
 
     if (status == PNFS_PENDING) {
         /* under exclusive lock, return the layout and reset status flags */
-        AcquireSRWLockExclusive(&layout->layout.lock);
+        AcquireSRWLockExclusive(&state->lock);
 
-        status = layout_return_status(layout);
+        status = layout_return_status(state);
         if (status == PNFS_PENDING) {
-            /* reset the granted flag */
-            layout->layout.status &= ~PNFS_LAYOUT_GRANTED;
+            pnfs_layoutreturn_res layoutreturn_res = { 0 };
+            stateid4 stateid;
+            memcpy(&stateid, &state->stateid, sizeof(stateid));
 
-            nfsstat = pnfs_rpc_layoutreturn(session, file, layout);
+            nfsstat = pnfs_rpc_layoutreturn(session, file,
+                PNFS_LAYOUTTYPE_FILE, PNFS_IOMODE_ANY, 0,
+                NFS4_UINT64_MAX, &stateid, &layoutreturn_res);
             if (nfsstat) {
                 eprintf("pnfs_rpc_layoutreturn() failed with %s\n",
                     nfs_error_string(nfsstat));
                 status = PNFSERR_NO_LAYOUT;
             } else {
                 status = PNFS_SUCCESS;
+
+                /* update the layout range held by the client */
+                file_layout_free(state->layout);
+                state->layout = NULL;
+
+                if (layoutreturn_res.stateid_present) {
+                    /* update the layout seqid */
+                    /* XXX: this shouldn't happen when we send a LAYOUTRETURN
+                     * with IOMODE_ANY for the entire range */
+                    memcpy(&state->stateid, &layoutreturn_res.stateid,
+                        sizeof(stateid4));
+                } else {
+                    /* 12.5.3. Layout Stateid: Once a client has no more
+                     * layouts on a file, the layout stateid is no longer
+                     * valid and MUST NOT be used. */
+                    ZeroMemory(&state->stateid, sizeof(stateid4));
+                }
+
+                /* reset the granted flag */
+                state->status &= ~PNFS_LAYOUT_GRANTED;
             }
         }
 
-        ReleaseSRWLockExclusive(&layout->layout.lock);
+        ReleaseSRWLockExclusive(&state->lock);
     }
 
     dprintf(FLLVL, "<-- file_layout_return() returning %s\n",
@@ -496,7 +613,7 @@ static enum pnfs_status open_state_layout_cached(
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT pnfs_file_layout **layout_out)
+    OUT pnfs_layout_state **layout_out)
 {
     enum pnfs_status status = PNFSERR_NO_LAYOUT;
 
@@ -510,20 +627,20 @@ static enum pnfs_status open_state_layout_cached(
     return status;
 }
 
-enum pnfs_status pnfs_open_state_layout(
+enum pnfs_status pnfs_layout_state_open(
     IN struct pnfs_layout_list *layouts,
     IN nfs41_session *session,
     IN nfs41_open_state *state,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT pnfs_file_layout **layout_out)
+    OUT pnfs_layout_state **layout_out)
 {
     stateid_arg stateid;
-    pnfs_file_layout *layout;
+    pnfs_layout_state *layout;
     enum pnfs_status status;
 
-    dprintf(FLLVL, "--> pnfs_open_state_layout()\n");
+    dprintf(FLLVL, "--> pnfs_layout_state_open()\n");
 
     status = client_supports_pnfs(session->client);
     if (status)
@@ -545,10 +662,10 @@ enum pnfs_status pnfs_open_state_layout(
         if (status) {
             status = layout_state_find_or_create(layouts, &state->file.fh, &layout);
             if (status == PNFS_SUCCESS) {
-                LONG open_count = InterlockedIncrement(&layout->layout.open_count);
+                LONG open_count = InterlockedIncrement(&layout->open_count);
                 state->layout = layout;
 
-                dprintf(FLLVL, "pnfs_open_state_layout() caching layout %p "
+                dprintf(FLLVL, "pnfs_layout_state_open() caching layout %p "
                     "(%u opens)\n", state->layout, open_count);
             }
         }
@@ -572,17 +689,17 @@ enum pnfs_status pnfs_open_state_layout(
 
     *layout_out = layout;
 out:
-    dprintf(FLLVL, "<-- pnfs_open_state_layout() returning %s\n",
+    dprintf(FLLVL, "<-- pnfs_layout_state_open() returning %s\n",
         pnfs_error_string(status));
     return status;
 }
 
-void pnfs_open_state_close(
+void pnfs_layout_state_close(
     IN nfs41_session *session,
     IN nfs41_open_state *state,
     IN bool_t remove)
 {
-    pnfs_file_layout *layout;
+    pnfs_layout_state *layout;
     bool_t return_layout;
     enum pnfs_status status;
 
@@ -592,12 +709,12 @@ void pnfs_open_state_close(
     ReleaseSRWLockExclusive(&state->lock);
 
     if (layout) {
-        LONG open_count = InterlockedDecrement(&layout->layout.open_count);
+        LONG open_count = InterlockedDecrement(&layout->open_count);
 
-        AcquireSRWLockShared(&layout->layout.lock);
+        AcquireSRWLockShared(&layout->lock);
         /* only return on close if it's the last close */
-        return_layout = layout->layout.return_on_close && (open_count <= 0);
-        ReleaseSRWLockShared(&layout->layout.lock);
+        return_layout = layout->return_on_close && (open_count <= 0);
+        ReleaseSRWLockShared(&layout->lock);
 
         if (return_layout) {
             status = file_layout_return(session, &state->file, layout);
@@ -618,48 +735,54 @@ void pnfs_open_state_close(
 
 /* expects the caller to have an exclusive lock */
 static enum pnfs_status layout_recall_return(
-    IN pnfs_file_layout *layout)
+    IN pnfs_layout_state *state)
 {
     dprintf(FLLVL, "layout_recall_return() 'forgetting' layout\n");
 
-    /* release our reference on the device */
-    if (layout->device) {
-        pnfs_file_device_put(layout->device);
-        layout->device = NULL;
+    if (state->layout) {
+        /* release our reference on the device */
+        if (state->layout->device) {
+            pnfs_file_device_put(state->layout->device);
+            state->layout->device = NULL;
+        }
+
+        /* update the layout range held by the client */
+        file_layout_free(state->layout);
+        state->layout = NULL;
     }
 
     /* since we're forgetful, we don't actually return the layout;
      * just zero the stateid since it won't be valid anymore */
-    ZeroMemory(&layout->layout.state, sizeof(layout->layout.state));
-    layout->layout.status = 0;
+    ZeroMemory(&state->stateid, sizeof(state->stateid));
+    state->status = 0;
 
     return PNFS_SUCCESS;
 }
 
 static enum pnfs_status file_layout_recall(
-    IN pnfs_file_layout *layout,
+    IN pnfs_layout_state *state,
     IN const struct cb_layoutrecall_args *recall)
 {
     enum pnfs_status status = PNFS_SUCCESS;
 
     /* under an exclusive lock, flag the layout as recalled */
-    AcquireSRWLockExclusive(&layout->layout.lock);
+    AcquireSRWLockExclusive(&state->lock);
 
-    if (layout->layout.io_count == 0) {
+    if (state->io_count == 0) {
         /* if there is no pending io, return the layout now */
-        status = layout_recall_return(layout);
+        status = layout_recall_return(state);
     } else {
         /* flag the layout as recalled so it can be returned after io */
-        layout->layout.status |= PNFS_LAYOUT_RECALLED;
+        state->status |= PNFS_LAYOUT_RECALLED;
         if (recall->changed)
-            layout->layout.status |= PNFS_LAYOUT_CHANGED;
+            state->status |= PNFS_LAYOUT_CHANGED;
     }
 
     /* if we got a stateid, update the layout's seqid */
     if (recall->recall.type == PNFS_RETURN_FILE)
-        layout->layout.state.seqid = recall->recall.args.file.stateid.seqid;
+        state->stateid.seqid = recall->recall.args.file.stateid.seqid;
 
-    ReleaseSRWLockExclusive(&layout->layout.lock);
+    ReleaseSRWLockExclusive(&state->lock);
     return status;
 }
 
@@ -676,7 +799,7 @@ static enum pnfs_status file_layout_recall_file(
 
     status = layout_entry_find(client->layouts, &recall->recall.args.file.fh, &entry);
     if (status == PNFS_SUCCESS)
-        status = file_layout_recall(layout_entry(entry), recall);
+        status = file_layout_recall(state_entry(entry), recall);
 
     LeaveCriticalSection(&client->layouts->lock);
 
@@ -698,7 +821,7 @@ static enum pnfs_status file_layout_recall_fsid(
     IN const struct cb_layoutrecall_args *recall)
 {
     struct list_entry *entry;
-    pnfs_file_layout *layout;
+    pnfs_layout_state *state;
     nfs41_fh *fh;
     enum pnfs_status status = PNFSERR_NO_LAYOUT;
 
@@ -708,12 +831,12 @@ static enum pnfs_status file_layout_recall_fsid(
     EnterCriticalSection(&client->layouts->lock);
 
     list_for_each(entry, &client->layouts->head) {
-        layout = layout_entry(entry);
+        state = state_entry(entry);
         /* no locks needed to read layout.meta_fh or superblock.fsid,
          * because they are only written once on creation */
-        fh = &layout->meta_fh;
+        fh = &state->meta_fh;
         if (fsid_matches(&recall->recall.args.fsid, &fh->superblock->fsid))
-            status = file_layout_recall(layout, recall);
+            status = file_layout_recall(state, recall);
     }
 
     LeaveCriticalSection(&client->layouts->lock);
@@ -738,7 +861,7 @@ static enum pnfs_status file_layout_recall_all(
     EnterCriticalSection(&client->layouts->lock);
 
     list_for_each(entry, &client->layouts->head)
-        status = file_layout_recall(layout_entry(entry), recall);
+        status = file_layout_recall(state_entry(entry), recall);
 
     LeaveCriticalSection(&client->layouts->lock);
 
@@ -783,9 +906,6 @@ enum pnfs_status pnfs_file_layout_recall(
         status = PNFSERR_NOT_SUPPORTED;
         goto out;
     }
-
-    /* XXX: bulk layout recalls require invalidation of cached device info!
-     * see CB_LAYOUTRECALL: http://tools.ietf.org/html/rfc5661#section-20.3.3 */
 out:
     dprintf(FLLVL, "<-- pnfs_file_layout_recall() returning %s\n",
         pnfs_error_string(status));
@@ -794,45 +914,45 @@ out:
 
 
 enum pnfs_status pnfs_layout_io_start(
-    IN pnfs_file_layout *layout)
+    IN pnfs_layout_state *state)
 {
     enum pnfs_status status = PNFS_SUCCESS;
 
-    AcquireSRWLockExclusive(&layout->layout.lock);
+    AcquireSRWLockExclusive(&state->lock);
 
-    if ((layout->layout.status & PNFS_LAYOUT_RECALLED) != 0) {
+    if ((state->status & PNFS_LAYOUT_RECALLED) != 0) {
         /* don't start any more io if the layout has been recalled */
         status = PNFSERR_LAYOUT_RECALLED;
         dprintf(FLLVL, "pnfs_layout_io_start() failed, layout was recalled\n");
     } else {
         /* take a reference on the layout, so that it won't be recalled
          * until all io is finished */
-        layout->layout.io_count++;
+        state->io_count++;
         dprintf(FLLVL, "pnfs_layout_io_start(): count -> %u\n",
-            layout->layout.io_count);
+            state->io_count);
     }
 
-    ReleaseSRWLockExclusive(&layout->layout.lock);
+    ReleaseSRWLockExclusive(&state->lock);
     return status;
 }
 
 void pnfs_layout_io_finished(
-    IN pnfs_file_layout *layout)
+    IN pnfs_layout_state *state)
 {
-    AcquireSRWLockExclusive(&layout->layout.lock);
+    AcquireSRWLockExclusive(&state->lock);
 
     /* return the reference to signify that an io request is finished */
-    layout->layout.io_count--;
+    state->io_count--;
     dprintf(FLLVL, "pnfs_layout_io_finished() count -> %u\n",
-        layout->layout.io_count);
+        state->io_count);
 
-    if (layout->layout.io_count > 0) /* more io pending */
+    if (state->io_count > 0) /* more io pending */
         goto out_unlock;
 
     /* once all io is finished, check for layout recalls */
-    if (layout->layout.status & PNFS_LAYOUT_RECALLED)
-        layout_recall_return(layout);
+    if (state->status & PNFS_LAYOUT_RECALLED)
+        layout_recall_return(state);
 
 out_unlock:
-    ReleaseSRWLockExclusive(&layout->layout.lock);
+    ReleaseSRWLockExclusive(&state->lock);
 }

@@ -249,16 +249,16 @@ enum pnfs_status pnfs_layout_list_create(
 void pnfs_layout_list_free(
     IN struct pnfs_layout_list *layouts);
 
-enum pnfs_status pnfs_open_state_layout(
+enum pnfs_status pnfs_layout_state_open(
     IN struct pnfs_layout_list *layouts,
     IN struct __nfs41_session *session,
     IN struct __nfs41_open_state *state,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT pnfs_file_layout **layout_out);
+    OUT pnfs_layout_state **layout_out);
 
-void pnfs_open_state_close(
+void pnfs_layout_state_close(
     IN struct __nfs41_session *session,
     IN struct __nfs41_open_state *state,
     IN bool_t remove);
@@ -268,10 +268,10 @@ enum pnfs_status pnfs_file_layout_recall(
     IN const struct cb_layoutrecall_args *recall);
 
 enum pnfs_status pnfs_layout_io_start(
-    IN pnfs_file_layout *layout);
+    IN pnfs_layout_state *state);
 
 void pnfs_layout_io_finished(
-    IN pnfs_file_layout *layout);
+    IN pnfs_layout_state *state);
 
 
 __inline int is_dense(
