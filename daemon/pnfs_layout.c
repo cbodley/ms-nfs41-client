@@ -32,37 +32,36 @@
 #define FLLVL 2 /* dprintf level for file layout logging */
 
 
-/* pnfs_file_layout_list */
-struct pnfs_file_layout_list {
+/* pnfs_layout_list */
+struct pnfs_layout_list {
     struct list_entry       head;
     CRITICAL_SECTION        lock;
 };
 
-#define layout_entry(pos) list_container(pos, pnfs_file_layout, entry)
+#define state_entry(pos) list_container(pos, pnfs_layout_state, entry)
 
-static enum pnfs_status layout_create(
+static enum pnfs_status layout_state_create(
     IN const nfs41_fh *meta_fh,
-    OUT pnfs_file_layout **layout_out)
+    OUT pnfs_layout_state **layout_out)
 {
-    pnfs_file_layout *layout;
+    pnfs_layout_state *layout;
     enum pnfs_status status = PNFS_SUCCESS;
 
-    layout = calloc(1, sizeof(pnfs_file_layout));
+    layout = calloc(1, sizeof(pnfs_layout_state));
     if (layout == NULL) {
         status = PNFSERR_RESOURCES;
         goto out;
     }
 
-    layout->layout.type = PNFS_LAYOUTTYPE_FILE;
     fh_copy(&layout->meta_fh, meta_fh);
-    InitializeSRWLock(&layout->layout.lock);
+    InitializeSRWLock(&layout->lock);
 
     *layout_out = layout;
 out:
     return status;
 }
 
-static void layout_free(
+static void file_layout_free(
     IN pnfs_file_layout *layout)
 {
     if (layout->device) pnfs_file_device_put(layout->device);
@@ -70,11 +69,18 @@ static void layout_free(
     free(layout);
 }
 
+static void layout_state_free(
+    IN pnfs_layout_state *state)
+{
+    if (state->layout) file_layout_free(state->layout);
+    free(state);
+}
+
 static int layout_entry_compare(
     IN const struct list_entry *entry,
     IN const void *value)
 {
-    const pnfs_file_layout *layout = layout_entry(entry);
+    const pnfs_layout_state *layout = state_entry(entry);
     const nfs41_fh *meta_fh = (const nfs41_fh*)value;
     const nfs41_fh *layout_fh = (const nfs41_fh*)&layout->meta_fh;
     const uint32_t diff = layout_fh->len - meta_fh->len;
@@ -82,7 +88,7 @@ static int layout_entry_compare(
 }
 
 static enum pnfs_status layout_entry_find(
-    IN struct pnfs_file_layout_list *layouts,
+    IN struct pnfs_layout_list *layouts,
     IN const nfs41_fh *meta_fh,
     OUT struct list_entry **entry_out)
 {
@@ -90,13 +96,13 @@ static enum pnfs_status layout_entry_find(
     return *entry_out ? PNFS_SUCCESS : PNFSERR_NO_LAYOUT;
 }
 
-enum pnfs_status pnfs_file_layout_list_create(
-    OUT struct pnfs_file_layout_list **layouts_out)
+enum pnfs_status pnfs_layout_list_create(
+    OUT struct pnfs_layout_list **layouts_out)
 {
-    struct pnfs_file_layout_list *layouts;
+    struct pnfs_layout_list *layouts;
     enum pnfs_status status = PNFS_SUCCESS;
 
-    layouts = calloc(1, sizeof(struct pnfs_file_layout_list));
+    layouts = calloc(1, sizeof(struct pnfs_layout_list));
     if (layouts == NULL) {
         status = PNFSERR_RESOURCES;
         goto out;
@@ -108,30 +114,30 @@ out:
     return status;
 }
 
-void pnfs_file_layout_list_free(
-    IN struct pnfs_file_layout_list *layouts)
+void pnfs_layout_list_free(
+    IN struct pnfs_layout_list *layouts)
 {
     struct list_entry *entry, *tmp;
 
     EnterCriticalSection(&layouts->lock);
 
     list_for_each_tmp(entry, tmp, &layouts->head)
-        layout_free(layout_entry(entry));
+        layout_state_free(state_entry(entry));
 
     LeaveCriticalSection(&layouts->lock);
 
     free(layouts);
 }
 
-static enum pnfs_status file_layout_find_or_create(
-    IN struct pnfs_file_layout_list *layouts,
+static enum pnfs_status layout_state_find_or_create(
+    IN struct pnfs_layout_list *layouts,
     IN const nfs41_fh *meta_fh,
-    OUT pnfs_file_layout **layout_out)
+    OUT pnfs_layout_state **layout_out)
 {
     struct list_entry *entry;
     enum pnfs_status status;
 
-    dprintf(FLLVL, "--> file_layout_find_or_create()\n");
+    dprintf(FLLVL, "--> layout_state_find_or_create()\n");
 
     EnterCriticalSection(&layouts->lock);
 
@@ -139,23 +145,23 @@ static enum pnfs_status file_layout_find_or_create(
     status = layout_entry_find(layouts, meta_fh, &entry);
     if (status) {
         /* create a new layout */
-        pnfs_file_layout *layout;
-        status = layout_create(meta_fh, &layout);
+        pnfs_layout_state *layout;
+        status = layout_state_create(meta_fh, &layout);
         if (status == PNFS_SUCCESS) {
             /* add it to the list */
             list_add_head(&layouts->head, &layout->entry);
             *layout_out = layout;
 
-            dprintf(FLLVL, "<-- file_layout_find_or_create() "
+            dprintf(FLLVL, "<-- layout_state_find_or_create() "
                 "returning new layout %p\n", layout);
         } else {
-            dprintf(FLLVL, "<-- file_layout_find_or_create() "
+            dprintf(FLLVL, "<-- layout_state_find_or_create() "
                 "returning %s\n", pnfs_error_string(status));
         }
     } else {
-        *layout_out = layout_entry(entry);
+        *layout_out = state_entry(entry);
 
-        dprintf(FLLVL, "<-- file_layout_find_or_create() "
+        dprintf(FLLVL, "<-- layout_state_find_or_create() "
             "returning existing layout %p\n", *layout_out);
     }
 
@@ -163,26 +169,26 @@ static enum pnfs_status file_layout_find_or_create(
     return status;
 }
 
-static enum pnfs_status file_layout_find_and_delete(
-    IN struct pnfs_file_layout_list *layouts,
+static enum pnfs_status layout_state_find_and_delete(
+    IN struct pnfs_layout_list *layouts,
     IN const nfs41_fh *meta_fh)
 {
     struct list_entry *entry;
     enum pnfs_status status;
 
-    dprintf(FLLVL, "--> file_layout_find_and_delete()\n");
+    dprintf(FLLVL, "--> layout_state_find_and_delete()\n");
 
     EnterCriticalSection(&layouts->lock);
 
     status = layout_entry_find(layouts, meta_fh, &entry);
     if (status == PNFS_SUCCESS) {
         list_remove(entry);
-        layout_free(layout_entry(entry));
+        layout_state_free(state_entry(entry));
     }
 
     LeaveCriticalSection(&layouts->lock);
 
-    dprintf(FLLVL, "<-- file_layout_find_and_delete() "
+    dprintf(FLLVL, "<-- layout_state_find_and_delete() "
         "returning %s\n", pnfs_error_string(status));
     return status;
 }
@@ -505,7 +511,7 @@ static enum pnfs_status open_state_layout_cached(
 }
 
 enum pnfs_status pnfs_open_state_layout(
-    IN struct pnfs_file_layout_list *layouts,
+    IN struct pnfs_layout_list *layouts,
     IN nfs41_session *session,
     IN nfs41_open_state *state,
     IN enum pnfs_iomode iomode,
@@ -537,7 +543,7 @@ enum pnfs_status pnfs_open_state_layout(
 
         status = open_state_layout_cached(state, iomode, offset, length, &layout);
         if (status) {
-            status = file_layout_find_or_create(layouts, &state->file.fh, &layout);
+            status = layout_state_find_or_create(layouts, &state->file.fh, &layout);
             if (status == PNFS_SUCCESS) {
                 LONG open_count = InterlockedIncrement(&layout->layout.open_count);
                 state->layout = layout;
@@ -603,7 +609,7 @@ void pnfs_open_state_close(
 
     if (remove && session->client->layouts) {
         /* free the layout when the file is removed */
-        file_layout_find_and_delete(session->client->layouts, &state->file.fh);
+        layout_state_find_and_delete(session->client->layouts, &state->file.fh);
     }
 }
 

@@ -51,7 +51,7 @@ static int pnfs_client_init(
     int status = NO_ERROR;
 
     /* initialize the pnfs layout and device lists for metadata clients */
-    pnfsstat = pnfs_file_layout_list_create(&client->layouts);
+    pnfsstat = pnfs_layout_list_create(&client->layouts);
     if (pnfsstat) {
         status = ERROR_NOT_ENOUGH_MEMORY;
         goto out;
@@ -65,7 +65,7 @@ out:
     return status;
 
 out_err_layouts:
-    pnfs_file_layout_list_free(client->layouts);
+    pnfs_layout_list_free(client->layouts);
     client->layouts = NULL;
     goto out;
 }
@@ -211,7 +211,7 @@ void nfs41_client_free(
     if (client->session) nfs41_session_free(client->session);
     if (client->server) nfs41_server_deref(client->server);
     nfs41_rpc_clnt_free(client->rpc);
-    if (client->layouts) pnfs_file_layout_list_free(client->layouts);
+    if (client->layouts) pnfs_layout_list_free(client->layouts);
     if (client->devices) pnfs_file_device_list_free(client->devices);
     free(client);
 }

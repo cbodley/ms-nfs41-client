@@ -155,17 +155,24 @@ typedef struct __pnfs_file_device {
 
 
 /* layout */
-typedef struct __pnfs_layout {
-    stateid4                state;
-    uint64_t                offset;
-    uint64_t                length;
-    enum pnfs_layout_type   type;
-    enum pnfs_iomode        iomode;
+typedef struct __pnfs_layout_state {
+    nfs41_fh                meta_fh;
+    stateid4                stateid;
+    struct list_entry       entry; /* position in nfs41_client.layouts */
+    struct __pnfs_file_layout *layout;
     enum pnfs_layout_status status;
     bool_t                  return_on_close;
     LONG                    open_count; /* for return on last close */
     uint32_t                io_count; /* number of pending io operations */
     SRWLOCK                 lock;
+} pnfs_layout_state;
+
+typedef struct __pnfs_layout {
+    struct list_entry       entry;
+    uint64_t                offset;
+    uint64_t                length;
+    enum pnfs_iomode        iomode;
+    enum pnfs_layout_type   type;
 } pnfs_layout;
 
 typedef struct __pnfs_file_layout_handles {
@@ -177,9 +184,7 @@ typedef struct __pnfs_file_layout {
     pnfs_layout             layout;
     pnfs_file_layout_handles filehandles;
     unsigned char           deviceid[PNFS_DEVICEID_SIZE];
-    struct list_entry       entry; /* position in nfs41_client.layouts */
     pnfs_file_device        *device;
-    nfs41_fh                meta_fh;
     uint64_t                pattern_offset;
     uint32_t                first_index;
     uint32_t                util;
@@ -235,17 +240,17 @@ typedef uint32_t (WINAPI *pnfs_io_thread_fn)(void*);
 
 
 /* pnfs_layout.c */
-struct pnfs_file_layout_list;
+struct pnfs_layout_list;
 struct cb_layoutrecall_args;
 
-enum pnfs_status pnfs_file_layout_list_create(
-    OUT struct pnfs_file_layout_list **layouts_out);
+enum pnfs_status pnfs_layout_list_create(
+    OUT struct pnfs_layout_list **layouts_out);
 
-void pnfs_file_layout_list_free(
-    IN struct pnfs_file_layout_list *layouts);
+void pnfs_layout_list_free(
+    IN struct pnfs_layout_list *layouts);
 
 enum pnfs_status pnfs_open_state_layout(
-    IN struct pnfs_file_layout_list *layouts,
+    IN struct pnfs_layout_list *layouts,
     IN struct __nfs41_session *session,
     IN struct __nfs41_open_state *state,
     IN enum pnfs_iomode iomode,

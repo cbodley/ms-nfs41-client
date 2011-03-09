@@ -135,7 +135,7 @@ typedef struct __nfs41_client {
     SRWLOCK session_lock;
     nfs41_rpc_clnt *rpc;
     bool_t is_data;
-    struct pnfs_file_layout_list *layouts;
+    struct pnfs_layout_list *layouts;
     struct pnfs_file_device_list *devices;
     struct list_entry root_entry; /* position in nfs41_root.clients */
     struct __nfs41_root *root;
