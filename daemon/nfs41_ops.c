@@ -1606,7 +1606,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT pnfs_file_layout *layout)
+    OUT pnfs_layoutget_res_ok *layoutget_res_ok)
 {
     enum nfsstat4 status;
     nfs41_compound compound;
@@ -1619,6 +1619,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     pnfs_layoutget_args layoutget_args;
     pnfs_layoutget_res layoutget_res;
     uint32_t i;
+    struct list_entry *entry;
 
     compound_init(&compound, argops, resops, "layoutget");
 
@@ -1639,7 +1640,8 @@ enum nfsstat4 pnfs_rpc_layoutget(
     layoutget_args.minlength = layoutget_args.length = length;
     layoutget_args.stateid = stateid;
     layoutget_args.maxcount = session->fore_chan_attrs.ca_maxresponsesize - READ_OVERHEAD;
-    layoutget_res.u.res_ok.layout = layout;
+    ZeroMemory(&layoutget_res, sizeof(layoutget_res));
+    layoutget_res.u.res_ok = layoutget_res_ok;
 
     status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
@@ -1649,8 +1651,14 @@ enum nfsstat4 pnfs_rpc_layoutget(
         goto out;
 
     /* point each file handle to the meta server's superblock */
-    for (i = 0; i < layout->filehandles.count; i++)
-        layout->filehandles.arr[i].fh.superblock = file->fh.superblock;
+    list_for_each(entry, &layoutget_res_ok->layouts) {
+        pnfs_layout *base = list_container(entry, pnfs_layout, entry);
+        if (base->type == PNFS_LAYOUTTYPE_FILE) {
+            pnfs_file_layout *layout = (pnfs_file_layout*)base;
+            for (i = 0; i < layout->filehandles.count; i++)
+                layout->filehandles.arr[i].fh.superblock = file->fh.superblock;
+        }
+    }
 out:
     return status;
 }
@@ -1723,7 +1731,12 @@ out:
 enum nfsstat4 pnfs_rpc_layoutreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN pnfs_file_layout *layout)
+    IN enum pnfs_layout_type type,
+    IN enum pnfs_iomode iomode,
+    IN uint64_t offset,
+    IN uint64_t length,
+    IN stateid4 *stateid,
+    OUT pnfs_layoutreturn_res *layoutreturn_res)
 {
     enum nfsstat4 status;
     nfs41_compound compound;
@@ -1734,7 +1747,6 @@ enum nfsstat4 pnfs_rpc_layoutreturn(
     nfs41_putfh_args putfh_args;
     nfs41_putfh_res putfh_res;
     pnfs_layoutreturn_args layoutreturn_args;
-    pnfs_layoutreturn_res layoutreturn_res;
 
     compound_init(&compound, argops, resops, "layoutreturn");
 
@@ -1747,30 +1759,20 @@ enum nfsstat4 pnfs_rpc_layoutreturn(
     putfh_args.file = file;
     putfh_args.in_recovery = 0;
 
-    compound_add_op(&compound, OP_LAYOUTRETURN, &layoutreturn_args, &layoutreturn_res);
+    compound_add_op(&compound, OP_LAYOUTRETURN, &layoutreturn_args, layoutreturn_res);
     layoutreturn_args.reclaim = 0;
-    layoutreturn_args.type = layout->layout.type;
-    layoutreturn_args.iomode = layout->layout.iomode;
+    layoutreturn_args.type = type;
+    layoutreturn_args.iomode = iomode;
     layoutreturn_args.return_type = PNFS_RETURN_FILE;
-    layoutreturn_args.offset = layout->layout.offset;
-    layoutreturn_args.length = layout->layout.length;
-    layoutreturn_args.stateid = &layout->layout.state;
+    layoutreturn_args.offset = offset;
+    layoutreturn_args.length = length;
+    layoutreturn_args.stateid = stateid;
 
     status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
-    if (compound_error(status = compound.res.status))
-        goto out;
-
-    if (layoutreturn_res.stateid_present) {
-        /* update the layout seqid */
-        layout->layout.state.seqid = layoutreturn_res.stateid.seqid;
-    } else {
-        /* 12.5.3. Layout Stateid: Once a client has no more layouts on a file,
-         * the layout stateid is no longer valid and MUST NOT be used. */
-        ZeroMemory(&layout->layout.state, sizeof(stateid4));
-    }
+    compound_error(status = compound.res.status);
 out:
     return status;
 }

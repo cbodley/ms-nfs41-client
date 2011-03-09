@@ -796,14 +796,17 @@ typedef struct __pnfs_layoutget_args {
 } pnfs_layoutget_args;
 
 typedef struct __pnfs_layoutget_res_ok {
-    pnfs_file_layout        *layout;
+    bool_t                  return_on_close;
+    stateid4                stateid;
+    uint32_t                count;
+    struct list_entry       layouts; /* list of pnfs_layouts */
 } pnfs_layoutget_res_ok;
 
 typedef struct __pnfs_layoutget_res {
     enum nfsstat4           status;
     union {
     /* case NFS4_OK: */
-        pnfs_layoutget_res_ok res_ok;
+        pnfs_layoutget_res_ok *res_ok;
     /* case NFS4ERR_LAYOUTTRYLATER: */
         bool_t              will_signal_layout_avail;
     /* default: void; */
@@ -1086,7 +1089,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
-    OUT pnfs_file_layout *layout);
+    OUT pnfs_layoutget_res_ok *layoutget_res);
 
 enum nfsstat4 pnfs_rpc_layoutcommit(
     IN nfs41_session *session,
@@ -1100,7 +1103,12 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
 enum nfsstat4 pnfs_rpc_layoutreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN pnfs_file_layout *layout);
+    IN enum pnfs_layout_type type,
+    IN enum pnfs_iomode iomode,
+    IN uint64_t offset,
+    IN uint64_t length,
+    IN stateid4 *stateid,
+    OUT pnfs_layoutreturn_res *layoutreturn_res);
 
 enum nfsstat4 pnfs_rpc_getdeviceinfo(
     IN nfs41_session *session,

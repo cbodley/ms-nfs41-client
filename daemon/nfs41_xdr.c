@@ -2894,39 +2894,6 @@ static bool_t encode_op_layoutget(
     return xdr_u_int32_t(xdr, &args->maxcount);
 }
 
-static bool_t decode_layout(
-    XDR *xdr,
-    pnfs_layout *layout)
-{
-    uint32_t count;
-
-    if (!xdr_bool(xdr, &layout->return_on_close))
-        return FALSE;
-
-    if (!xdr_stateid4(xdr, &layout->state))
-        return FALSE;
-
-    if (!xdr_u_int32_t(xdr, &count))
-        return FALSE;
-
-    if (count != 1) {
-        eprintf("decode_layout: server returned a list of "
-            "%d layouts! only single layouts are supported!\n", count);
-        return FALSE;
-    }
-
-    if (!xdr_u_hyper(xdr, &layout->offset))
-        return FALSE;
-
-    if (!xdr_u_hyper(xdr, &layout->length))
-        return FALSE;
-
-    if (!xdr_enum(xdr, (enum_t *)&layout->iomode))
-        return FALSE;
-
-    return xdr_enum(xdr, (enum_t *)&layout->type);
-}
-
 static bool_t decode_file_layout_handles(
     XDR *xdr,
     pnfs_file_layout_handles *handles)
@@ -2955,35 +2922,96 @@ static bool_t decode_file_layout_handles(
 
 static bool_t decode_file_layout(
     XDR *xdr,
-    pnfs_file_layout *layout)
+    struct list_entry *list,
+    pnfs_layout *base)
 {
+    pnfs_file_layout *layout;
     u_int32_t len_ignored;
-
-    if (!decode_layout(xdr, &layout->layout))
-        return FALSE;
-
-    if (layout->layout.type != PNFS_LAYOUTTYPE_FILE) {
-        eprintf("%s: received non-FILE layout type, %d\n",
-            "decode_file_layout", layout->layout.type);
-        return FALSE;
-    }
 
     if (!xdr_u_int32_t(xdr, &len_ignored))
         return FALSE;
 
-    if (!xdr_opaque(xdr, (char *)layout->deviceid, PNFS_DEVICEID_SIZE))
+    layout = calloc(1, sizeof(pnfs_file_layout));
+    if (layout == NULL)
         return FALSE;
+
+    layout->layout.offset = base->offset;
+    layout->layout.length = base->length;
+    layout->layout.iomode = base->iomode;
+    layout->layout.type = base->type;
+    list_init(&layout->layout.entry);
+
+    if (!xdr_opaque(xdr, (char *)layout->deviceid, PNFS_DEVICEID_SIZE))
+        goto out_error;
 
     if (!xdr_u_int32_t(xdr, &layout->util))
-        return FALSE;
+        goto out_error;
 
     if (!xdr_u_int32_t(xdr, &layout->first_index))
-        return FALSE;
+        goto out_error;
 
     if (!xdr_u_hyper(xdr, &layout->pattern_offset))
+        goto out_error;
+
+    if (!decode_file_layout_handles(xdr, &layout->filehandles))
+        goto out_error;
+
+    list_add_tail(list, &layout->layout.entry);
+    return TRUE;
+
+out_error:
+    free(layout);
+    return FALSE;
+}
+
+static bool_t decode_layout(
+    XDR *xdr,
+    struct list_entry *list)
+{
+    pnfs_layout layout;
+
+    if (!xdr_u_hyper(xdr, &layout.offset))
         return FALSE;
 
-    return decode_file_layout_handles(xdr, &layout->filehandles);
+    if (!xdr_u_hyper(xdr, &layout.length))
+        return FALSE;
+
+    if (!xdr_enum(xdr, (enum_t *)&layout.iomode))
+        return FALSE;
+
+    if (!xdr_enum(xdr, (enum_t *)&layout.type))
+        return FALSE;
+
+    switch (layout.type) {
+    case PNFS_LAYOUTTYPE_FILE:
+        return decode_file_layout(xdr, list, &layout);
+
+    default:
+        eprintf("%s: received non-FILE layout type, %d\n",
+            "decode_file_layout", layout.type);
+    }
+    return FALSE;
+}
+
+static bool_t decode_layout_res_ok(
+    XDR *xdr,
+    pnfs_layoutget_res_ok *res)
+{
+    uint32_t i;
+
+    if (!xdr_bool(xdr, &res->return_on_close))
+        return FALSE;
+
+    if (!xdr_stateid4(xdr, &res->stateid))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &res->count))
+        return FALSE;
+
+    for (i = 0; i < res->count; i++)
+        if (!decode_layout(xdr, &res->layouts))
+            return FALSE;
+    return TRUE;
 }
 
 static bool_t decode_op_layoutget(
@@ -3000,14 +3028,9 @@ static bool_t decode_op_layoutget(
 
     switch (res->status) {
     case NFS4_OK:
-        return decode_file_layout(xdr, res->u.res_ok.layout);
-        break;
+        return decode_layout_res_ok(xdr, res->u.res_ok);
     case NFS4ERR_LAYOUTTRYLATER:
-        {
-            bool_t ignored;
-            return xdr_bool(xdr, &ignored);
-        }
-        break;
+        return xdr_bool(xdr, &res->u.will_signal_layout_avail);
     }
     return TRUE;
 }
