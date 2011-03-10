@@ -43,8 +43,9 @@ static uint32_t io_unit_count(
 static enum pnfs_status pattern_init(
     IN pnfs_io_pattern *pattern,
     IN nfs41_root *root,
-    IN nfs41_open_state *state,
-    IN pnfs_file_layout *layout,
+    IN nfs41_path_fh *meta_file,
+    IN const stateid_arg *stateid,
+    IN pnfs_layout_state *state,
     IN unsigned char *buffer,
     IN uint64_t offset,
     IN uint64_t length,
@@ -58,25 +59,27 @@ static enum pnfs_status pattern_init(
     enum pnfs_status status;
 
     /* take a reference on the layout so we don't return it during io */
-    status = pnfs_layout_io_start(layout);
+    status = pnfs_layout_io_start(state);
     if (status)
         goto out;
 
 #ifdef PNFS_THREAD_BY_SERVER
-    pattern->count = layout->device->servers.count;
+    pattern->count = state->layout->device->servers.count;
 #else
-    pattern->count = io_unit_count(layout, length);
+    pattern->count = io_unit_count(state->layout, length);
 #endif
     pattern->threads = calloc(pattern->count, sizeof(pnfs_io_thread));
     if (pattern->threads == NULL) {
         status = PNFSERR_RESOURCES;
-        pnfs_layout_io_finished(pattern->layout);
+        pnfs_layout_io_finished(state);
         goto out;
     }
 
     pattern->root = root;
+    pattern->meta_file = meta_file;
+    pattern->stateid = stateid;
     pattern->state = state;
-    pattern->layout = layout;
+    pattern->layout = state->layout;
     pattern->buffer = buffer;
     pattern->offset_start = offset;
     pattern->offset_end = offset + length;
@@ -115,7 +118,7 @@ static void pattern_free(
     IN pnfs_io_pattern *pattern)
 {
     /* inform the layout that our io is finished */
-    pnfs_layout_io_finished(pattern->layout);
+    pnfs_layout_io_finished(pattern->state);
     free(pattern->threads);
 }
 
@@ -124,17 +127,17 @@ static enum pnfs_status thread_next_unit(
     OUT pnfs_io_unit *io)
 {
     pnfs_io_pattern *pattern = thread->pattern;
-    pnfs_file_layout *layout = pattern->layout;
+    pnfs_layout_state *state = pattern->state;
     enum pnfs_status status = PNFS_SUCCESS;
 
-    AcquireSRWLockShared(&layout->layout.lock);
+    AcquireSRWLockShared(&state->lock);
 
     /* stop io if the layout is recalled */
-    if (layout->layout.status & PNFS_LAYOUT_CHANGED) {
+    if (state->status & PNFS_LAYOUT_CHANGED) {
         status = PNFSERR_LAYOUT_CHANGED;
         goto out_unlock;
     }
-    if (layout->layout.status & PNFS_LAYOUT_RECALLED) {
+    if (state->status & PNFS_LAYOUT_RECALLED) {
         status = PNFSERR_LAYOUT_RECALLED;
         goto out_unlock;
     }
@@ -157,7 +160,7 @@ static enum pnfs_status thread_next_unit(
         thread->offset += io->length;
     }
 out_unlock:
-    ReleaseSRWLockShared(&layout->layout.lock);
+    ReleaseSRWLockShared(&state->lock);
     return status;
 }
 
@@ -259,7 +262,7 @@ static uint64_t pattern_bytes_transferred(
 
 static enum pnfs_status map_ds_error(
     IN enum nfsstat4 nfsstat,
-    IN pnfs_layout *layout)
+    IN pnfs_layout_state *state)
 {
     switch (nfsstat) {
     case NO_ERROR:
@@ -274,12 +277,12 @@ static enum pnfs_status map_ds_error(
     case NFS4ERR_PNFS_NO_LAYOUT:
         dprintf(IOLVL, "data server fencing detected!\n");
 
-        AcquireSRWLockExclusive(&layout->lock);
+        AcquireSRWLockExclusive(&state->lock);
         /* flag the layout for return once io is finished */
-        layout->status |= PNFS_LAYOUT_RECALLED | PNFS_LAYOUT_CHANGED;
+        state->status |= PNFS_LAYOUT_RECALLED | PNFS_LAYOUT_CHANGED;
         /* reset GRANTED so we know not to try LAYOUTRETURN */
-        layout->status &= ~PNFS_LAYOUT_GRANTED;
-        ReleaseSRWLockExclusive(&layout->lock);
+        state->status &= ~PNFS_LAYOUT_GRANTED;
+        ReleaseSRWLockExclusive(&state->lock);
 
         /* return CHANGED to prevent any further use of the layout */
         return PNFSERR_LAYOUT_CHANGED;
@@ -320,7 +323,7 @@ static uint32_t WINAPI file_layout_read_thread(void *args)
         goto out;
     }
 
-    nfs41_lock_stateid_arg(pattern->state, &stateid);
+    memcpy(&stateid, pattern->stateid, sizeof(stateid));
     stateid.stateid.seqid = 0;
 
     total_read = 0;
@@ -334,7 +337,7 @@ static uint32_t WINAPI file_layout_read_thread(void *args)
         if (nfsstat) {
             eprintf("nfs41_read() failed with %s\n",
                 nfs_error_string(nfsstat));
-            status = map_ds_error(nfsstat, &pattern->layout->layout);
+            status = map_ds_error(nfsstat, pattern->state);
             break;
         }
 
@@ -389,7 +392,7 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
         goto out;
     }
 
-    nfs41_lock_stateid_arg(pattern->state, &stateid);
+    memcpy(&stateid, pattern->stateid, sizeof(stateid));
     stateid.stateid.seqid = 0;
 
 retry_write:
@@ -408,7 +411,7 @@ retry_write:
         if (nfsstat) {
             eprintf("nfs41_write() failed with %s\n",
                 nfs_error_string(nfsstat));
-            status = map_ds_error(nfsstat, &layout->layout);
+            status = map_ds_error(nfsstat, pattern->state);
             break;
         }
         if (!verify_write(&verf, &thread->stable))
@@ -446,7 +449,7 @@ retry_write:
     if (nfsstat == NFS4_OK)
         thread->stable = DATA_SYNC4;
     else
-        status = map_ds_error(nfsstat, &pattern->layout->layout);
+        status = map_ds_error(nfsstat, pattern->state);
 out:
     dprintf(IOLVL, "<-- file_layout_write_thread(%u) returning %s\n",
         thread->id, pnfs_error_string(status));
@@ -457,8 +460,9 @@ out:
 enum pnfs_status pnfs_read(
     IN nfs41_root *root,
     IN nfs41_session *session,
-    IN nfs41_open_state *state,
-    IN pnfs_file_layout *layout,
+    IN nfs41_path_fh *meta_file,
+    IN const stateid_arg *stateid,
+    IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
     OUT unsigned char *buffer_out,
@@ -471,7 +475,7 @@ enum pnfs_status pnfs_read(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, state, layout,
+    status = pattern_init(&pattern, root, meta_file, stateid, layout,
         buffer_out, offset, length, session->lease_time);
     if (status) {
         eprintf("pattern_init() failed with %s\n",
@@ -496,8 +500,9 @@ out:
 enum pnfs_status pnfs_write(
     IN nfs41_root *root,
     IN nfs41_session *session,
-    IN nfs41_open_state *state,
-    IN pnfs_file_layout *layout,
+    IN nfs41_path_fh *meta_file,
+    IN const stateid_arg *stateid,
+    IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
     IN unsigned char *buffer,
@@ -512,7 +517,7 @@ enum pnfs_status pnfs_write(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, state, layout,
+    status = pattern_init(&pattern, root, meta_file, stateid, layout,
         buffer, offset, length, session->lease_time);
     if (status) {
         eprintf("pattern_init() failed with %s\n",
@@ -533,7 +538,7 @@ enum pnfs_status pnfs_write(
         /* not all data was committed, so commit to metadata server */
         dprintf(1, "sending COMMIT to meta server for offset=%d and len=%d\n",
             offset, *len_out);
-        nfsstat = nfs41_commit(session, &state->file, offset, *len_out, 1);
+        nfsstat = nfs41_commit(session, meta_file, offset, *len_out, 1);
         if (nfsstat) {
             dprintf(IOLVL, "nfs41_commit() failed with %s\n",
                 nfs_error_string(nfsstat));
@@ -541,11 +546,15 @@ enum pnfs_status pnfs_write(
         }
     } else if (stable == DATA_SYNC4) {
         /* send LAYOUTCOMMIT to sync the metadata */
+        stateid4 layout_stateid;
         uint64_t new_last_offset = offset + *len_out - 1;
 
-        nfsstat = pnfs_rpc_layoutcommit(session, &state->file,
-            &pattern.layout->layout.state, offset, *len_out,
-            &new_last_offset, NULL);
+        AcquireSRWLockShared(&layout->lock);
+        memcpy(&layout_stateid, &layout->stateid, sizeof(layout_stateid));
+        ReleaseSRWLockShared(&layout->lock);
+
+        nfsstat = pnfs_rpc_layoutcommit(session, meta_file,
+            &layout_stateid, offset, *len_out, &new_last_offset, NULL);
         if (nfsstat) {
             dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
                 nfs_error_string(nfsstat));

@@ -576,7 +576,7 @@ static int handle_close(nfs41_upcall *upcall)
 
     /* return associated file layouts if necessary */
     if (state->type == NF4REG)
-        pnfs_open_state_close(state->session, state, args->remove);
+        pnfs_layout_state_close(state->session, state, args->remove);
 
     if (args->remove) {
         nfs41_component *name = &state->file.name;

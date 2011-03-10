@@ -341,7 +341,7 @@ static enum pnfs_status get_sparse_fh(
     } else if (filehandle_count == 1) {
         *file_out = &layout->filehandles.arr[0];
     } else if (filehandle_count == 0) {
-        *file_out = &pattern->state->file;
+        *file_out = pattern->meta_file;
     } else {
         eprintf("invalid sparse layout! has %u file handles "
             "and %u servers\n", filehandle_count, server_count);

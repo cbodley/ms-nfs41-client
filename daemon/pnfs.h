@@ -207,10 +207,13 @@ typedef struct __pnfs_layout_recall {
 
 
 /* io */
+struct __stateid_arg;
 typedef struct __pnfs_io_pattern {
     struct __pnfs_io_thread *threads;
     struct __nfs41_root     *root;
-    struct __nfs41_open_state *state;
+    nfs41_path_fh           *meta_file;
+    const struct __stateid_arg *stateid;
+    pnfs_layout_state       *state;
     pnfs_file_layout        *layout;
     unsigned char           *buffer;
     uint64_t                offset_start;
@@ -351,8 +354,9 @@ __inline uint32_t data_server_index(
 enum pnfs_status pnfs_read(
     IN struct __nfs41_root *root,
     IN struct __nfs41_session *session,
-    IN struct __nfs41_open_state *state,
-    IN pnfs_file_layout *layout,
+    IN nfs41_path_fh *meta_file,
+    IN const struct __stateid_arg *stateid,
+    IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
     OUT unsigned char *buffer_out,
@@ -361,8 +365,9 @@ enum pnfs_status pnfs_read(
 enum pnfs_status pnfs_write(
     IN struct __nfs41_root *root,
     IN struct __nfs41_session *session,
-    IN struct __nfs41_open_state *state,
-    IN pnfs_file_layout *layout,
+    IN nfs41_path_fh *meta_file,
+    IN const struct __stateid_arg *stateid,
+    IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
     IN unsigned char *buffer,
