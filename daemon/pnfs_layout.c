@@ -55,6 +55,7 @@ static enum pnfs_status layout_state_create(
 
     fh_copy(&layout->meta_fh, meta_fh);
     InitializeSRWLock(&layout->lock);
+    InitializeConditionVariable(&layout->cond);
 
     *layout_out = layout;
 out:
@@ -295,8 +296,12 @@ static enum pnfs_status file_layout_fetch(
 
     list_init(&layoutget_res.layouts);
 
+    /* drop the lock during the rpc call */
+    ReleaseSRWLockExclusive(&state->lock);
     nfsstat = pnfs_rpc_layoutget(session, meta_file,
         stateid, iomode, offset, length, &layoutget_res);
+    AcquireSRWLockExclusive(&state->lock);
+
     if (nfsstat) {
         dprintf(FLLVL, "pnfs_rpc_layoutget() failed with %s\n",
             nfs_error_string(nfsstat));
@@ -374,6 +379,11 @@ static enum pnfs_status file_layout_cache(
         /* use an exclusive lock while attempting to get a new layout */
         AcquireSRWLockExclusive(&state->lock);
 
+        /* wait for any pending LAYOUTGETs/LAYOUTRETURNs */
+        while (state->pending)
+            SleepConditionVariableSRW(&state->cond, &state->lock, INFINITE, 0);
+        state->pending = TRUE;
+
         status = layout_grant_status(state, iomode);
         if (status == PNFS_PENDING) {
             /* if there's an existing layout stateid, use it */
@@ -395,6 +405,8 @@ static enum pnfs_status file_layout_cache(
             }
         }
 
+        state->pending = FALSE;
+        WakeConditionVariable(&state->cond);
         ReleaseSRWLockExclusive(&state->lock);
     }
     return status;
@@ -462,14 +474,32 @@ static enum pnfs_status file_layout_device(
         /* use an exclusive lock to look up device info */
         AcquireSRWLockExclusive(&state->lock);
 
+        /* wait for any pending LAYOUTGETs/LAYOUTRETURNs */
+        while (state->pending)
+            SleepConditionVariableSRW(&state->cond, &state->lock, INFINITE, 0);
+        state->pending = TRUE;
+
         status = file_device_status(state);
         if (status == PNFS_PENDING) {
-            status = pnfs_file_device_get(session, session->client->devices,
-                state->layout->deviceid, &state->layout->device);
-            if (status == PNFS_SUCCESS)
+            unsigned char deviceid[PNFS_DEVICEID_SIZE];
+            pnfs_file_device *device;
+
+            memcpy(deviceid, state->layout->deviceid, PNFS_DEVICEID_SIZE);
+
+            /* drop the lock during the rpc call */
+            ReleaseSRWLockExclusive(&state->lock);
+            status = pnfs_file_device_get(session,
+                session->client->devices, deviceid, &device);
+            AcquireSRWLockExclusive(&state->lock);
+
+            if (status == PNFS_SUCCESS) {
+                state->layout->device = device;
                 state->status |= PNFS_LAYOUT_HAS_DEVICE;
+            }
         }
 
+        state->pending = FALSE;
+        WakeConditionVariable(&state->cond);
         ReleaseSRWLockExclusive(&state->lock);
     }
     return status;
@@ -540,15 +570,24 @@ static enum pnfs_status file_layout_return(
         /* under exclusive lock, return the layout and reset status flags */
         AcquireSRWLockExclusive(&state->lock);
 
+        /* wait for any pending LAYOUTGETs/LAYOUTRETURNs */
+        while (state->pending)
+            SleepConditionVariableSRW(&state->cond, &state->lock, INFINITE, 0);
+        state->pending = TRUE;
+
         status = layout_return_status(state);
         if (status == PNFS_PENDING) {
             pnfs_layoutreturn_res layoutreturn_res = { 0 };
             stateid4 stateid;
             memcpy(&stateid, &state->stateid, sizeof(stateid));
-
+            
+            /* drop the lock during the rpc call */
+            ReleaseSRWLockExclusive(&state->lock);
             nfsstat = pnfs_rpc_layoutreturn(session, file,
                 PNFS_LAYOUTTYPE_FILE, PNFS_IOMODE_ANY, 0,
                 NFS4_UINT64_MAX, &stateid, &layoutreturn_res);
+            AcquireSRWLockExclusive(&state->lock);
+
             if (nfsstat) {
                 eprintf("pnfs_rpc_layoutreturn() failed with %s\n",
                     nfs_error_string(nfsstat));
@@ -578,6 +617,8 @@ static enum pnfs_status file_layout_return(
             }
         }
 
+        state->pending = FALSE;
+        WakeConditionVariable(&state->cond);
         ReleaseSRWLockExclusive(&state->lock);
     }
 
@@ -763,24 +804,31 @@ static enum pnfs_status file_layout_recall(
     IN pnfs_layout_state *state,
     IN const struct cb_layoutrecall_args *recall)
 {
+    const stateid4 *stateid_arg = &recall->recall.args.file.stateid;
     enum pnfs_status status = PNFS_SUCCESS;
 
     /* under an exclusive lock, flag the layout as recalled */
     AcquireSRWLockExclusive(&state->lock);
 
-    if (state->io_count == 0) {
-        /* if there is no pending io, return the layout now */
-        status = layout_recall_return(state);
-    } else {
+    if (recall->recall.type == PNFS_RETURN_FILE
+        && stateid_arg->seqid > state->stateid.seqid + 1) {
+        /* the server has processed an outstanding LAYOUTGET or LAYOUTRETURN;
+         * we must return ERR_DELAY until we get the response and update our
+         * view of the layout */
+        status = PNFS_PENDING;
+    } else if (state->io_count) {
         /* flag the layout as recalled so it can be returned after io */
         state->status |= PNFS_LAYOUT_RECALLED;
         if (recall->changed)
             state->status |= PNFS_LAYOUT_CHANGED;
-    }
 
-    /* if we got a stateid, update the layout's seqid */
-    if (recall->recall.type == PNFS_RETURN_FILE)
-        state->stateid.seqid = recall->recall.args.file.stateid.seqid;
+        /* if we got a stateid, update the layout's seqid */
+        if (recall->recall.type == PNFS_RETURN_FILE)
+            state->stateid.seqid = stateid_arg->seqid;
+    } else {
+        /* if there is no pending io, return the layout now */
+        status = layout_recall_return(state);
+    }
 
     ReleaseSRWLockExclusive(&state->lock);
     return status;

@@ -164,7 +164,9 @@ typedef struct __pnfs_layout_state {
     bool_t                  return_on_close;
     LONG                    open_count; /* for return on last close */
     uint32_t                io_count; /* number of pending io operations */
+    bool_t                  pending; /* pending LAYOUTGET/LAYOUTRETURN */
     SRWLOCK                 lock;
+    CONDITION_VARIABLE      cond;
 } pnfs_layout_state;
 
 typedef struct __pnfs_layout {

@@ -41,20 +41,23 @@ static enum_t handle_cb_layoutrecall(
     OUT struct cb_layoutrecall_res *res)
 {
     enum pnfs_status status;
-    /* forgetful model for layout recalls; return NOMATCHING_LAYOUT
-     * and flag the layout(s) to prevent further use */
-    res->status = NFS4ERR_NOMATCHING_LAYOUT;
+
+    status = pnfs_file_layout_recall(rpc_clnt->client, args);
+    switch (status) {
+    case PNFS_PENDING:
+        /* not enough information to process the recall yet */
+        res->status = NFS4ERR_DELAY;
+        break;
+    default:
+        /* forgetful model for layout recalls */
+        res->status = NFS4ERR_NOMATCHING_LAYOUT;
+        break;
+    }
 
     dprintf(CBSLVL, "  OP_CB_LAYOUTRECALL { %s, %s, recall %u } %s\n",
         pnfs_layout_type_string(args->type),
         pnfs_iomode_string(args->iomode), args->recall.type,
         nfs_error_string(res->status));
-
-    status = pnfs_file_layout_recall(rpc_clnt->client, args);
-    if (status)
-        eprintf("pnfs_file_layout_recall() failed with %s\n",
-            pnfs_error_string(status));
-
     return res->status;
 }
 
