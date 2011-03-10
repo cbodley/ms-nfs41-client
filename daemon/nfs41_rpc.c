@@ -292,6 +292,7 @@ out_unlock:
         if (status)
             eprintf("nfs41_bind_conn_to_session() failed with %s\n",
                 nfs_error_string(status));
+        status = NFS4_OK;
     }
     return status;
 
