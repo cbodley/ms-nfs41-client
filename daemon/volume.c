@@ -122,6 +122,8 @@ static int handle_volume_attributes(
         attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
     if (!info.case_insensitive)
         attr->FileSystemAttributes |= FILE_CASE_SENSITIVE_SEARCH;
+    if (args->state->file.fh.superblock->aclsupport)
+        attr->FileSystemAttributes |= FILE_PERSISTENT_ACLS;
 
     attr->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
 
