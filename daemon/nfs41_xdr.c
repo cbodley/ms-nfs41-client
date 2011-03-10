@@ -1627,6 +1627,10 @@ static bool_t decode_file_attrs(
             if (!xdr_u_int32_t(xdr, &info->rdattr_error))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_ACLSUPPORT) {
+            if (!xdr_u_int32_t(xdr, &info->aclsupport))
+                return FALSE;
+        }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_CANSETTIME) {
             if (!xdr_bool(xdr, &info->cansettime))
                 return FALSE;

@@ -83,7 +83,7 @@ static int get_superblock_attrs(
 
     attr_request.arr[0] = FATTR4_WORD0_SUPPORTED_ATTRS |
         FATTR4_WORD0_CANSETTIME | FATTR4_WORD0_MAXREAD |
-        (uint32_t)(FATTR4_WORD0_MAXWRITE);
+        (uint32_t)(FATTR4_WORD0_MAXWRITE) | FATTR4_WORD0_ACLSUPPORT;
     attr_request.arr[1] = FATTR4_WORD1_FS_LAYOUT_TYPE |
         FATTR4_WORD1_TIME_DELTA;
     attr_request.count = 2;
@@ -122,13 +122,15 @@ static int get_superblock_attrs(
     if (!bitmap_isset(&info.attrmask, 1, FATTR4_WORD1_TIME_DELTA))
         superblock->time_delta.seconds = 1;
 
+    superblock->aclsupport = info.aclsupport;
     dprintf(SBLVL, "attributes for fsid(%llu,%llu): "
         "maxread=%llu, maxwrite=%llu, layout_types: 0x%X, "
-        "cansettime=%u, time_delta={%ll,%u}\n",
+        "cansettime=%u, time_delta={%llu,%u}, aclsupport=%d\n",
         superblock->fsid.major, superblock->fsid.minor,
         superblock->maxread, superblock->maxwrite,
         superblock->layout_types, superblock->cansettime,
-        superblock->time_delta.seconds, superblock->time_delta.nseconds);
+        superblock->time_delta.seconds, superblock->time_delta.nseconds,
+        superblock->aclsupport);
 out:
     return status;
 }

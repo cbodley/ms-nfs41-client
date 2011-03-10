@@ -41,6 +41,7 @@ typedef struct __nfs41_superblock {
     uint64_t maxwrite;
     uint32_t layout_types;
     bool_t cansettime;
+    uint32_t aclsupport;
     struct list_entry entry; /* position in nfs41_server.superblocks */
 
     SRWLOCK lock;
