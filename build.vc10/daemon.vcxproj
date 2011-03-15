@@ -191,6 +191,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\daemon\acl.c" />
     <ClCompile Include="..\daemon\callback_xdr.c" />
     <ClCompile Include="..\daemon\callback_server.c" />
     <ClCompile Include="..\daemon\daemon_debug.c" />

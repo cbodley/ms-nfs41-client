@@ -155,6 +155,16 @@ typedef struct __volume_upcall_args {
     } info;
 } volume_upcall_args;
 
+typedef struct __getacl_upcall_args {
+    nfs41_root *root;
+    nfs41_open_state *state;
+    SECURITY_INFORMATION query;
+    PSID osid;
+    DWORD osid_len;
+    PSID gsid;
+    DWORD gsid_len;
+} getacl_upcall_args;
+
 typedef union __upcall_args {
     mount_upcall_args       mount;
     unmount_upcall_args     unmount;
@@ -169,6 +179,7 @@ typedef union __upcall_args {
     readdir_upcall_args     readdir;
     symlink_upcall_args     symlink;
     volume_upcall_args      volume;
+    getacl_upcall_args      getacl;
 } upcall_args;
 
 typedef struct __nfs41_upcall {

@@ -613,6 +613,7 @@ const char *opcode2string(int opcode)
     case NFS41_EA_SET: return "NFS41_EA_SET";
     case NFS41_SYMLINK: return "NFS41_SYMLINK";
     case NFS41_VOLUME_QUERY: return "NFS41_VOLUME_QUERY";
+    case NFS41_ACL_QUERY: return "NFS41_ACL_QUERY";
     default: return "UNKNOWN";
     }
 }
