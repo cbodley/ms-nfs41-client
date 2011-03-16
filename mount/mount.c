@@ -203,15 +203,6 @@ static void ConvertUnixSlashes(
             *pos = TEXT('\\');
 }
 
-static LPTSTR FindEndOfServer(
-    IN LPTSTR pRemoteName)
-{
-    LPTSTR pos = pRemoteName;
-    while (*pos && *pos != TEXT(':'))
-        pos++;
-    return pos;
-}
-
 static DWORD ParseRemoteName(
     IN LPTSTR pRemoteName,
     IN OUT PMOUNT_OPTION_LIST pOptions,
@@ -222,10 +213,10 @@ static DWORD ParseRemoteName(
     LPTSTR pEnd;
     
     ConvertUnixSlashes(pRemoteName);
-    pEnd = FindEndOfServer(pRemoteName);
 
     /* fail if the server name doesn't end with :\ */
-    if (*pEnd == 0 || pEnd[0] != TEXT(':') || pEnd[1] != TEXT('\\')) {
+    pEnd = _tcsrchr(pRemoteName, TEXT(':'));
+    if (pEnd == NULL || pEnd[1] != TEXT('\\')) {
         _ftprintf(stderr, TEXT("Failed to parse the remote path. ")
             TEXT("Expected 'hostname:\\path'.\n"));
         result = ERROR_BAD_ARGUMENTS;
