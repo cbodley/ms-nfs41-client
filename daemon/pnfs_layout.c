@@ -972,6 +972,12 @@ enum pnfs_status pnfs_layout_io_start(
         /* don't start any more io if the layout has been recalled */
         status = PNFSERR_LAYOUT_RECALLED;
         dprintf(FLLVL, "pnfs_layout_io_start() failed, layout was recalled\n");
+    } else if (layout_unit_size(state->layout) == 0) { /* prevent div/0 */
+        status = PNFSERR_NO_LAYOUT;
+    } else if (state->layout->device->stripes.count == 0) {
+        status = PNFSERR_NO_LAYOUT;
+    } else if (state->layout->device->servers.count == 0) {
+        status = PNFSERR_NO_LAYOUT;
     } else {
         /* take a reference on the layout, so that it won't be recalled
          * until all io is finished */
