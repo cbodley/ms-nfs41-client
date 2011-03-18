@@ -177,7 +177,7 @@ static unsigned int WINAPI _handle_cb_recall(void *args)
     print_hexbuf(3, (unsigned char *)"_handle_cb_recall: fh ", 
         cb_args->args->fh.fh, cb_args->args->fh.len);
     print_hexbuf(3, (unsigned char *)"_handle_cb_recall: stateid ", 
-        cb_args->args->stateid.other, 12);
+        cb_args->args->stateid.other, NFS4_STATEID_OTHER);
     ZeroMemory(&path_fh, sizeof(nfs41_path_fh));
     memcpy(&path_fh.fh, &cb_args->args->fh, sizeof(nfs41_fh));
     path_fh.fh.superblock = NULL;

@@ -128,7 +128,7 @@ typedef struct __nfsace4 {
 
 typedef struct __stateid4 {
     uint32_t        seqid;
-    unsigned char   other[12];
+    unsigned char   other[NFS4_STATEID_OTHER];
 } stateid4;
 
 typedef struct __fattr4 {

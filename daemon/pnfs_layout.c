@@ -239,7 +239,8 @@ static enum pnfs_status layout_update_stateid(
     if (state->stateid.seqid == 0) {
         /* save a new layout stateid */
         memcpy(&state->stateid, stateid, sizeof(stateid4));
-    } else if (memcmp(&state->stateid.other, stateid->other, 12) == 0) {
+    } else if (memcmp(&state->stateid.other, stateid->other, 
+                        NFS4_STATEID_OTHER) == 0) {
         /* update an existing layout stateid */
         state->stateid.seqid = stateid->seqid;
     } else {

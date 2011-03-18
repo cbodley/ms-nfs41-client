@@ -34,7 +34,7 @@
 static bool_t common_stateid(XDR *xdr, stateid4 *stateid)
 {
     return xdr_u_int32_t(xdr, &stateid->seqid)
-        && xdr_opaque(xdr, (char*)stateid->other, 12);
+        && xdr_opaque(xdr, (char*)stateid->other, NFS4_STATEID_OTHER);
 }
 
 static bool_t common_fh(XDR *xdr, nfs41_fh *fh)

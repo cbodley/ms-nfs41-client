@@ -139,7 +139,7 @@ static bool_t xdr_stateid4(
     if (!xdr_u_int32_t(xdr, &si->seqid))
         return FALSE;
 
-    return xdr_opaque(xdr, (char *)si->other, 12);
+    return xdr_opaque(xdr, (char *)si->other, NFS4_STATEID_OTHER);
 }
 
 /* fattr4 */
