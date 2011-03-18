@@ -156,8 +156,14 @@ authnone_destroy(AUTH *client)
 {
 }
 
-static bool_t
-authnone_wrap(AUTH *auth, XDR *xdrs, xdrproc_t func, caddr_t args, u_int seq)
+static int
+authnone_wrap(AUTH *auth, XDR *xdrs, xdrproc_t func, caddr_t args)
+{
+    return ((*func)(xdrs, args));
+}
+
+static int
+authnone_unwrap(AUTH *auth, XDR *xdrs, xdrproc_t func, caddr_t args, u_int seq)
 {
     return ((*func)(xdrs, args));
 }
@@ -178,7 +184,7 @@ authnone_ops()
 		ops.ah_refresh = authnone_refresh;
 		ops.ah_destroy = authnone_destroy;
         ops.ah_wrap = authnone_wrap;
-        ops.ah_unwrap = authnone_wrap;
+        ops.ah_unwrap = authnone_unwrap;
 	}
 	mutex_unlock(&ops_lock);
 	return (&ops);

@@ -248,7 +248,7 @@ xdr_rpc_sspi_unwrap_data(XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr,
 		maj_stat = gss_unwrap(&min_stat, ctx, &wrapbuf, &databuf,
 				      &conf_state, &qop_state);
 #else
-        maj_stat = sspi_upwrap(ctx, &wrapbuf, &databuf, &conf_state, &qop_state);
+        maj_stat = sspi_unwrap(ctx, &wrapbuf, &databuf, &conf_state, &qop_state);
 #endif
 #if 0
 		gss_release_buffer(&min_stat, &wrapbuf);

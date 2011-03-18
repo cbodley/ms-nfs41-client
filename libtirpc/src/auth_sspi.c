@@ -40,7 +40,7 @@ static bool_t authsspi_validate(AUTH *auth, struct opaque_auth *verf, u_int seq)
 static void	authsspi_destroy(AUTH *auth);
 static void	authsspi_destroy_context(AUTH *auth);
 static bool_t authsspi_wrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr);
-static bool_t authsspi_unwrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr);
+static bool_t authsspi_unwrap(AUTH *auth, XDR *xdrs, xdrproc_t xdr_func, caddr_t xdr_ptr, u_int seq);
 
 static struct auth_ops authsspi_ops = {
 	authsspi_nextverf,
@@ -143,7 +143,7 @@ authsspi_create_default(CLIENT *clnt, char *service, int svc)
 	log_debug("in authgss_create_default() for %s", service);
 
 	sname.value = service;
-	sname.length = strlen(service);
+	sname.length = (int)strlen(service);
 #if 0
 	maj_stat = gss_import_name(&min_stat, &sname,
 		(gss_OID)GSS_C_NT_HOSTBASED_SERVICE,
@@ -781,7 +781,7 @@ out:
     return maj_stat;
 }
 
-uint32_t sspi_upwrap(PCtxtHandle ctx, sspi_buffer_desc *bufin, 
+uint32_t sspi_unwrap(PCtxtHandle ctx, sspi_buffer_desc *bufin, 
                      sspi_buffer_desc *bufout, u_int *conf_state, 
                      u_int *qop_state)
 {
