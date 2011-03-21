@@ -197,6 +197,17 @@ typedef struct __nfs41_destroy_session_res {
 } nfs41_destroy_session_res;
 
 
+/* OP_DESTROY_CLIENTID */
+typedef struct __nfs41_destroy_clientid_args {
+    uint64_t        dca_clientid;
+} nfs41_destroy_clientid_args;
+
+typedef struct __nfs41_destroy_clientid_res {
+    uint32_t        dcr_status;
+} nfs41_destroy_clientid_res;
+
+
+
 /* OP_SEQUENCE */
 typedef struct __nfs41_sequence_args {
     unsigned char           *sa_sessionid;
@@ -897,6 +908,10 @@ enum nfsstat4 nfs41_bind_conn_to_session(
 
 int nfs41_destroy_session(
     IN nfs41_session *session);
+
+int nfs41_destroy_clientid(
+    IN nfs41_rpc_clnt *rpc,
+    IN uint64_t clientid);
 
 int nfs41_send_sequence(
     IN nfs41_session *session);

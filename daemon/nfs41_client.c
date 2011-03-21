@@ -209,6 +209,7 @@ void nfs41_client_free(
 {
     dprintf(2, "nfs41_client_free(%llu)\n", client->clnt_id);
     if (client->session) nfs41_session_free(client->session);
+    nfs41_destroy_clientid(client->rpc, client->clnt_id);
     if (client->server) nfs41_server_deref(client->server);
     nfs41_rpc_clnt_free(client->rpc);
     if (client->layouts) pnfs_layout_list_free(client->layouts);

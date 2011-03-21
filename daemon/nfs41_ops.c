@@ -231,6 +231,31 @@ out:
     return status;
 }
 
+int nfs41_destroy_clientid(
+    IN nfs41_rpc_clnt *rpc,
+    IN uint64_t clientid)
+{
+    int status;
+    nfs41_compound compound;
+    nfs_argop4 argops;
+    nfs_resop4 resops;
+    nfs41_destroy_clientid_args dc_args;
+    nfs41_destroy_clientid_res dc_res;
+
+    compound_init(&compound, &argops, &resops, "destroy_clientid");
+
+    compound_add_op(&compound, OP_DESTROY_CLIENTID, &dc_args, &dc_res);
+
+    status = nfs41_send_compound(rpc, (char *)&compound.args,
+        (char *)&compound.res);
+    if (status)
+        goto out;
+
+    compound_error(status = compound.res.status);
+out:
+    return status;
+}
+
 enum nfsstat4 nfs41_reclaim_complete(
     IN nfs41_session *session)
 {

@@ -888,6 +888,33 @@ static bool_t decode_op_destroy_session(
     return xdr_u_int32_t(xdr, &res->dsr_status);
 }
 
+/*
+ * OP_DESTROY_CLIENTID
+ */
+static bool_t encode_op_destroy_clientid(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_destroy_clientid_args *args = (nfs41_destroy_clientid_args*)argop->arg;
+
+    if (unexpected_op(argop->op, OP_DESTROY_CLIENTID))
+        return FALSE;
+
+    return xdr_u_hyper(xdr, &args->dca_clientid);
+}
+
+static bool_t decode_op_destroy_clientid(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_destroy_clientid_res *res = (nfs41_destroy_clientid_res*)resop->res;
+
+    if (unexpected_op(resop->op, OP_DESTROY_CLIENTID))
+        return FALSE;
+
+    return xdr_u_int32_t(xdr, &res->dcr_status);
+}
+
 
 /*
  * OP_SEQUENCE
@@ -3171,7 +3198,7 @@ static const op_table_entry g_op_table[] = {
     { NULL, NULL }, /* OP_SET_SSV = 54 */
     { NULL, NULL }, /* OP_TEST_STATEID = 55 */
     { NULL, NULL }, /* OP_WANT_DELEGATION = 56 */
-    { NULL, NULL }, /* OP_DESTROY_CLIENTID = 57 */
+    { encode_op_destroy_clientid, decode_op_destroy_clientid }, /* OP_DESTROY_CLIENTID = 57 */
     { encode_op_reclaim_complete, decode_op_reclaim_complete }, /* OP_RECLAIM_COMPLETE = 58 */
 };
 static const uint32_t g_op_table_size = ARRAYSIZE(g_op_table);
