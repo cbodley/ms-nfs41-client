@@ -196,6 +196,32 @@ static void open_state_rename(
     ReleaseSRWLockExclusive(&state->path.lock);
 }
 
+static int nfs41_abs_path_compare(
+    IN const struct list_entry *entry,
+    IN const void *value)
+{
+    nfs41_open_state *client = list_container(entry, nfs41_open_state, client_entry);
+    const nfs41_abs_path *name = (const nfs41_abs_path *)value;
+    if (client->path.len == name->len && 
+            !strncmp(client->path.path, name->path, client->path.len))
+        return NO_ERROR;
+    return ERROR_FILE_NOT_FOUND;
+}
+
+static int is_dst_name_opened(nfs41_abs_path *dst_path, nfs41_session *dst_session)
+{
+    int status;
+    nfs41_client *client = dst_session->client;
+
+    EnterCriticalSection(&client->state.lock);
+    if (list_search(&client->state.opens, dst_path, nfs41_abs_path_compare))
+        status = TRUE;
+    else
+        status = FALSE;
+    LeaveCriticalSection(&client->state.lock);
+
+    return status;
+}
 static int handle_nfs41_rename(setattr_upcall_args *args)
 {
     nfs41_open_state *state = args->state;
@@ -291,6 +317,16 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
      * file system on the server." */
     if (state->parent.fh.superblock != dst_dir.fh.superblock) {
         status = ERROR_NOT_SAME_DEVICE;
+        goto out;
+    }
+
+    status = is_dst_name_opened(&dst_path, dst_session);
+    if (status) {
+        /* AGLO: 03/21/2011: we can't handle rename of a file with a filename 
+         * that is currently opened by this client
+         */
+        eprintf("handle_nfs41_rename: %s is opened\n", dst_path.path);
+        status = ERROR_FILE_EXISTS;
         goto out;
     }
 
