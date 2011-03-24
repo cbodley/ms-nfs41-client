@@ -60,7 +60,7 @@ xdr_rpc_sspi_init_args(XDR *xdrs, sspi_buffer_desc *p)
 	bool_t xdr_stat;
 
 	xdr_stat = xdr_bytes(xdrs, (char **)&p->value,
-                        (u_int *)&p->length, MAX_NETOBJ_SZ);
+                        (u_int *)&p->length, (u_int)(-1));
 
 	log_debug("xdr_rpc_gss_init_args: %s %s (token %p:%d)",
                 (xdrs->x_op == XDR_ENCODE) ? "encode" : "decode",
@@ -81,7 +81,7 @@ xdr_rpc_sspi_init_res(XDR *xdrs, struct rpc_sspi_init_res *p)
                 xdr_u_int(xdrs, &p->gr_minor) &&
                 xdr_u_int(xdrs, &p->gr_win) &&
                 xdr_bytes(xdrs, (char **)&p->gr_token.value,
-                (u_int *)&p->gr_token.length, MAX_NETOBJ_SZ));
+                (u_int *)&p->gr_token.length, (u_int)(-1)));
 
 	log_debug("xdr_rpc_gss_init_res %s %s "
                 "(ctx %p:%d, maj %d, min %d, win %d, token %p:%d)",
