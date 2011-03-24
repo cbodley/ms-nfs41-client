@@ -760,7 +760,7 @@ uint32_t sspi_wrap(PCtxtHandle ctx, u_int seq, sspi_buffer_desc *bufin,
     SecBuff[2].BufferType = SECBUFFER_PADDING;
     SecBuff[2].pvBuffer = malloc(ContextSizes.cbBlockSize);
 
-    maj_stat = EncryptMessage(ctx, ulQop, &BuffDesc, 0);
+    maj_stat = EncryptMessage(ctx, ulQop, &BuffDesc, seq);
     if (maj_stat != SEC_E_OK)
         goto out_free;
 
@@ -781,7 +781,7 @@ out:
     return maj_stat;
 }
 
-uint32_t sspi_unwrap(PCtxtHandle ctx, sspi_buffer_desc *bufin, 
+uint32_t sspi_unwrap(PCtxtHandle ctx, u_int seq, sspi_buffer_desc *bufin, 
                      sspi_buffer_desc *bufout, u_int *conf_state, 
                      u_int *qop_state)
 {
@@ -804,7 +804,7 @@ uint32_t sspi_unwrap(PCtxtHandle ctx, sspi_buffer_desc *bufin,
 
     log_hexdump(0, "cipher:", bufin->value, bufin->length, 0);
 
-    maj_stat = DecryptMessage(ctx, &BuffDesc, 0, &ulQop);
+    maj_stat = DecryptMessage(ctx, &BuffDesc, seq, &ulQop);
     if (maj_stat != SEC_E_OK) return maj_stat;
 
     bufout->length = SecBuff[1].cbBuffer;

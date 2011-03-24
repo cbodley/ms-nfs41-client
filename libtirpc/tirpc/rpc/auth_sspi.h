@@ -107,7 +107,7 @@ uint32_t sspi_verify_mic(void *ctx, u_int seq, sspi_buffer_desc *bufin,
                          sspi_buffer_desc *bufout, u_int *qop_state);
 uint32_t sspi_wrap(void *ctx, u_int seq, sspi_buffer_desc *bufin, 
                          sspi_buffer_desc *bufout, u_int *conf_state);
-uint32_t sspi_unwrap(void *ctx, sspi_buffer_desc *bufin, 
+uint32_t sspi_unwrap(void *ctx, u_int seq, sspi_buffer_desc *bufin, 
                      sspi_buffer_desc *bufout, u_int *conf_state, 
                      u_int *qop_state);
 void sspi_release_buffer(sspi_buffer_desc *buf);
