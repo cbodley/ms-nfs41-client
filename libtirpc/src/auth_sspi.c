@@ -122,8 +122,10 @@ authsspi_create(CLIENT *clnt, sspi_name_t name, struct rpc_sspi_sec *sec)
 	save_auth = clnt->cl_auth;
 	clnt->cl_auth = auth;
 
-	if (!authsspi_refresh(auth, NULL))
+	if (!authsspi_refresh(auth, NULL)) {
+        authsspi_destroy(auth);
 		auth = NULL;
+    }
 
 	clnt->cl_auth = save_auth;
 

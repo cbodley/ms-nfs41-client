@@ -633,6 +633,11 @@ call_again:
 		}
 	}  /* end successful completion */
 	else {
+		if (ct->reply_msg.acpted_rply.ar_verf.oa_base != NULL) {
+			xdrs->x_op = XDR_FREE;
+			(void)xdr_opaque_auth(xdrs,
+			    &(ct->reply_msg.acpted_rply.ar_verf));
+		}
 		/* maybe our credentials need to be refreshed ... */
 		if (refreshes-- && AUTH_REFRESH(cl->cl_auth, &ct->reply_msg))
 			goto call_again;
