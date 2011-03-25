@@ -122,10 +122,17 @@ out:
     return status;
 }
 
+static void cancel_mount(IN nfs41_upcall *upcall)
+{
+    mount_upcall_args *args = &upcall->args.mount;
+    nfs41_root_deref(args->root);
+}
+
 const nfs41_upcall_op nfs41_op_mount = {
     parse_mount,
     handle_mount,
-    marshall_mount
+    marshall_mount,
+    cancel_mount
 };
 
 
