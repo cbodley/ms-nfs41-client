@@ -170,12 +170,19 @@ typedef struct __nfs41_channel_attrs {
     uint32_t                *ca_rdma_ird;
 } nfs41_channel_attrs;
 
+struct replay_cache {
+    unsigned char buffer[NFS41_MAX_SERVER_CACHE];
+    uint32_t length;
+};
+
 typedef struct __nfs41_cb_session {
-    unsigned char cb_sessionid[NFS4_SESSIONID_SIZE];
+    struct {
+        struct replay_cache arg;
+        struct replay_cache res;
+    } replay;
+    const unsigned char *cb_sessionid; /* -> nfs41_session.session_id */
     uint32_t cb_seqnum;
     uint32_t cb_slotid;
-    bool_t cb_is_valid_state;
-    bool_t cb_cache_this;
 } nfs41_cb_session;
 
 typedef struct __nfs41_session {

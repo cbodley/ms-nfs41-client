@@ -94,7 +94,7 @@ static int set_back_channel_attrs(
     attrs->ca_headerpadsize = 0;
     attrs->ca_maxrequestsize = rpc->wsize;
     attrs->ca_maxresponsesize = rpc->rsize;
-    attrs->ca_maxresponsesize_cached = 0;
+    attrs->ca_maxresponsesize_cached = NFS41_MAX_SERVER_CACHE;
     attrs->ca_maxoperations = 0xffffffff;
     attrs->ca_maxrequests = max_req;
     attrs->ca_rdma_ird = NULL;

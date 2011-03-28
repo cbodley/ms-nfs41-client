@@ -172,7 +172,6 @@ static bool_t op_cb_sequence_args(XDR *xdr, struct cb_sequence_args *args)
 {
     bool_t result;
 
-    dprintf(1, "decoding sequence args\n");
     result = xdr_opaque(xdr, args->sessionid, NFS4_SESSIONID_SIZE);
     if (!result) { CBX_ERR("sequence_args.sessionid"); goto out; }
 
@@ -505,13 +504,12 @@ static const struct xdr_discrim cb_resop_discrim[] = {
 
 static bool_t cb_compound_resop(XDR *xdr, struct cb_resop *res)
 {
-    bool_t result;
-
-    result = xdr_union(xdr, &res->opnum, (char*)&res->res,
+    /* save xdr encode/decode status to see which operation failed */
+    res->xdr_ok = xdr_union(xdr, &res->opnum, (char*)&res->res,
         cb_resop_discrim, NULL_xdrproc_t);
-    if (!result) { CBX_ERR("resop.res"); goto out; }
+    if (!res->xdr_ok) { CBX_ERR("resop.res"); goto out; }
 out:
-    return result;
+    return res->xdr_ok;
 }
 
 bool_t proc_cb_compound_res(XDR *xdr, struct cb_compound_res *res)
@@ -532,8 +530,7 @@ bool_t proc_cb_compound_res(XDR *xdr, struct cb_compound_res *res)
         sizeof(struct cb_resop), (xdrproc_t)cb_compound_resop);
     if (!result) { CBX_ERR("compound_res.resarray"); goto out; }
 out:
-    free(res->resarray);
-    free(res);
-
+    if (xdr->x_op == XDR_FREE)
+        free(res);
     return result;
 }

@@ -25,9 +25,10 @@
 #include <process.h>
 #include <stdio.h>
 
-#include "daemon_debug.h"
 #include "nfs41_ops.h"
+#include "nfs41_callback.h"
 #include "util.h"
+#include "daemon_debug.h"
 
 
 /* session slot mechanism */
@@ -256,6 +257,9 @@ static int session_alloc(
 
     //initialize session lock
     InitializeSRWLock(&client->session_lock);
+
+    /* initialize the back channel */
+    nfs41_callback_session_init(session);
 
     *session_out = session;
 out:

@@ -267,8 +267,11 @@ process_rpc_call:
         reply_msg.acpted_rply.ar_results.where = NULL;
         reply_msg.acpted_rply.ar_results.proc = (xdrproc_t)xdr_void;
         xdr_replymsg(xdrs, &reply_msg);
-        if (!status)
-            (*cl->cb_xdr)(xdrs, res);
+        if (!status) {
+            (*cl->cb_xdr)(xdrs, res); /* encode the results */
+            xdrs->x_op = XDR_FREE;
+            (*cl->cb_xdr)(xdrs, res); /* free the results */
+        }
         if (! xdrrec_endofrecord(xdrs, 1)) {
             fprintf(stderr, "%04x: failed to send REPLY\n", GetCurrentThreadId());
         }

@@ -24,7 +24,6 @@
 #ifndef __NFS41_CALLBACK_H__
 #define __NFS41_CALLBACK_H__
 
-//#include "nfs41.h"
 #include "wintirpc.h"
 #include "rpc/rpc.h"
 #include "nfs41_types.h"
@@ -230,14 +229,16 @@ struct cb_compound_args {
 };
 
 union cb_op_res {
+    enum_t                  status; /* all results start with status */ 
     struct cb_layoutrecall_res layoutrecall;
     struct cb_recall_slot_res recall_slot;
     struct cb_sequence_res  sequence;
-    struct cb_recall_res  recall;
+    struct cb_recall_res    recall;
 };
 struct cb_resop {
     enum_t                  opnum;
     union cb_op_res         res;
+    bool_t                  xdr_ok;
 };
 struct cb_compound_res {
     enum_t                  status;
@@ -247,8 +248,13 @@ struct cb_compound_res {
 };
 
 
-
 /* callback_xdr.c */
 bool_t proc_cb_compound_args(XDR *xdr, struct cb_compound_args *args);
 bool_t proc_cb_compound_res(XDR *xdr, struct cb_compound_res *res);
+
+/* callback_server.c */
+struct __nfs41_session;
+void nfs41_callback_session_init(
+    IN struct __nfs41_session *session);
+
 #endif /* !__NFS41_CALLBACK_H__ */

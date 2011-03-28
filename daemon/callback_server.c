@@ -23,15 +23,45 @@
 #include <Windows.h>
 #include <strsafe.h>
 
-#include "nfs41.h"
 #include "nfs41_ops.h"
 #include "nfs41_callback.h"
 #include "daemon_debug.h"
+
 
 #define CBSLVL 2 /* dprintf level for callback server logging */
 
 
 static const char g_server_tag[] = "ms-nfs41-callback";
+
+
+/* callback session */
+static void replay_cache_write(
+    IN nfs41_cb_session *session,
+    IN struct cb_compound_args *args,
+    IN struct cb_compound_res *res,
+    IN bool_t cachethis);
+
+void nfs41_callback_session_init(
+    IN nfs41_session *session)
+{
+    struct cb_compound_res *res;
+
+    session->cb_session.cb_sessionid = session->session_id;
+
+    /* initialize the replay cache with status NFS4ERR_SEQ_MISORDERED */
+    res = calloc(1, sizeof(struct cb_compound_res));
+    if (res == NULL) {
+        /* don't need to return failure, just leave cb_replay_cached=0 */
+        return;
+    }
+
+    StringCchCopyA(res->tag.str, CB_COMPOUND_MAX_TAG, g_server_tag);
+    res->tag.len = sizeof(g_server_tag);
+    res->status = NFS4ERR_SEQ_MISORDERED;
+
+    replay_cache_write(&session->cb_session, NULL, res, FALSE);
+    free(res);
+}
 
 
 /* OP_CB_LAYOUTRECALL */
@@ -77,45 +107,22 @@ static enum_t handle_cb_recall_slot(
 static enum_t handle_cb_sequence(
     IN nfs41_rpc_clnt *rpc_clnt,
     IN struct cb_sequence_args *args,
-    OUT struct cb_sequence_res *res)
+    OUT struct cb_sequence_res *res,
+    OUT nfs41_cb_session **session_out,
+    OUT bool_t *cachethis)
 {
     nfs41_cb_session *cb_session = &rpc_clnt->client->session->cb_session;
     uint32_t status = NFS4_OK;
     res->status = NFS4_OK;
 
-    if (!cb_session->cb_is_valid_state) {
-        memcpy(cb_session->cb_sessionid, args->sessionid, NFS4_SESSIONID_SIZE);
-        if (args->sequenceid != 1) {
-            eprintf("[cb] 1st seq#=%d is not 1\n", args->sequenceid);
-            res->status = NFS4ERR_SEQ_MISORDERED;
-            goto out;
-        }
-        cb_session->cb_is_valid_state = TRUE;
-    } else {
-        if (memcmp(cb_session->cb_sessionid, args->sessionid,
-                NFS4_SESSIONID_SIZE)) {
-            eprintf("[cb] received sessionid doesn't match saved info\n");
-            print_hexbuf(1, (unsigned char *)"received sessionid", 
-                (unsigned char *)args->sessionid, NFS4_SESSIONID_SIZE);
-            print_hexbuf(1, (unsigned char *)"saved sessionid", 
-                cb_session->cb_sessionid, NFS4_SESSIONID_SIZE);
-            res->status = NFS4ERR_BADSESSION;
-            goto out;
-        }
-    }
+    *session_out = cb_session;
 
-    /* 20.9.3.: If the difference between csa_sequenceid and the client's 
-     * cachedsequence ID at the slot ID is two (2) or more, or if
-     * csa_sequenceid is less than the cached sequence ID (accounting for
-     * wraparound of the unsigned sequence ID value), then the client
-     * MUST return NFS4ERR_SEQ_MISORDERED.
-     */
-    if (args->sequenceid < cb_session->cb_seqnum ||
-        (args->sequenceid - cb_session->cb_seqnum >= 2)) {
-            eprintf("[cb] bad received seq#=%d, expected=%d\n", 
-                args->sequenceid, cb_session->cb_seqnum+1);
-            res->status = NFS4ERR_SEQ_MISORDERED;
-            goto out;
+    /* validate the sessionid */
+    if (memcmp(cb_session->cb_sessionid, args->sessionid,
+            NFS4_SESSIONID_SIZE)) {
+        eprintf("[cb] received sessionid doesn't match session\n");
+        res->status = NFS4ERR_BADSESSION;
+        goto out;
     }
 
     /* we only support 1 slot for the back channel so slotid MUST be 0 */
@@ -131,23 +138,30 @@ static enum_t handle_cb_sequence(
         goto out;
     }
 
+    /* check for a retry with the same seqid */
     if (args->sequenceid == cb_session->cb_seqnum) {
-        // check if the request is same as the original, if different need
-        // to return NFS4ERR_SEQ_FALSE_RETRY
-        if (!cb_session->cb_cache_this) { 
+        if (!cb_session->replay.res.length) {
+            /* return success for sequence, but fail the next operation */
             res->status = NFS4_OK;
             status = NFS4ERR_RETRY_UNCACHED_REP;
-            goto out;
         } else {
-            res->status = NFS4ERR_REP_TOO_BIG_TO_CACHE;
-            goto out;
+            /* return NFS4ERR_SEQ_FALSE_RETRY for all replays; if the retry
+             * turns out to be valid, this response will be replaced anyway */
+            status = res->status = NFS4ERR_SEQ_FALSE_RETRY;
         }
+        goto out;
     }
-    if (cb_session->cb_seqnum + 1 == 0)
-        cb_session->cb_seqnum = 0;
-    else
-        cb_session->cb_seqnum = args->sequenceid;
-    cb_session->cb_cache_this = args->cachethis;
+
+    /* error on any unexpected seqids */
+    if (args->sequenceid != cb_session->cb_seqnum+1) {
+        eprintf("[cb] bad received seq#=%d, expected=%d\n", 
+            args->sequenceid, cb_session->cb_seqnum+1);
+        res->status = NFS4ERR_SEQ_MISORDERED;
+        goto out;
+    }
+
+    cb_session->cb_seqnum = args->sequenceid;
+    *cachethis = args->cachethis;
 
     memcpy(res->ok.sessionid, args->sessionid, NFS4_SESSIONID_SIZE);
     res->ok.sequenceid = args->sequenceid;
@@ -205,14 +219,14 @@ static enum_t handle_cb_recall(
     dprintf(CBSLVL, "OP_CB_RECALL\n");
     cb_args = calloc(1, sizeof(nfs41_cb_recall));
     if (cb_args == NULL) {
-        res->status = NFS4ERR_RESOURCE;
+        res->status = NFS4ERR_SERVERFAULT;
         goto out;
     }
     cb_args->rpc_clnt = rpc_clnt;
     cb_args->args = calloc(1, sizeof(struct cb_recall_args));
     if (cb_args->args == NULL) {
         free(cb_args);
-        res->status = NFS4ERR_RESOURCE;
+        res->status = NFS4ERR_SERVERFAULT;
         goto out;
     }
     memcpy(cb_args->args, args, sizeof(struct cb_recall_args));
@@ -222,13 +236,154 @@ static enum_t handle_cb_recall(
             status);
         free(cb_args->args);
         free(cb_args);
-        res->status = NFS4ERR_RESOURCE;
+        res->status = NFS4ERR_SERVERFAULT;
         goto out;
     }
     nfs41_root_ref(rpc_clnt->client->root);
 
 out:
     return res->status;
+}
+
+static void replay_cache_write(
+    IN nfs41_cb_session *session,
+    IN OPTIONAL struct cb_compound_args *args,
+    IN struct cb_compound_res *res,
+    IN bool_t cachethis)
+{
+    XDR xdr;
+    uint32_t i;
+
+    session->replay.arg.length = 0;
+    session->replay.res.length = 0;
+
+    /* encode the reply directly into the replay cache */
+    xdrmem_create(&xdr, (char*)session->replay.res.buffer,
+        NFS41_MAX_SERVER_CACHE, XDR_ENCODE);
+
+    /* always try to cache the result */
+    if (proc_cb_compound_res(&xdr, res)) {
+        session->replay.res.length = XDR_GETPOS(&xdr);
+
+        if (args) {
+            /* encode the arguments into the request cache */
+            xdrmem_create(&xdr, (char*)session->replay.arg.buffer,
+                NFS41_MAX_SERVER_CACHE, XDR_ENCODE);
+
+            if (proc_cb_compound_args(&xdr, args))
+                session->replay.arg.length = XDR_GETPOS(&xdr);
+        }
+    } else if (cachethis) {
+        /* on failure, only return errors if caching was requested */
+        res->status = NFS4ERR_REP_TOO_BIG_TO_CACHE;
+
+        /* find the first operation that failed to encode */
+        for (i = 0; i < res->resarray_count; i++) {
+            if (!res->resarray[i].xdr_ok) {
+                res->resarray[i].res.status = NFS4ERR_REP_TOO_BIG_TO_CACHE;
+                res->resarray_count = i + 1;
+                break;
+            }
+        }
+    }
+}
+
+static bool_t replay_validate_args(
+    IN struct cb_compound_args *args,
+    IN const struct replay_cache *cache)
+{
+    char buffer[NFS41_MAX_SERVER_CACHE];
+    XDR xdr;
+
+    /* encode the current arguments into a temporary buffer */
+    xdrmem_create(&xdr, buffer, NFS41_MAX_SERVER_CACHE, XDR_ENCODE);
+
+    if (!proc_cb_compound_args(&xdr, args))
+        return FALSE;
+
+    /* must match the cached length */
+    if (XDR_GETPOS(&xdr) != cache->length)
+        return FALSE;
+
+    /* must match the cached buffer contents */
+    return memcmp(cache->buffer, buffer, cache->length) == 0;
+}
+
+static bool_t replay_validate_ops(
+    IN const struct cb_compound_args *args,
+    IN const struct cb_compound_res *res)
+{
+    uint32_t i;
+    for (i = 0; i < res->resarray_count; i++) {
+        /* can't have more operations than the request */
+        if (i >= args->argarray_count)
+            return FALSE;
+
+        /* each opnum must match the request */
+        if (args->argarray[i].opnum != res->resarray[i].opnum)
+            return FALSE;
+
+        if (res->resarray[i].res.status)
+            break;
+    }
+    return TRUE;
+}
+
+static int replay_cache_read(
+    IN nfs41_cb_session *session,
+    IN struct cb_compound_args *args,
+    OUT struct cb_compound_res **res_out)
+{
+    XDR xdr;
+    struct cb_compound_res *replay;
+    struct cb_compound_res *res = *res_out;
+    uint32_t status = NFS4_OK;
+
+    replay = calloc(1, sizeof(struct cb_compound_res));
+    if (replay == NULL) {
+        eprintf("[cb] failed to allocate replay buffer\n");
+        status = NFS4ERR_SERVERFAULT;
+        goto out;
+    }
+
+    /* decode the response from the replay cache */
+    xdrmem_create(&xdr, (char*)session->replay.res.buffer,
+        NFS41_MAX_SERVER_CACHE, XDR_DECODE);
+    if (!proc_cb_compound_res(&xdr, replay)) {
+        eprintf("[cb] failed to decode replay buffer\n");
+        status = NFS4ERR_SEQ_FALSE_RETRY;
+        goto out_free_replay;
+    }
+
+    /* if we cached the arguments, use them to validate the retry */
+    if (session->replay.arg.length) {
+        if (!replay_validate_args(args, &session->replay.arg)) {
+            eprintf("[cb] retry attempt with different arguments\n");
+            status = NFS4ERR_SEQ_FALSE_RETRY;
+            goto out_free_replay;
+        }
+    } else { /* otherwise, comparing opnums is the best we can do */
+        if (!replay_validate_ops(args, replay)) {
+            eprintf("[cb] retry attempt with different operations\n");
+            status = NFS4ERR_SEQ_FALSE_RETRY;
+            goto out_free_replay;
+        }
+    }
+
+    /* free previous response and replace it with the replay */
+    xdr.x_op = XDR_FREE;
+    proc_cb_compound_res(&xdr, res);
+
+    dprintf(2, "[cb] retry: returning cached response\n");
+
+    *res_out = replay;
+out:
+    return status;
+
+out_free_replay:
+    xdr.x_op = XDR_FREE;
+    proc_cb_compound_res(&xdr, replay);
+    goto out;
 }
 
 /* CB_COMPOUND */
@@ -239,6 +394,8 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
     struct cb_argop *argop;
     struct cb_resop *resop;
     XDR *xdr = (XDR*)req->xdr;
+    nfs41_cb_session *session = NULL;
+    bool_t cachethis = FALSE;
     uint32_t i, status = NFS4_OK;
 
     dprintf(CBSLVL, "--> handle_cb_compound()\n");
@@ -252,7 +409,7 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
     /* allocate the compound results */
     res = calloc(1, sizeof(struct cb_compound_res));
     if (res == NULL) {
-        status = NFS4ERR_RESOURCE;
+        status = NFS4ERR_SERVERFAULT;
         goto out;
     }
     res->status = status;
@@ -261,7 +418,7 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
     res->tag.len = (uint32_t)strlen(res->tag.str);
     res->resarray = calloc(args.argarray_count, sizeof(struct cb_resop));
     if (res->resarray == NULL) {
-        res->status = NFS4ERR_RESOURCE;
+        res->status = NFS4ERR_SERVERFAULT;
         goto out;
     }
 
@@ -276,6 +433,8 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
     for (i = 0; i < args.argarray_count && res->status == NFS4_OK; i++) {
         argop = &args.argarray[i];
         resop = &res->resarray[i];
+        resop->opnum = argop->opnum;
+        res->resarray_count++;
 
         /* 20.9.3: The error NFS4ERR_SEQUENCE_POS MUST be returned
          * when CB_SEQUENCE is found in any position in a CB_COMPOUND 
@@ -284,16 +443,15 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
          * be returned.
          */
         if (i == 0 && argop->opnum != OP_CB_SEQUENCE) {
-            res->status = NFS4ERR_OP_NOT_IN_SESSION;
-            goto out;
+            res->status = resop->res.status = NFS4ERR_OP_NOT_IN_SESSION;
+            break;
         }
         if (i != 0 && argop->opnum == OP_CB_SEQUENCE) {
-            res->status = NFS4ERR_SEQUENCE_POS;
-            goto out;
+            res->status = resop->res.status = NFS4ERR_SEQUENCE_POS;
+            break;
         }
-        resop->opnum = argop->opnum;
         if (status == NFS4ERR_RETRY_UNCACHED_REP) {
-            res->status = status;
+            res->status = resop->res.status = status;
             break;
         }
 
@@ -311,8 +469,16 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
         case OP_CB_SEQUENCE:
             dprintf(1, "OP_CB_SEQUENCE\n");
             status = handle_cb_sequence(rpc_clnt, &argop->args.sequence,
-                &resop->res.sequence);
-            if (status == NFS4_OK) 
+                &resop->res.sequence, &session, &cachethis);
+
+            if (status == NFS4ERR_SEQ_FALSE_RETRY) {
+                /* replace the current results with the cached response */
+                status = replay_cache_read(session, &args, &res);
+                if (status) res->status = status;
+                goto out;
+            }
+
+            if (status == NFS4_OK)
                 res->status = resop->res.sequence.status;
             break;
         case OP_CB_GETATTR:
@@ -359,11 +525,13 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
         default:
             eprintf("operation %u not supported\n", argop->opnum);
             res->status = NFS4ERR_NOTSUPP;
-            goto out;
+            break;
         }
-
-        res->resarray_count++;
     }
+
+    /* always attempt to cache the reply */
+    if (session)
+        replay_cache_write(session, &args, res, cachethis);
 out:
     /* free the arguments */
     xdr->x_op = XDR_FREE;
