@@ -1124,11 +1124,11 @@ NTSTATUS marshal_nfs41_getacl(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.Volume.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->u.QueryAcl.session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Volume.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->u.QueryAcl.open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(SECURITY_INFORMATION));
+    RtlCopyMemory(tmp, &entry->u.QueryAcl.query, sizeof(SECURITY_INFORMATION));
     *len = header_len;
 
     DbgP("session=0x%x open_state=0x%x query=%d\n", entry->u.QueryAcl.session, 
