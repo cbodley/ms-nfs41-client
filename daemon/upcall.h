@@ -96,6 +96,7 @@ typedef struct __getattr_upcall_args {
     FILE_BASIC_INFO basic_info;
     FILE_STANDARD_INFO std_info;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
+    FILE_INTERNAL_INFORMATION intr_info;
     nfs41_root *root;
     nfs41_open_state *state;
     int query_class;

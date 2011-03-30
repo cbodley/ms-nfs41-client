@@ -146,7 +146,7 @@ static void readdir_copy_dir_info(
     IN nfs41_readdir_entry *entry,
     IN PFILE_DIR_INFO_UNION info)
 {
-    info->fdi.FileIndex = 0;
+    info->fdi.FileIndex = entry->attr_info.fileid;
     nfs_time_to_file_time(&entry->attr_info.time_create,
         &info->fdi.CreationTime);
     nfs_time_to_file_time(&entry->attr_info.time_access,

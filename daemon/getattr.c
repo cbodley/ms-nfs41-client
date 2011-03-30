@@ -116,6 +116,9 @@ static int handle_getattr(nfs41_upcall *upcall)
         args->tag_info.ReparseTag = info.type == NF4LNK ?
             IO_REPARSE_TAG_SYMLINK : 0;
         break;
+    case FileInternalInformation:
+        args->intr_info.IndexNumber.QuadPart = info.fileid;
+        break;
     default:
         eprintf("unhandled file query class %d\n", args->query_class);
         status = ERROR_INVALID_PARAMETER;
@@ -151,6 +154,13 @@ static int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcal
         status = safe_write(&buffer, length, &info_len, sizeof(info_len));
         if (status) goto out;
         status = safe_write(&buffer, length, &args->tag_info, info_len);
+        if (status) goto out;
+        break;
+    case FileInternalInformation:
+        info_len = sizeof(args->intr_info);
+        status = safe_write(&buffer, length, &info_len, sizeof(info_len));
+        if (status) goto out;
+        status = safe_write(&buffer, length, &args->intr_info, info_len);
         if (status) goto out;
         break;
     default:

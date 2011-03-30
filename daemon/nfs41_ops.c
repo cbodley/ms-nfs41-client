@@ -318,7 +318,7 @@ int nfs41_open(
         info = &tmp_info;
 
     init_getattr_request(&attr_request);
-    attr_request.arr[0] |= FATTR4_WORD0_FSID | FATTR4_WORD0_FILEID;
+    attr_request.arr[0] |= FATTR4_WORD0_FSID;
 
     compound_init(&compound, argops, resops, "open");
 
@@ -521,7 +521,6 @@ int nfs41_create(
     nfs41_restorefh_res restorefh_res;
 
     init_getattr_request(&attr_request);
-    attr_request.arr[0] |= FATTR4_WORD0_FILEID;
 
     compound_init(&compound, argops, resops, "create");
 
@@ -1029,7 +1028,7 @@ void init_getattr_request(bitmap4 *attr_request)
 {
     attr_request->count = 2;
     attr_request->arr[0] = FATTR4_WORD0_TYPE |
-        FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE;
+        FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE | FATTR4_WORD0_FILEID;
     attr_request->arr[1] = FATTR4_WORD1_NUMLINKS |
         FATTR4_WORD1_TIME_ACCESS | FATTR4_WORD1_TIME_CREATE |
         FATTR4_WORD1_TIME_MODIFY | FATTR4_WORD1_MODE |
@@ -1338,9 +1337,8 @@ int nfs41_link(
 
     ZeroMemory(&info, sizeof(info));
     init_getattr_request(&info[0].attrmask);
-    info[0].attrmask.arr[0] |= FATTR4_WORD0_FILEID;
     init_getattr_request(&info[1].attrmask);
-    info[1].attrmask.arr[0] |= FATTR4_WORD0_FILEID | FATTR4_WORD0_FSID;
+    info[1].attrmask.arr[0] |= FATTR4_WORD0_FSID;
 
     compound_init(&compound, argops, resops, "link");
 

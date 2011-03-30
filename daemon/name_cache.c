@@ -294,6 +294,7 @@ static void copy_attrs(
     dst->type = src->type;
     dst->numlinks = src->numlinks;
     dst->mode = src->mode;
+    dst->fileid = src->fileid;
 }
 
 

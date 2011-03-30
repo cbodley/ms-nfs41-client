@@ -3881,15 +3881,6 @@ NTSTATUS nfs41_QueryFileInformation (
 
     DbgEn();
     switch (InfoClass) {
-    case FileInternalInformation: 
-    {
-        PFILE_INTERNAL_INFORMATION info = 
-            (PFILE_INTERNAL_INFORMATION)RxContext->Info.Buffer;
-        info->IndexNumber.QuadPart = 0;
-        RxContext->Info.LengthRemaining -= sizeof(FILE_INTERNAL_INFORMATION);
-        status = STATUS_SUCCESS;
-        goto out;
-    }
     case FileEaInformation:
     {
         PFILE_EA_INFORMATION info =
@@ -3922,6 +3913,7 @@ NTSTATUS nfs41_QueryFileInformation (
     case FileBasicInformation:
     case FileStandardInformation:
 #endif
+    case FileInternalInformation: 
     case FileAttributeTagInformation:
         break;
     default:
