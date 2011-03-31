@@ -29,6 +29,7 @@
 #include "daemon_debug.h"
 #include "util.h"
 #include "upcall.h"
+#include "nfs41_xdr.h"
 
 static int parse_getacl(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
@@ -153,6 +154,14 @@ static int handle_getacl(nfs41_upcall *upcall)
     // need to cache owner/group information XX
     ZeroMemory(&info, sizeof(info));
     init_getattr_request(&attr_request);
+    if (args->query & DACL_SECURITY_INFORMATION) {
+        info.acl = calloc(1, sizeof(nfsacl41));
+        if (info.acl == NULL) {
+            status = GetLastError();
+            goto out;
+        }
+        attr_request.arr[0] |= FATTR4_WORD0_ACL;
+    }
     status = nfs41_getattr(state->session, &state->file, &attr_request, &info);
     if (status) {
         eprintf("nfs41_cached_getattr() failed with %d\n", status);
@@ -183,6 +192,10 @@ static int handle_getacl(nfs41_upcall *upcall)
         dprintf(1, "handle_getacl: SACL_SECURITY_INFORMATION\n");
 
 out:
+    if (args->query & DACL_SECURITY_INFORMATION) {
+        nfsacl41_free(info.acl);
+        free(info.acl);
+    }
     return status;
 }
 
