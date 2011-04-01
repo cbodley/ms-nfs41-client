@@ -122,10 +122,8 @@ authsspi_create(CLIENT *clnt, sspi_name_t name, struct rpc_sspi_sec *sec)
 	save_auth = clnt->cl_auth;
 	clnt->cl_auth = auth;
 
-	if (!authsspi_refresh(auth, NULL)) {
-        authsspi_destroy(auth);
+	if (!authsspi_refresh(auth, NULL))
 		auth = NULL;
-    }
 
 	clnt->cl_auth = save_auth;
 
@@ -513,7 +511,7 @@ authsspi_refresh(AUTH *auth, void *tmp)
 					gd->established = FALSE;
 					authsspi_destroy_context(auth);
 				}
-				return (FALSE);
+				break;
 			}
 			gd->established = TRUE;
 			gd->gc.gc_proc = RPCSEC_SSPI_DATA;
