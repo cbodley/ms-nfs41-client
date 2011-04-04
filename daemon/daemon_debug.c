@@ -109,6 +109,20 @@ void print_hexbuf(int level, unsigned char *title, unsigned char *buf, int len)
     fprintf(dlog_file, "\n");
 }
 
+void print_hexbuf_no_asci(int level, unsigned char *title, unsigned char *buf, int len) 
+{
+    int j, k;
+    if (level > g_debug_level) return;
+    fprintf(dlog_file, "%s", title);
+    for(j = 0, k = 0; j < len; j++, k++) {
+        fprintf(dlog_file, "%02x ", buf[j]);
+        if (((k+1) % 10 == 0 && k > 0)) {
+            fprintf(dlog_file, "\n");
+        }
+    }
+    fprintf(dlog_file, "\n");
+}
+
 void print_create_attributes(int level, DWORD create_opts) {
     if (level > g_debug_level) return;
     fprintf(dlog_file, "create attributes: ");

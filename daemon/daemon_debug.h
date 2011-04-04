@@ -41,6 +41,7 @@ void set_debug_level(int level);
 void dprintf(int level, LPCSTR format, ...);
 void eprintf(LPCSTR format, ...);
 
+void print_hexbuf_no_asci(int on, unsigned char *title, unsigned char *buf, int len);
 void print_hexbuf(int level, unsigned char *title, unsigned char *buf, int len);
 void print_create_attributes(int level, DWORD create_opts);
 void print_disposition(int level, DWORD disposition);
