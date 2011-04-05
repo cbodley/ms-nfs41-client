@@ -166,6 +166,13 @@ typedef struct __getacl_upcall_args {
     DWORD gsid_len;
 } getacl_upcall_args;
 
+typedef struct __setacl_upcall_args {
+    nfs41_root *root;
+    nfs41_open_state *state;
+    SECURITY_INFORMATION query;
+    PSECURITY_DESCRIPTOR sec_desc;
+} setacl_upcall_args;
+
 typedef union __upcall_args {
     mount_upcall_args       mount;
     unmount_upcall_args     unmount;
@@ -181,6 +188,7 @@ typedef union __upcall_args {
     symlink_upcall_args     symlink;
     volume_upcall_args      volume;
     getacl_upcall_args      getacl;
+    setacl_upcall_args      setacl;
 } upcall_args;
 
 typedef struct __nfs41_upcall {

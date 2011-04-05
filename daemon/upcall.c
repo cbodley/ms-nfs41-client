@@ -46,6 +46,7 @@ extern const nfs41_upcall_op nfs41_op_setexattr;
 extern const nfs41_upcall_op nfs41_op_symlink;
 extern const nfs41_upcall_op nfs41_op_volume;
 extern const nfs41_upcall_op nfs41_op_getacl;
+extern const nfs41_upcall_op nfs41_op_setacl;
 
 static const nfs41_upcall_op *g_upcall_op_table[] = {
     &nfs41_op_mount,
@@ -63,6 +64,7 @@ static const nfs41_upcall_op *g_upcall_op_table[] = {
     &nfs41_op_symlink,
     &nfs41_op_volume,
     &nfs41_op_getacl,
+    &nfs41_op_setacl,
     NULL,
     NULL
 };

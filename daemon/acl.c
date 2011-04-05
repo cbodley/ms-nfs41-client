@@ -243,3 +243,422 @@ const nfs41_upcall_op nfs41_op_getacl = {
     handle_getacl,
     marshall_getacl
 };
+
+static int parse_setacl(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
+{
+    int status;
+    setacl_upcall_args *args = &upcall->args.setacl;
+    ULONG sec_desc_len;
+
+    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
+    if (status) goto out;
+    upcall_root_ref(upcall, args->root);
+    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
+    if (status) goto out;
+    upcall_open_state_ref(upcall, args->state);
+    status = safe_read(&buffer, &length, &args->query, sizeof(args->query));
+    if (status) goto out;
+    status = safe_read(&buffer, &length, &sec_desc_len, sizeof(ULONG));
+    if (status) goto out;
+    args->sec_desc = malloc(sec_desc_len);
+    if (args->sec_desc == NULL) {
+        status = GetLastError();
+        goto out;
+    }
+    status = safe_read(&buffer, &length, args->sec_desc, sec_desc_len);
+    if (status) goto out_free;
+    status = IsValidSecurityDescriptor(args->sec_desc);
+    if (!status) {
+        eprintf("parse_setacl: received invalid security descriptor\n");
+        status = ERROR_INVALID_PARAMETER;
+        goto out_free;
+    } else status = 0;
+
+    dprintf(1, "parsing NFS41_ACL_SET: info_class=%d root=0x%p open_state=0x%p "
+        "sec_desc_len=%d\n", args->query, args->root, args->state, sec_desc_len);
+out:
+    return status;
+out_free:
+    free(args->sec_desc);
+    goto out;
+}
+
+static int is_well_known_sid(PSID sid, char *who) 
+{
+    int status, i;
+    for (i = 0; i < 78; i++) {
+        status = IsWellKnownSid(sid, (WELL_KNOWN_SID_TYPE)i);
+        if (!status) continue;
+        else {
+            dprintf(1, "WELL_KNOWN_SID_TYPE %d\n", i);
+            switch((WELL_KNOWN_SID_TYPE)i) {
+            case WinCreatorOwnerSid:
+                memcpy(who, ACE4_OWNER, strlen(ACE4_OWNER)+1); return TRUE;
+            case WinNullSid:
+                memcpy(who, ACE4_NOBODY, strlen(ACE4_NOBODY)+1); return TRUE;
+            case WinAnonymousSid:
+                memcpy(who, ACE4_ANONYMOUS, strlen(ACE4_ANONYMOUS)+1); return TRUE;
+            case WinWorldSid:
+                memcpy(who, ACE4_EVERYONE, strlen(ACE4_EVERYONE)+1); return TRUE;
+            case WinCreatorGroupSid:
+            case WinBuiltinUsersSid:
+                memcpy(who, ACE4_GROUP, strlen(ACE4_GROUP)+1); return TRUE;
+            case WinAuthenticatedUserSid:
+                memcpy(who, ACE4_AUTHENTICATED, strlen(ACE4_AUTHENTICATED)+1); return TRUE;
+            case WinDialupSid:
+                memcpy(who, ACE4_DIALUP, strlen(ACE4_DIALUP)+1); return TRUE;
+            case WinNetworkSid:
+                memcpy(who, ACE4_NETWORK, strlen(ACE4_NETWORK)+1); return TRUE;
+            case WinBatchSid:
+                memcpy(who, ACE4_BATCH, strlen(ACE4_BATCH)+1); return TRUE;
+            case WinInteractiveSid:
+                memcpy(who, ACE4_INTERACTIVE, strlen(ACE4_INTERACTIVE)+1); return TRUE;
+            case WinNetworkServiceSid:
+            case WinLocalServiceSid:
+            case WinServiceSid:
+                memcpy(who, ACE4_SERVICE, strlen(ACE4_SERVICE)+1); return TRUE;
+            default: return FALSE;
+            }
+        }
+    }
+    return FALSE;
+}
+
+static void map_aceflags(BYTE win_aceflags, uint32_t *nfs4_aceflags)
+{
+    if (win_aceflags & OBJECT_INHERIT_ACE)
+        *nfs4_aceflags |= ACE4_FILE_INHERIT_ACE;
+    if (win_aceflags & CONTAINER_INHERIT_ACE)
+        *nfs4_aceflags |= ACE4_FILE_INHERIT_ACE;
+    if (win_aceflags & NO_PROPAGATE_INHERIT_ACE)
+        *nfs4_aceflags |= ACE4_NO_PROPAGATE_INHERIT_ACE;
+    if (win_aceflags & INHERIT_ONLY_ACE)
+        *nfs4_aceflags |= ACE4_INHERIT_ONLY_ACE;
+    if (win_aceflags & INHERITED_ACE)
+        *nfs4_aceflags |= ACE4_INHERITED_ACE;
+    dprintf(1, "ACE FLAGS: %x nfs4 aceflags %x\n", win_aceflags, *nfs4_aceflags);
+}
+
+static void set_ace4_read_data(ACCESS_MASK mask, int file_type, uint32_t *nfs4_mask)
+{
+    /* excluding STANDARD_RIGHTS_READ . winnt.h defines that as read_control which is acl/owner */
+    /* excluding STANDARD_RIGHTS_REQUIRED, STANDARD_RIGHTS_ALL, SPECIFIC_RIGHTS_ALL,
+     * FILE_GENERIC_READ, FILE_ALL_ACCESS */
+    if (mask & FILE_READ_DATA || mask & GENERIC_READ || mask & GENERIC_ALL /*|| 
+            (mask & FILE_GENERIC_READ || mask & FILE_ALL_ACCESS)*/)
+        *nfs4_mask |= ACE4_READ_DATA;
+}
+
+static void set_ace4_list_directory(ACCESS_MASK mask, int file_type, uint32_t *nfs4_mask)
+{
+    if (file_type == NF4DIR && (mask & FILE_TRAVERSE))
+        *nfs4_mask |= ACE4_LIST_DIRECTORY;
+}
+
+static void set_ace4_writeappend_data(ACCESS_MASK mask, int file_type, uint32_t *nfs4_mask)
+{
+    /* excluding STANDARD_RIGHTS_WRITE . winnt.h defines that as read_control which is acl/owner */
+    /* excluding STANDARD_RIGHTS_REQUIRED, STANDARD_RIGHTS_ALL and SPECIFIC_RIGHTS_ALL,
+     * FILE_GENERIC_WRITE, FILE_ALL_ACCESS NEED IT ???*/
+    if (mask & FILE_WRITE_DATA || mask & GENERIC_WRITE
+        || mask & GENERIC_ALL || mask & FILE_APPEND_DATA ||
+            (mask & FILE_GENERIC_WRITE /*|| mask & FILE_ALL_ACCESS*/))
+        *nfs4_mask |= ACE4_WRITE_DATA | ACE4_APPEND_DATA;
+}
+
+static void set_ace4_read_named_attributes(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_GENERIC_READ, FILE_ALL_ACCESS, GENERIC_ALL */
+    if (mask & FILE_READ_EA /*||
+            (mask & FILE_GENERIC_READ || mask & FILE_ALL_ACCESS || mask & GENERIC_ALL)*/)
+        *nfs4_mask |= ACE4_READ_NAMED_ATTRS;
+}
+
+static void set_ace4_write_named_attributes(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_GENERIC_WRITE, FILE_ALL_ACCESS, GENERIC_ALL */
+    if (mask & FILE_WRITE_EA /*||
+            (mask & FILE_GENERIC_WRITE || mask & FILE_ALL_ACCESS || mask & GENERIC_ALL)*/)
+        *nfs4_mask |= ACE4_WRITE_NAMED_ATTRS;
+}
+
+static void set_ace4_execute(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding STANDARD_RIGHTS_EXECUTE . winnt.h defines that as read_control which is acl/owner */
+    /* excluding STANDARD_RIGHTS_REQUIRED, STANDARD_RIGHTS_ALL and SPECIFIC_RIGHTS_ALL,
+     * FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS NEED IT ???*/
+    if (mask & FILE_EXECUTE || mask & GENERIC_EXECUTE || mask & GENERIC_ALL ||
+            (mask & FILE_GENERIC_EXECUTE || mask & FILE_ALL_ACCESS))
+        *nfs4_mask |= ACE4_EXECUTE;
+}
+
+static void set_ace4_delete(ACCESS_MASK mask, int file_type, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_ALL_ACCESS, GENERIC_ALL */
+    if (mask & FILE_DELETE_CHILD || mask & DELETE || 
+            mask & STANDARD_RIGHTS_REQUIRED || mask & STANDARD_RIGHTS_ALL || 
+            mask & SPECIFIC_RIGHTS_ALL)
+        if (file_type == NF4DIR)
+            *nfs4_mask |= ACE4_DELETE_CHILD;
+        else
+            *nfs4_mask |= ACE4_DELETE;
+}
+
+static void set_ace4_read_attributes(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding STANDARD_RIGHTS_REQUIRED, STANDARD_RIGHTS_ALL and SPECIFIC_RIGHTS_ALL,
+     * FILE_GENERIC_READ, FILE_ALL_ACCESS, GENERIC_ALL*/
+    if (mask & FILE_READ_ATTRIBUTES)
+        *nfs4_mask |= ACE4_READ_ATTRIBUTES;
+}
+
+static void set_ace4_write_attributes(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding STANDARD_RIGHTS_REQUIRED, STANDARD_RIGHTS_ALL and SPECIFIC_RIGHTS_ALL,
+     * FILE_GENERIC_WRITE, FILE_ALL_ACCESS, GENERIC_ALL*/
+    if (mask & FILE_WRITE_ATTRIBUTES)
+        *nfs4_mask |= ACE4_WRITE_ATTRIBUTES;
+}
+
+static void set_ace4_read_acl(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_ALL_ACCESS */
+    if (mask & READ_CONTROL || mask & STANDARD_RIGHTS_READ || 
+            mask & STANDARD_RIGHTS_ALL || mask & SPECIFIC_RIGHTS_ALL || 
+            mask & STANDARD_RIGHTS_REQUIRED)
+        *nfs4_mask |= ACE4_READ_ACL;
+}
+
+static void set_ace4_write_acl(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_ALL_ACCESS */
+    if (mask & WRITE_DAC || mask & STANDARD_RIGHTS_WRITE || 
+            mask & STANDARD_RIGHTS_ALL || mask & SPECIFIC_RIGHTS_ALL || 
+            mask & STANDARD_RIGHTS_REQUIRED)
+        *nfs4_mask |= ACE4_WRITE_ACL;
+}
+
+static void set_ace4_write_owner(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_ALL_ACCESS */
+    if (mask & WRITE_OWNER || mask & STANDARD_RIGHTS_WRITE || 
+            mask & STANDARD_RIGHTS_ALL || mask & SPECIFIC_RIGHTS_ALL || 
+            mask & STANDARD_RIGHTS_REQUIRED)
+        *nfs4_mask |= ACE4_WRITE_OWNER;
+}
+
+static void set_ace4_synchronize(ACCESS_MASK mask, uint32_t *nfs4_mask)
+{
+    /* excluding FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, 
+     * FILE_ALL_ACCESS */
+    if (mask & SYNCHRONIZE || mask & STANDARD_RIGHTS_ALL || 
+            mask & SPECIFIC_RIGHTS_ALL)
+        *nfs4_mask |= ACE4_SYNCHRONIZE;
+}
+
+static void map_acemask(ACCESS_MASK mask, int file_type, uint32_t *nfs4_mask)
+{
+    /* 03/31/2011 NOT HANDLING LINKS */
+    print_windows_access_mask(mask);
+
+    set_ace4_read_data(mask, file_type, nfs4_mask);
+    set_ace4_list_directory(mask, file_type, nfs4_mask);
+    set_ace4_writeappend_data(mask, file_type, nfs4_mask);
+    set_ace4_read_named_attributes(mask, nfs4_mask);
+    set_ace4_write_named_attributes(mask, nfs4_mask);
+    set_ace4_execute(mask, nfs4_mask);
+    set_ace4_delete(mask, file_type, nfs4_mask);
+    set_ace4_read_attributes(mask, nfs4_mask);
+    set_ace4_write_attributes(mask, nfs4_mask);
+    set_ace4_read_acl(mask, nfs4_mask);
+    set_ace4_write_acl(mask, nfs4_mask);
+    set_ace4_write_owner(mask, nfs4_mask);
+    set_ace4_synchronize(mask, nfs4_mask);
+
+    dprintf(1, "ACCESS MASK %d object type=%d nfs4 mask %x\n", 
+            mask, file_type, *nfs4_mask);
+    print_nfs_access_mask(*nfs4_mask);
+}
+
+static int map_who(PSID sid, char *who_out)
+{
+    int status = ERROR_INTERNAL_ERROR;
+    DWORD size = 0, tmp_size = 0;
+    SID_NAME_USE sid_type;
+    LPSTR tmp_buf = NULL, who = NULL;
+
+    status = IsValidSid(sid);
+    if (!status) {
+        eprintf("map_dacl_2_nfs4acl: invalid sid\n");
+        status = GetLastError();
+        goto out;
+    }
+    status = is_well_known_sid(sid, who_out);
+    if (status) 
+        return 0;
+    status = LookupAccountSid(NULL, sid, who, &size, tmp_buf, 
+        &tmp_size, &sid_type);
+    if (!status) {
+        status = GetLastError();
+        if (status == ERROR_INSUFFICIENT_BUFFER) {
+            who = malloc(size);
+            if (who == NULL) {
+                status = GetLastError();
+                goto out;
+            }
+            tmp_buf = malloc(tmp_size);
+            if (tmp_buf == NULL) {
+                status = GetLastError();
+                free(who);
+                goto out;
+            }
+            status = LookupAccountSid(NULL, sid, who, &size, tmp_buf, 
+                &tmp_size, &sid_type);
+            free(tmp_buf);
+            if (!status) {
+                status = GetLastError();
+                eprintf("map_dacl_2_nfs4acl: failed to lookup account name "
+                    "for sid %d\n", status);
+                free(who);
+                goto out;
+            }
+            memcpy(who_out, who, size);
+            memcpy(who_out+size, "@citi.umich.edu", 15);
+
+            free(who);
+            status = 0;
+        } else {
+            eprintf("map_dacl_2_nfs4acl: failed to lookup account name for "
+                "sid %d\n", status);
+            goto out;
+        }
+    } else {
+        dprintf(1, "this shouldn't happen\n");
+        goto out;
+    }
+out:
+    return status;
+}
+static int map_dacl_2_nfs4acl(PACL acl, nfsacl41 *nfs4_acl, int file_type)
+{
+    int status;
+    if (acl == NULL) {
+        dprintf(1, "this is a NULL dacl: all access to an object\n");
+        nfs4_acl->count = 1;
+        nfs4_acl->aces = calloc(1, sizeof(nfsace4));
+        if (nfs4_acl->aces == NULL) {
+            status = GetLastError();
+            goto out;
+        }
+        nfs4_acl->flag = 0;
+        memcpy(nfs4_acl->aces->who, ACE4_EVERYONE, strlen(ACE4_EVERYONE)+1);
+        nfs4_acl->aces->acetype = ACE4_ACCESS_ALLOWED_ACE_TYPE;
+        nfs4_acl->aces->acemask = ACE4_ALL;
+        nfs4_acl->aces->aceflag = 0;
+    } else {
+        int i;
+        PACE_HEADER ace;
+        PBYTE tmp_pointer;
+
+        dprintf(1, "NON-NULL dacl with %d ACEs\n", acl->AceCount);
+        print_hexbuf_no_asci(3, (unsigned char *)"ACL\n", (unsigned char *)acl, acl->AclSize);
+        nfs4_acl->count = acl->AceCount;
+        nfs4_acl->aces = calloc(nfs4_acl->count, sizeof(nfsace4));
+        if (nfs4_acl->aces == NULL) {
+            status = GetLastError();
+            goto out;
+        }
+        nfs4_acl->flag = 0;
+        for (i = 0; i < acl->AceCount; i++) {
+            status = GetAce(acl, i, &ace);
+            if (!status) {
+                status = GetLastError();
+                goto out;
+            }
+            tmp_pointer = (PBYTE)ace;
+            print_hexbuf_no_asci(3, (unsigned char *)"ACE\n", (unsigned char *)ace, ace->AceSize); 
+            dprintf(1, "ACE TYPE: %x\n", ace->AceType);
+            if (ace->AceType == ACCESS_ALLOWED_ACE_TYPE)
+                nfs4_acl->aces[i].acetype = ACE4_ACCESS_ALLOWED_ACE_TYPE;
+            else if (ace->AceType == ACCESS_DENIED_ACE_TYPE)
+                nfs4_acl->aces[i].acetype = ACE4_ACCESS_DENIED_ACE_TYPE;
+            else {
+                eprintf("map_dacl_2_nfs4acl: unsupported ACE type %d\n",
+                    ace->AceType);
+                status = ERROR_NOT_SUPPORTED;
+                goto out_free;
+            }
+
+            map_aceflags(ace->AceFlags, &nfs4_acl->aces[i].aceflag);            
+            map_acemask(*(PACCESS_MASK)(ace + 1), file_type, &nfs4_acl->aces[i].acemask);
+
+            tmp_pointer += sizeof(ACCESS_MASK) + sizeof(ACE_HEADER);
+            status = map_who(tmp_pointer, nfs4_acl->aces[i].who);
+            if (status)
+                goto out_free;
+        }
+    }
+    status = 0;
+out:
+    return status;
+out_free:
+    free(nfs4_acl->aces);
+    goto out;
+}
+
+static int handle_setacl(nfs41_upcall *upcall)
+{
+    int status = ERROR_NOT_SUPPORTED;
+    setacl_upcall_args *args = &upcall->args.setacl;
+    nfs41_open_state *state = args->state;
+    nfs41_file_info info;
+    stateid_arg stateid;
+    nfsacl41 nfs4_acl;
+
+    ZeroMemory(&info, sizeof(info));
+
+    if (args->query & OWNER_SECURITY_INFORMATION)
+        dprintf(1, "handle_setacl: OWNER_SECURITY_INFORMATION\n");
+    if (args->query & GROUP_SECURITY_INFORMATION)
+        dprintf(1, "handle_setacl: GROUP_SECURITY_INFORMATION\n");
+    if (args->query & DACL_SECURITY_INFORMATION) {
+        BOOL dacl_present, dacl_default;
+        PACL acl;
+        dprintf(1, "handle_setacl: DACL_SECURITY_INFORMATION\n");
+        status = GetSecurityDescriptorDacl(args->sec_desc, &dacl_present,
+            &acl, &dacl_default);
+        if (!status) {
+            status = GetLastError();
+            eprintf("GetSecurityDescriptorDacl failed with %d\n", status);
+            goto out;
+        }
+        status = map_dacl_2_nfs4acl(acl, &nfs4_acl, state->type);
+        if (status)
+            goto out;
+        else {
+            info.acl = &nfs4_acl;
+            info.attrmask.arr[0] |= FATTR4_WORD0_ACL;
+            info.attrmask.count = 1;
+        }
+    }
+
+    nfs41_lock_stateid_arg(state, &stateid);
+    status = nfs41_setattr(state->session, &state->file, &stateid, &info);
+    if (status) {
+        dprintf(1, "handle_setacl: nfs41_setattr() failed with error %s.\n",
+            nfs_error_string(status));
+        status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+    }
+
+    if (args->query & DACL_SECURITY_INFORMATION)
+        free(nfs4_acl.aces);
+
+out:
+    free(args->sec_desc);
+    return status;
+}
+
+const nfs41_upcall_op nfs41_op_setacl = {
+    parse_setacl,
+    handle_setacl,
+};
