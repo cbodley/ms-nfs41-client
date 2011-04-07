@@ -372,6 +372,13 @@ retry:
             status = ERROR_BAD_NET_RESP;
             goto out;
         }
+        if (compound->args.argarray[0].op == OP_CREATE_SESSION) {
+            nfs41_create_session_args *csa = (nfs41_create_session_args*)
+                compound->args.argarray[0].arg;
+            AcquireSRWLockShared(&session->client->exid_lock);
+            csa->csa_clientid = session->client->clnt_id;
+            AcquireSRWLockShared(&session->client->exid_lock);
+        }
         goto do_retry;
 
     case NFS4ERR_BADSESSION:
