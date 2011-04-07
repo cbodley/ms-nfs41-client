@@ -245,6 +245,7 @@ int nfs41_destroy_clientid(
     compound_init(&compound, &argops, &resops, "destroy_clientid");
 
     compound_add_op(&compound, OP_DESTROY_CLIENTID, &dc_args, &dc_res);
+    dc_args.dca_clientid = clientid;
 
     status = nfs41_send_compound(rpc, (char *)&compound.args,
         (char *)&compound.res);
