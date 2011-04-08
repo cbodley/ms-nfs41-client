@@ -148,6 +148,8 @@ typedef struct __nfs41_client {
 
     /* for state recovery on server reboot */
     struct client_state state;
+    /* for ACLs default domain name */
+    char domain_name[NFS41_HOSTNAME_LEN];
 } nfs41_client;
 
 #define NFS41_MAX_NUM_SLOTS NFS41_MAX_RPC_REQS
