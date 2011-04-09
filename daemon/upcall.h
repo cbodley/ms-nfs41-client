@@ -164,6 +164,8 @@ typedef struct __getacl_upcall_args {
     DWORD osid_len;
     PSID gsid;
     DWORD gsid_len;
+    PSECURITY_DESCRIPTOR sec_desc;
+    DWORD sec_desc_len;
 } getacl_upcall_args;
 
 typedef struct __setacl_upcall_args {

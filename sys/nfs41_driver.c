@@ -220,18 +220,9 @@ typedef struct _updowncall_entry {
             HANDLE open_state;
             HANDLE session;
             SECURITY_INFORMATION query;
-            PVOID owner_buf;
-            LONG owner_buf_len;
-            PVOID owner_group_buf;
-            LONG owner_group_buf_len;
-        } QueryAcl;
-        struct {
-            HANDLE open_state;
-            HANDLE session;
-            SECURITY_INFORMATION query;
             PVOID buf;
-            LONG buf_len;
-        } SetAcl;
+            DWORD buf_len;
+        } Acl;
     } u;
 
 } nfs41_updowncall_entry;
@@ -1131,15 +1122,15 @@ NTSTATUS marshal_nfs41_getacl(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.QueryAcl.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->u.Acl.session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.QueryAcl.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->u.Acl.open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.QueryAcl.query, sizeof(SECURITY_INFORMATION));
+    RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x query=%d\n", entry->u.QueryAcl.session, 
-        entry->u.QueryAcl.open_state, entry->u.QueryAcl.query);
+    DbgP("session=0x%x open_state=0x%x query=%d\n", entry->u.Acl.session, 
+        entry->u.Acl.open_state, entry->u.Acl.query);
 out:
     DbgEx();
     return status;
@@ -1161,26 +1152,26 @@ NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
     header_len = *len + 2 * sizeof(HANDLE) + sizeof(SECURITY_INFORMATION) +
-        sizeof(ULONG) + entry->u.SetAcl.buf_len;
+        sizeof(ULONG) + entry->u.Acl.buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.SetAcl.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->u.Acl.session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.SetAcl.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->u.Acl.open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.SetAcl.query, sizeof(SECURITY_INFORMATION));
+    RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     tmp += sizeof(SECURITY_INFORMATION);
-    RtlCopyMemory(tmp, &entry->u.SetAcl.buf_len, sizeof(ULONG));
-    tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, entry->u.SetAcl.buf, entry->u.SetAcl.buf_len);
+    RtlCopyMemory(tmp, &entry->u.Acl.buf_len, sizeof(DWORD));
+    tmp += sizeof(DWORD);
+    RtlCopyMemory(tmp, entry->u.Acl.buf, entry->u.Acl.buf_len);
     *len = header_len;
 
     DbgP("session=0x%x open_state=0x%x query=%d sec_desc_len=%d\n", 
-        entry->u.SetAcl.session, entry->u.SetAcl.open_state, 
-        entry->u.SetAcl.query, entry->u.SetAcl.buf_len);
+        entry->u.Acl.session, entry->u.Acl.open_state, 
+        entry->u.Acl.query, entry->u.Acl.buf_len);
 out:
     DbgEx();
     return status;
@@ -1622,29 +1613,21 @@ nfs41_downcall (
             RtlCopyMemory(cur->u.Volume.buf, buf, tmp->u.Volume.buf_len);
             break;
         case NFS41_ACL_QUERY:
-            if (cur->u.QueryAcl.query & OWNER_SECURITY_INFORMATION) {
-                RtlCopyMemory(&tmp->u.QueryAcl.owner_buf_len, buf, sizeof(LONG));
-                buf += sizeof(LONG);
-                if (tmp->u.QueryAcl.owner_buf_len > cur->u.QueryAcl.owner_buf_len) {
-                    cur->status = STATUS_BUFFER_TOO_SMALL;
-                    cur->u.QueryAcl.owner_buf_len = tmp->u.QueryAcl.owner_buf_len;
-                    break;
+            RtlCopyMemory(&tmp->u.Acl.buf_len, buf, sizeof(DWORD));
+            buf += sizeof(DWORD);
+            if (tmp->u.Acl.buf_len > cur->u.Acl.buf_len) {
+                cur->status = STATUS_BUFFER_TOO_SMALL;
+                cur->u.Acl.buf_len = tmp->u.Acl.buf_len;
+                break;
+            } else {
+                cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
+                    tmp->u.Acl.buf_len, NFS41_MM_POOLTAG);
+                if (cur->u.Acl.buf == NULL) {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto out_free;
                 }
-                cur->u.QueryAcl.owner_buf_len = tmp->u.QueryAcl.owner_buf_len;
-                RtlCopySid(cur->u.QueryAcl.owner_buf_len, cur->u.QueryAcl.owner_buf, buf);
-                buf += tmp->u.QueryAcl.owner_buf_len;
-            }
-            if (cur->u.QueryAcl.query & GROUP_SECURITY_INFORMATION) {
-                RtlCopyMemory(&tmp->u.QueryAcl.owner_group_buf_len, buf, sizeof(LONG));
-                buf += sizeof(LONG);
-                if (tmp->u.QueryAcl.owner_group_buf_len > cur->u.QueryAcl.owner_group_buf_len) {
-                    cur->status = STATUS_BUFFER_TOO_SMALL;
-                    cur->u.QueryAcl.owner_group_buf_len = tmp->u.QueryAcl.owner_group_buf_len;
-                    break;
-                }
-                cur->u.QueryAcl.owner_group_buf_len = tmp->u.QueryAcl.owner_group_buf_len;
-                RtlCopySid(cur->u.QueryAcl.owner_group_buf_len, cur->u.QueryAcl.owner_group_buf, buf);
-                buf += tmp->u.QueryAcl.owner_group_buf_len;
+                RtlCopyMemory(cur->u.Acl.buf, buf, tmp->u.Acl.buf_len);
+                cur->u.Acl.buf_len = tmp->u.Acl.buf_len;
             }
             break;
         }
@@ -3778,7 +3761,6 @@ NTSTATUS nfs41_QuerySecurityInformation (
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
-    BYTE owner_buf[SECURITY_MAX_SID_SIZE], group_buf[SECURITY_MAX_SID_SIZE];
     SECURITY_INFORMATION info_class =
         RxContext->CurrentIrpSp->Parameters.QuerySecurity.SecurityInformation;
 
@@ -3793,14 +3775,15 @@ NTSTATUS nfs41_QuerySecurityInformation (
     status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
-    entry->u.QueryAcl.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.QueryAcl.session = pVNetRootContext->session;
-    entry->u.QueryAcl.query = info_class;
-    entry->u.QueryAcl.owner_buf = owner_buf;
-    entry->u.QueryAcl.owner_buf_len = SECURITY_MAX_SID_SIZE;
-    entry->u.QueryAcl.owner_group_buf = group_buf;
-    entry->u.QueryAcl.owner_group_buf_len = SECURITY_MAX_SID_SIZE;
+    entry->u.Acl.open_state = nfs41_fobx->nfs41_open_state;
+    entry->u.Acl.session = pVNetRootContext->session;
+    entry->u.Acl.query = info_class;
     entry->version = pNetRootContext->nfs41d_version;
+    /* we can't provide RxContext->CurrentIrp->UserBuffer to the upcall thread 
+     * because it becomes an invalid pointer with that execution context
+     */
+    entry->u.Acl.buf_len = RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length;
+    DbgP("security buffer len %d\n", entry->u.Acl.buf_len); 
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3808,76 +3791,35 @@ NTSTATUS nfs41_QuerySecurityInformation (
     }
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        DbgP("nfs41_QuerySecurityInformation: our SID buffers are %d but we need %d\n",
-                SECURITY_MAX_SID_SIZE, entry->u.QueryFile.buf_len);
-        status = STATUS_INTERNAL_ERROR;
+        DbgP("nfs41_QuerySecurityInformation: provided buffer size=%d but we need %d\n",
+                RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, 
+                entry->u.Acl.buf_len);
+        status = STATUS_BUFFER_TOO_SMALL;
+        RxContext->InformationToReturn = entry->u.Acl.buf_len;
     } else if (entry->status == STATUS_SUCCESS) {
-        PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR) 
-            RxContext->CurrentIrp->UserBuffer;
-        SECURITY_DESCRIPTOR tmp_sec_desc;
-        ULONG tmpLength = RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length;
-        status = RtlCreateSecurityDescriptor(&tmp_sec_desc, SECURITY_DESCRIPTOR_REVISION);
-        if (status) {
-            DbgP("RtlCreateSecurityDescriptor failed %x\n", status);
-            goto out_free;
-        }
-        if (entry->u.QueryAcl.query & OWNER_SECURITY_INFORMATION) {
-            PSID osid = (PSID)owner_buf;
-            if (RtlValidSid(osid)) {
-                status = RtlSetOwnerSecurityDescriptor(&tmp_sec_desc, osid, TRUE);
-                if (status) {
-                    DbgP("RtlSetOwnerSecurityDescriptor returned %x\n", status);
-                    goto out_free;
-                } 
-                DbgP("added owner sid\n");
+        if (RtlValidSecurityDescriptor(entry->u.Acl.buf)) {
+            DbgP("Received a valid security descriptor\n");
+            if (MmIsAddressValid(RxContext->CurrentIrp->UserBuffer)) {
+                PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
+                    RxContext->CurrentIrp->UserBuffer;
+                DbgP("Received a valid user pointer\n");
+                RtlCopyMemory(sec_desc, entry->u.Acl.buf, entry->u.Acl.buf_len); 
             } else {
-                DbgP("INVALID OWNER SID: adding NULL sid\n");
-                status = RtlSetOwnerSecurityDescriptor(&tmp_sec_desc, NULL, TRUE);
-                if (status) {
-                    DbgP("RtlSetOwnerSecurityDescriptor returned %x\n", status);
-                    goto out_free;
-                }
+                DbgP("Received invalid user pointer\n");
+                status = STATUS_INTERNAL_ERROR;
             }
+        } else {
+            DbgP("Received invalid security descriptor\n");
+            status = STATUS_INTERNAL_ERROR;
         }
-        if (entry->u.QueryAcl.query & GROUP_SECURITY_INFORMATION) {
-            PSID gsid = (PSID)group_buf;
-            if (RtlValidSid(gsid)) {
-                status = RtlSetGroupSecurityDescriptor(&tmp_sec_desc, gsid, TRUE);
-                if (status) {
-                    DbgP("RtlSetOwnerSecurityDescriptor returned %x\n", status);
-                    goto out_free;
-                }
-                DbgP("adder group sid\n");
-            } else {
-                DbgP("INVAID GROUP SID: adding NULL sid\n");                
-                status = RtlSetGroupSecurityDescriptor(&tmp_sec_desc, NULL, TRUE);
-                if (status) {
-                    DbgP("RtlSetOwnerSecurityDescriptor returned %x\n", status);
-                    goto out_free;
-                }
-            }
-        }
-        if (entry->u.QueryAcl.query & DACL_SECURITY_INFORMATION)
-            DbgP("handle_getacl: DACL_SECURITY_INFORMATION\n");
-        if (entry->u.QueryAcl.query & SACL_SECURITY_INFORMATION)
-            DbgP("handle_getacl: SACL_SECURITY_INFORMATION\n");
-
-        status = RtlAbsoluteToSelfRelativeSD(&tmp_sec_desc, sec_desc, &tmpLength);
-        if (status) {
-            DbgP("RtlAbsoluteToSelfRelativeSD failed %x have %dbytes need %dbytes\n", 
-                status, RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, tmpLength);
-            if (status == STATUS_BUFFER_TOO_SMALL)
-                RxContext->InformationToReturn = tmpLength;
-            goto out_free;
-        }
-
+        RxFreePool(entry->u.Acl.buf);
         RxContext->IoStatusBlock.Information = RxContext->InformationToReturn = 
-            RtlLengthSecurityDescriptor(sec_desc);
-        RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
+            entry->u.Acl.buf_len;
+        if (!status)
+            RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
     } else {
         status = map_query_acl_error(entry->status);
     }
-out_free:
     RxFreePool(entry);
 out:
     DbgEx();
@@ -3924,11 +3866,11 @@ NTSTATUS nfs41_SetSecurityInformation (
     status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
-    entry->u.SetAcl.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.SetAcl.session = pVNetRootContext->session;
-    entry->u.SetAcl.query = info_class;
-    entry->u.SetAcl.buf = sec_desc;
-    entry->u.SetAcl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
+    entry->u.Acl.open_state = nfs41_fobx->nfs41_open_state;
+    entry->u.Acl.session = pVNetRootContext->session;
+    entry->u.Acl.query = info_class;
+    entry->u.Acl.buf = sec_desc;
+    entry->u.Acl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
     entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {

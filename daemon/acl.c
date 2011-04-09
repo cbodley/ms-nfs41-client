@@ -150,6 +150,7 @@ static int handle_getacl(nfs41_upcall *upcall)
     nfs41_file_info info;
     bitmap4 attr_request;
     LPSTR domain = NULL;
+    SECURITY_DESCRIPTOR sec_desc;
 
     // need to cache owner/group information XX
     ZeroMemory(&info, sizeof(info));
@@ -168,6 +169,13 @@ static int handle_getacl(nfs41_upcall *upcall)
         goto out;
     }
 
+    status = InitializeSecurityDescriptor(&sec_desc, SECURITY_DESCRIPTOR_REVISION);
+    if (!status) {
+        status = GetLastError();
+        eprintf("handle_getacl: InitializeSecurityDescriptor failed with %d\n", status);
+        goto out;
+    }
+
     args->osid_len = args->gsid_len = 0;
     if (args->query & OWNER_SECURITY_INFORMATION) {
         // parse user@domain. currently ignoring domain part XX
@@ -177,6 +185,13 @@ static int handle_getacl(nfs41_upcall *upcall)
         status = map_name_2_sid(&args->osid_len, &args->osid, (LPSTR)info.owner);
         if (status)
             goto out;
+        status = SetSecurityDescriptorOwner(&sec_desc, args->osid, TRUE);
+        free(args->osid);
+        if (!status) {
+            status = GetLastError();
+            eprintf("handle_getacl: SetSecurityDescriptorOwner failed with %d\n", status);
+            goto out;
+        }
     }
     if (args->query & GROUP_SECURITY_INFORMATION) {
         convert_nfs4name_2_user_domain((LPSTR)info.owner_group, &domain);
@@ -185,11 +200,44 @@ static int handle_getacl(nfs41_upcall *upcall)
         status = map_name_2_sid(&args->gsid_len, &args->gsid, (LPSTR)info.owner_group);
         if (status)
             goto out;
+        status = SetSecurityDescriptorGroup(&sec_desc, args->gsid, TRUE);
+        free(args->gsid);
+        if (!status) {
+            status = GetLastError();
+            eprintf("handle_getacl: SetSecurityDescriptorGroup failed with %d\n", status);
+            goto out;
+        }
     }
     if (args->query & DACL_SECURITY_INFORMATION)
         dprintf(1, "handle_getacl: DACL_SECURITY_INFORMATION\n");
     if (args->query & SACL_SECURITY_INFORMATION)
         dprintf(1, "handle_getacl: SACL_SECURITY_INFORMATION\n");
+
+    args->sec_desc_len = 0;
+    status = MakeSelfRelativeSD(&sec_desc, args->sec_desc, &args->sec_desc_len);
+    if (!status) {
+        status = GetLastError();
+        if (status == ERROR_INSUFFICIENT_BUFFER) {
+            args->sec_desc = malloc(args->sec_desc_len);
+            if (args->sec_desc == NULL) {
+                status = GetLastError();
+                goto out;
+            }
+            status = MakeSelfRelativeSD(&sec_desc, args->sec_desc, &args->sec_desc_len);
+            if (!status) {
+                status = GetLastError();
+                eprintf("handle_getacl: MakeSelfRelativeSD failes with %d\n", status);
+                free(args->sec_desc);
+                goto out;
+            } else status = 0;
+        } else {
+            eprintf("handle_getacl: MakeSelfRelativeSD failes with %d\n", status);
+            goto out;
+        }
+    } else { // this shouldn't happen
+        status = ERROR_INTERNAL_ERROR;
+        goto out;
+    }
 
 out:
     if (args->query & DACL_SECURITY_INFORMATION) {
@@ -199,41 +247,16 @@ out:
     return status;
 }
 
-static int marshall_acl(unsigned char **buffer, uint32_t *remaining, uint32_t sid_len, PSID sid)
-{
-    int status;
-    status = safe_write(buffer, remaining, &sid_len, sizeof(sid_len));
-    if (status) goto out;
-    if (*remaining < sid_len)
-        return ERROR_BUFFER_OVERFLOW;
-    status = CopySid(sid_len, *buffer, sid);
-    free(sid);
-    if (!status) {
-        status = GetLastError();
-        dprintf(1, "marshall_acl: CopySid failed %d\n", status);
-        goto out;
-    } else {
-        status = 0;
-        *buffer += sid_len;
-        *remaining -= sid_len;
-    }
-out:
-    return status;
-}
-
 static int marshall_getacl(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status = ERROR_NOT_SUPPORTED;
     getacl_upcall_args *args = &upcall->args.getacl;
 
-    if (args->query & OWNER_SECURITY_INFORMATION) {
-        status = marshall_acl(&buffer, length, args->osid_len, args->osid);
-        if (status) goto out;
-    }
-    if (args->query & GROUP_SECURITY_INFORMATION) {
-        status = marshall_acl(&buffer, length, args->gsid_len, args->gsid);
-        if (status) goto out;
-    }
+    status = safe_write(&buffer, length, &args->sec_desc_len, sizeof(DWORD));
+    if (status) goto out;
+    status = safe_write(&buffer, length, args->sec_desc, args->sec_desc_len);
+    free(args->sec_desc);
+    if (status) goto out;
 out:
     return status;
 }
