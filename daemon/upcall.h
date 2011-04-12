@@ -160,10 +160,6 @@ typedef struct __getacl_upcall_args {
     nfs41_root *root;
     nfs41_open_state *state;
     SECURITY_INFORMATION query;
-    PSID osid;
-    DWORD osid_len;
-    PSID gsid;
-    DWORD gsid_len;
     PSECURITY_DESCRIPTOR sec_desc;
     DWORD sec_desc_len;
 } getacl_upcall_args;
