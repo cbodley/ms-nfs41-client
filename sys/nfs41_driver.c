@@ -225,6 +225,13 @@ typedef struct _updowncall_entry {
             PVOID owner_group_buf;
             LONG owner_group_buf_len;
         } QueryAcl;
+        struct {
+            HANDLE open_state;
+            HANDLE session;
+            SECURITY_INFORMATION query;
+            PVOID buf;
+            LONG buf_len;
+        } SetAcl;
     } u;
 
 } nfs41_updowncall_entry;
@@ -1138,6 +1145,47 @@ out:
     return status;
 }
 
+NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG header_len = 0;
+    unsigned char *tmp = buf;
+
+    DbgEn();
+    status = marshal_nfs41_header(entry, tmp, buf_len, len);
+    if (status == STATUS_INSUFFICIENT_RESOURCES) 
+        goto out;
+    else 
+        tmp += *len;
+    header_len = *len + 2 * sizeof(HANDLE) + sizeof(SECURITY_INFORMATION) +
+        sizeof(ULONG) + entry->u.SetAcl.buf_len;
+    if (header_len > buf_len) { 
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto out;
+    }
+
+    RtlCopyMemory(tmp, &entry->u.SetAcl.session, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    RtlCopyMemory(tmp, &entry->u.SetAcl.open_state, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    RtlCopyMemory(tmp, &entry->u.SetAcl.query, sizeof(SECURITY_INFORMATION));
+    tmp += sizeof(SECURITY_INFORMATION);
+    RtlCopyMemory(tmp, &entry->u.SetAcl.buf_len, sizeof(ULONG));
+    tmp += sizeof(ULONG);
+    RtlCopyMemory(tmp, entry->u.SetAcl.buf, entry->u.SetAcl.buf_len);
+    *len = header_len;
+
+    DbgP("session=0x%x open_state=0x%x query=%d sec_desc_len=%d\n", 
+        entry->u.SetAcl.session, entry->u.SetAcl.open_state, 
+        entry->u.SetAcl.query, entry->u.SetAcl.buf_len);
+out:
+    DbgEx();
+    return status;
+}
+
 NTSTATUS marshal_nfs41_shutdown(nfs41_updowncall_entry *entry, 
                              unsigned char *buf, 
                              ULONG buf_len, 
@@ -1232,6 +1280,9 @@ handle_upcall(
         break;
     case NFS41_ACL_QUERY:
         status = marshal_nfs41_getacl(entry, pbOut, cbOut, len);
+        break;
+    case NFS41_ACL_SET:
+        status = marshal_nfs41_setacl(entry, pbOut, cbOut, len);
         break;
     default:
         status = STATUS_INVALID_PARAMETER;
@@ -3688,9 +3739,23 @@ out:
     DbgEx();
     return status;
 }
+
+static void print_acl_args(SECURITY_INFORMATION info)
+{
+    if (info & OWNER_SECURITY_INFORMATION)
+        DbgP("OWNER_SECURITY_INFORMATION\n");
+    if (info & GROUP_SECURITY_INFORMATION)
+        DbgP("GROUP_SECURITY_INFORMATION\n");
+    if (info & DACL_SECURITY_INFORMATION)
+        DbgP("DACL_SECURITY_INFORMATION\n");
+    if (info & SACL_SECURITY_INFORMATION)
+        DbgP("SACL_SECURITY_INFORMATION\n");
+}
+
 static NTSTATUS map_query_acl_error(DWORD error)
 {
     switch (error) {
+    case NO_ERROR:                  return STATUS_SUCCESS;
     case ERROR_NOT_SUPPORTED:       return STATUS_NOT_SUPPORTED;
     case ERROR_ACCESS_DENIED:       return STATUS_ACCESS_DENIED;
     case ERROR_FILE_NOT_FOUND:      return STATUS_OBJECT_NAME_NOT_FOUND;
@@ -3701,6 +3766,7 @@ static NTSTATUS map_query_acl_error(DWORD error)
     case ERROR_BAD_NET_RESP:        return STATUS_INVALID_NETWORK_RESPONSE;
     }
 }
+
 NTSTATUS nfs41_QuerySecurityInformation (
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -3712,17 +3778,24 @@ NTSTATUS nfs41_QuerySecurityInformation (
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
-    BYTE owner_buf[SECURITY_MAX_SID_SIZE], group_buf[SECURITY_MAX_SID_SIZE]; 
+    BYTE owner_buf[SECURITY_MAX_SID_SIZE], group_buf[SECURITY_MAX_SID_SIZE];
+    SECURITY_INFORMATION info_class =
+        RxContext->CurrentIrpSp->Parameters.QuerySecurity.SecurityInformation;
 
     DbgEn();
     print_debug_header(RxContext);
+    print_acl_args(info_class);
+
+    /* we don't support sacls */
+    if (info_class == SACL_SECURITY_INFORMATION)
+        goto out;
 
     status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, &entry);
     if (status)
         goto out;
     entry->u.QueryAcl.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.QueryAcl.session = pVNetRootContext->session;
-    entry->u.QueryAcl.query = RxContext->CurrentIrpSp->Parameters.QuerySecurity.SecurityInformation;
+    entry->u.QueryAcl.query = info_class;
     entry->u.QueryAcl.owner_buf = owner_buf;
     entry->u.QueryAcl.owner_buf_len = SECURITY_MAX_SID_SIZE;
     entry->u.QueryAcl.owner_group_buf = group_buf;
@@ -3815,7 +3888,56 @@ NTSTATUS nfs41_SetSecurityInformation (
     IN OUT struct _RX_CONTEXT *RxContext)
 {
     NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
+    nfs41_updowncall_entry *entry;
+    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    PSECURITY_DESCRIPTOR sec_desc = RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityDescriptor;
+    SECURITY_INFORMATION info_class = 
+        RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityInformation;
     DbgEn();
+    print_debug_header(RxContext);
+    print_acl_args(info_class);
+
+    /* check that ACL is present */
+    if (info_class & DACL_SECURITY_INFORMATION) {
+        PACL acl;
+        BOOLEAN present, dacl_default;
+        status = RtlGetDaclSecurityDescriptor(sec_desc, &present, &acl, &dacl_default);
+        if (status) {
+            DbgP("RtlGetDaclSecurityDescriptor failed %x\n", status);
+            goto out;
+        }
+        if (present == FALSE) {
+            DbgP("NO ACL present\n");
+            goto out;
+        }
+    }
+
+    /* we don't support sacls */
+    if (info_class == SACL_SECURITY_INFORMATION)
+        goto out;
+
+    status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, &entry);
+    if (status)
+        goto out;
+    entry->u.SetAcl.open_state = nfs41_fobx->nfs41_open_state;
+    entry->u.SetAcl.session = pVNetRootContext->session;
+    entry->u.SetAcl.query = info_class;
+    entry->u.SetAcl.buf = sec_desc;
+    entry->u.SetAcl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
+    entry->version = pNetRootContext->nfs41d_version;
+
+    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+        status = STATUS_INTERNAL_ERROR;
+        goto out;
+    }
+    status = map_query_acl_error(entry->status);
+    RxFreePool(entry);
+out:
     DbgEx();
     return status;
 }
