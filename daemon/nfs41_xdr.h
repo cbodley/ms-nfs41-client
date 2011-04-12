@@ -29,5 +29,6 @@
 bool_t nfs_encode_compound(XDR *xdr, caddr_t *args);
 bool_t nfs_decode_compound(XDR *xdr, caddr_t *res);
 
+void nfsacl41_free(nfsacl41 *acl);
 
 #endif /* !__NFS41_NFS_XDR_H__ */

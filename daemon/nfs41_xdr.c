@@ -293,6 +293,53 @@ static bool_t xdr_mdsthreshold(
     return TRUE;
 }
 
+static bool_t xdr_nfsace4(
+    XDR *xdr,
+    nfsace4 *ace)
+{
+    char *who = ace->who;
+
+    if (!xdr_u_int32_t(xdr, &ace->acetype))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &ace->aceflag))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &ace->acemask))
+        return FALSE;
+
+    /* 'who' is a static array, so don't try to free it */
+    if (xdr->x_op == XDR_FREE)
+        return TRUE;
+
+    return xdr_string(xdr, &who, NFS4_OPAQUE_LIMIT);
+}
+
+static bool_t xdr_nfsdacl41(
+    XDR *xdr,
+    nfsacl41 *acl)
+{
+    if (!xdr_u_int32_t(xdr, &acl->flag))
+        return FALSE;
+
+    return xdr_array(xdr, (char**)&acl->aces, &acl->count,
+        32, sizeof(nfsace4), (xdrproc_t)xdr_nfsace4);
+}
+
+static bool_t xdr_nfsacl41(
+    XDR *xdr,
+    nfsacl41 *acl)
+{
+    return xdr_array(xdr, (char**)&acl->aces, &acl->count,
+        32, sizeof(nfsace4), (xdrproc_t)xdr_nfsace4);
+}
+
+void nfsacl41_free(nfsacl41 *acl)
+{
+    XDR xdr = { XDR_FREE };
+    xdr_nfsacl41(&xdr, acl);
+}
+
 /* pathname4
  * decode a variable array of components into a nfs41_abs_path */
 static bool_t decode_pathname4(
@@ -1654,6 +1701,12 @@ static bool_t decode_file_attrs(
             if (!xdr_u_int32_t(xdr, &info->rdattr_error))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_ACL) {
+            nfsacl41 *acl = info->acl;
+            if (!xdr_array(xdr, (char**)&acl->aces, &acl->count,
+                32, sizeof(nfsace4), (xdrproc_t)xdr_nfsace4))
+                return FALSE;
+        }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_ACLSUPPORT) {
             if (!xdr_u_int32_t(xdr, &info->aclsupport))
                 return FALSE;
@@ -1734,6 +1787,10 @@ static bool_t decode_file_attrs(
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_TIME_MODIFY) {
             if (!xdr_nfstime4(xdr, &info->time_modify))
+                return FALSE;
+        }
+        if (attrs->attrmask.arr[1] & FATTR4_WORD1_DACL) {
+            if (!xdr_nfsdacl41(xdr, info->acl))
                 return FALSE;
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_FS_LAYOUT_TYPE) {
@@ -1909,25 +1966,6 @@ static bool_t decode_open_none_delegation4(
     return result;
 }
 
-static bool_t xdr_decode_nfsace4(
-    XDR *xdr,
-    nfsace4 *res)
-{
-    char *who = (char*)res->who;
-    uint32_t tmp;
-
-    if (!xdr_u_int32_t(xdr, &tmp))
-        return FALSE;
-
-    if (!xdr_u_int32_t(xdr, &tmp))
-        return FALSE;
-
-    if (!xdr_u_int32_t(xdr, &tmp))
-        return FALSE;
-
-    return xdr_bytes(xdr, &who, &tmp, NFS4_OPAQUE_LIMIT);
-}
-
 static bool_t decode_open_read_delegation4(
     XDR *xdr,
     nfs41_op_open_res_ok *res)
@@ -1941,7 +1979,7 @@ static bool_t decode_open_read_delegation4(
     if (!xdr_bool(xdr, &tmp_bool))
         return FALSE;
 
-    return xdr_decode_nfsace4(xdr, &tmp_nfsace);
+    return xdr_nfsace4(xdr, &tmp_nfsace);
 }
 
 static bool_t decode_modified_limit4(
@@ -2001,7 +2039,7 @@ static bool_t decode_open_write_delegation4(
     if (!decode_space_limit4(xdr))
         return FALSE;
 
-    return xdr_decode_nfsace4(xdr, &tmp_nfsace);
+    return xdr_nfsace4(xdr, &tmp_nfsace);
 }
 
 static bool_t decode_open_res_ok(
@@ -2453,6 +2491,11 @@ static bool_t encode_file_attrs(
             if (!xdr_u_hyper(&localxdr, &info->size))
                 return FALSE;
             attrs->attrmask.arr[0] |= FATTR4_WORD0_SIZE;
+        }
+        if (info->attrmask.arr[0] & FATTR4_WORD0_ACL) {
+            if (!xdr_nfsacl41(&localxdr, info->acl))
+                return FALSE;
+            attrs->attrmask.arr[0] |= FATTR4_WORD0_ACL;
         }
         if (info->attrmask.arr[0] & FATTR4_WORD0_HIDDEN) {
             if (!xdr_bool(&localxdr, &info->hidden))

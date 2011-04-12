@@ -123,8 +123,14 @@ typedef struct __nfsace4 {
     uint32_t        acetype;
     uint32_t        aceflag;
     uint32_t        acemask;
-    unsigned char   who[NFS4_OPAQUE_LIMIT];
+    char            who[NFS4_OPAQUE_LIMIT];
 } nfsace4;
+
+typedef struct __nfsacl41 {
+    uint32_t        flag;
+    nfsace4         *aces;
+    uint32_t        count;
+} nfsacl41;
 
 typedef struct __stateid4 {
     uint32_t        seqid;
@@ -186,6 +192,7 @@ typedef struct __nfs41_file_info {
     nfstime4                time_access;
     nfstime4                time_create;
     nfstime4                time_modify;
+    nfsacl41                *acl;
     nfstime4                *time_delta; /* XXX: per-fs */
     bitmap4                 attrmask;
     bitmap4                 *supported_attrs; /* XXX: per-fs */
