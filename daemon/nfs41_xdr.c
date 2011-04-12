@@ -2524,6 +2524,20 @@ static bool_t encode_file_attrs(
                 return FALSE;
             attrs->attrmask.arr[1] |= FATTR4_WORD1_TIME_MODIFY_SET;
         }
+        if (info->attrmask.arr[1] & FATTR4_WORD1_OWNER) {
+            unsigned char *ptr = &info->owner[0];
+            if (!xdr_bytes(&localxdr, &(char *)ptr, &info->owner_len, 
+                            NFS4_OPAQUE_LIMIT))
+                return FALSE;
+            attrs->attrmask.arr[1] |= FATTR4_WORD1_OWNER;
+        }
+        if (info->attrmask.arr[1] & FATTR4_WORD1_OWNER_GROUP) {
+            unsigned char *ptr = &info->owner_group[0];
+            if (!xdr_bytes(&localxdr, &(char *)ptr, &info->owner_group_len, 
+                            NFS4_OPAQUE_LIMIT))
+                return FALSE;
+            attrs->attrmask.arr[1] |= FATTR4_WORD1_OWNER_GROUP;
+        }
     }
     if (info->attrmask.count > 2) {
         if (info->attrmask.arr[2] & FATTR4_WORD2_MODE_SET_MASKED) {

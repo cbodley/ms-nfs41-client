@@ -569,19 +569,25 @@ static int map_nfs4ace_who(PSID sid, PSID owner_sid, char *who_out, char *domain
         status = GetLastError();
         goto out;
     }
-    if (EqualSid(sid, owner_sid)) {
-        dprintf(1, "map_nfs4ace_who: this is owner's sid\n");
-        memcpy(who_out, ACE4_OWNER, strlen(ACE4_OWNER)+1); 
-        return ERROR_SUCCESS;
-    }
-    status = is_well_known_sid(sid, who_out);
-    if (status) {
-        if (!strncmp(who_out, ACE4_NOBODY, strlen(ACE4_NOBODY))) {
-            size = strlen(ACE4_NOBODY);
-            goto add_domain;
-        }
-        else
+    /* for ace mapping, we want to map owner's sid into "owner@" 
+     * but for set_owner attribute we want to map owner into a user name
+     * same applies to group
+     */
+    if (owner_sid) {
+        if (EqualSid(sid, owner_sid)) {
+            dprintf(1, "map_nfs4ace_who: this is owner's sid\n");
+            memcpy(who_out, ACE4_OWNER, strlen(ACE4_OWNER)+1); 
             return ERROR_SUCCESS;
+        }
+        status = is_well_known_sid(sid, who_out);
+        if (status) {
+            if (!strncmp(who_out, ACE4_NOBODY, strlen(ACE4_NOBODY))) {
+                size = strlen(ACE4_NOBODY);
+                goto add_domain;
+            }
+            else
+                return ERROR_SUCCESS;
+        }
     }
 
     status = LookupAccountSid(NULL, sid, who, &size, tmp_buf, 
@@ -708,17 +714,50 @@ static int handle_setacl(nfs41_upcall *upcall)
     nfs41_file_info info;
     stateid_arg stateid;
     nfsacl41 nfs4_acl;
+    PSID sid = NULL;
+    BOOL sid_default;
 
     ZeroMemory(&info, sizeof(info));
 
-    if (args->query & OWNER_SECURITY_INFORMATION)
+    if (args->query & OWNER_SECURITY_INFORMATION) {
         dprintf(1, "handle_setacl: OWNER_SECURITY_INFORMATION\n");
-    if (args->query & GROUP_SECURITY_INFORMATION)
+        status = GetSecurityDescriptorOwner(args->sec_desc, &sid, &sid_default);
+        if (!status) {
+            status = GetLastError();
+            eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
+            goto out;
+        }
+        status = map_nfs4ace_who(sid, NULL, (char *)info.owner, 
+                                 state->session->client->domain_name);
+        if (status)
+            goto out;
+        else {
+            info.owner_len = strlen((const char *)info.owner);
+            info.attrmask.arr[1] |= FATTR4_WORD1_OWNER;
+            info.attrmask.count = 2;
+        }
+    }
+    if (args->query & GROUP_SECURITY_INFORMATION) {
         dprintf(1, "handle_setacl: GROUP_SECURITY_INFORMATION\n");
+        status = GetSecurityDescriptorGroup(args->sec_desc, &sid, &sid_default);
+        if (!status) {
+            status = GetLastError();
+            eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
+            goto out;
+        }
+        status = map_nfs4ace_who(sid, NULL, (char *)info.owner_group, 
+                                 state->session->client->domain_name);
+        if (status)
+            goto out;
+        else {
+            info.owner_group_len = strlen((const char *)info.owner_group);
+            info.attrmask.arr[1] |= FATTR4_WORD1_OWNER_GROUP;
+            info.attrmask.count = 2;
+        }
+    }
     if (args->query & DACL_SECURITY_INFORMATION) {
-        BOOL dacl_present, dacl_default, sid_default;
+        BOOL dacl_present, dacl_default;
         PACL acl;
-        PSID sid;
         dprintf(1, "handle_setacl: DACL_SECURITY_INFORMATION\n");
         status = GetSecurityDescriptorDacl(args->sec_desc, &dacl_present,
                                             &acl, &dacl_default);
@@ -740,7 +779,8 @@ static int handle_setacl(nfs41_upcall *upcall)
         else {
             info.acl = &nfs4_acl;
             info.attrmask.arr[0] |= FATTR4_WORD0_ACL;
-            info.attrmask.count = 1;
+            if (!info.attrmask.count)
+                info.attrmask.count = 1;
         }
     }
 
