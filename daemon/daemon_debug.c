@@ -296,6 +296,7 @@ const char* opcode2string(DWORD opcode)
     case NFS41_SYMLINK:     return "NFS41_SYMLINK";
     case NFS41_VOLUME_QUERY: return "NFS41_VOLUME_QUERY";
     case NFS41_ACL_QUERY:   return "NFS41_ACL_QUERY";
+    case NFS41_ACL_SET:     return "NFS41_ACL_SET";
     default:                return "UNKNOWN";
     }
 }
@@ -532,4 +533,114 @@ const char* secflavorop2name(DWORD sec_flavor)
     }
 
     return "UNKNOWN FLAVOR";
+}
+
+void print_windows_access_mask(int on, ACCESS_MASK m)
+{
+    if (!on) return;
+    dprintf(1, "--> print_windows_access_mask: %x\n", m);
+    if (m & GENERIC_READ)
+        dprintf(1, "\tGENERIC_READ\n");
+    if (m & GENERIC_WRITE)
+        dprintf(1, "\tGENERIC_WRITE\n");
+    if (m & GENERIC_EXECUTE)
+        dprintf(1, "\tGENERIC_EXECUTE\n");
+    if (m & GENERIC_ALL)
+        dprintf(1, "\tGENERIC_ALL\n");
+    if (m & MAXIMUM_ALLOWED)
+        dprintf(1, "\tMAXIMUM_ALLOWED\n");
+    if (m & ACCESS_SYSTEM_SECURITY)
+        dprintf(1, "\tACCESS_SYSTEM_SECURITY\n");
+    if ((m & SPECIFIC_RIGHTS_ALL) == SPECIFIC_RIGHTS_ALL)
+        dprintf(1, "\tSPECIFIC_RIGHTS_ALL\n");
+    if ((m & STANDARD_RIGHTS_ALL) == STANDARD_RIGHTS_ALL)
+        dprintf(1, "\tSTANDARD_RIGHTS_ALL\n");
+    if ((m & STANDARD_RIGHTS_REQUIRED) == STANDARD_RIGHTS_REQUIRED)
+        dprintf(1, "\tSTANDARD_RIGHTS_REQUIRED\n");
+    if (m & SYNCHRONIZE)
+        dprintf(1, "\tSYNCHRONIZE\n");
+    if (m & WRITE_OWNER)
+        dprintf(1, "\tWRITE_OWNER\n");
+    if (m & WRITE_DAC)
+        dprintf(1, "\tWRITE_DAC\n");
+    if (m & READ_CONTROL)
+        dprintf(1, "\tREAD_CONTROL\n");
+    if (m & DELETE)
+        dprintf(1, "\tDELETE\n");
+    if (m & FILE_READ_DATA)
+        dprintf(1, "\tFILE_READ_DATA\n");
+    if (m & FILE_LIST_DIRECTORY)
+        dprintf(1, "\tFILE_LIST_DIRECTORY\n");
+    if (m & FILE_WRITE_DATA)
+        dprintf(1, "\tFILE_WRITE_DATA\n");
+    if (m & FILE_ADD_FILE)
+        dprintf(1, "\tFILE_ADD_FILE\n");
+    if (m & FILE_APPEND_DATA)
+        dprintf(1, "\tFILE_APPEND_DATA\n");
+    if (m & FILE_ADD_SUBDIRECTORY)
+        dprintf(1, "\tFILE_ADD_SUBDIRECTORY\n");
+    if (m & FILE_CREATE_PIPE_INSTANCE)
+        dprintf(1, "\tFILE_CREATE_PIPE_INSTANCE\n");
+    if (m & FILE_READ_EA)
+        dprintf(1, "\tFILE_READ_EA\n");
+    if (m & FILE_WRITE_EA)
+        dprintf(1, "\tFILE_WRITE_EA\n");
+    if (m & FILE_EXECUTE)
+        dprintf(1, "\tFILE_EXECUTE\n");
+    if (m & FILE_TRAVERSE)
+        dprintf(1, "\tFILE_TRAVERSE\n");
+    if (m & FILE_DELETE_CHILD)
+        dprintf(1, "\tFILE_DELETE_CHILD\n");
+    if (m & FILE_READ_ATTRIBUTES)
+        dprintf(1, "\tFILE_READ_ATTRIBUTES\n");
+    if (m & FILE_WRITE_ATTRIBUTES)
+        dprintf(1, "\tFILE_WRITE_ATTRIBUTES\n");
+    if ((m & FILE_ALL_ACCESS) == FILE_ALL_ACCESS)
+        dprintf(1, "\tFILE_ALL_ACCESS\n");
+    if ((m & FILE_GENERIC_READ) == FILE_GENERIC_READ)
+        dprintf(1, "\tFILE_GENERIC_READ\n");
+    if ((m & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE)
+        dprintf(1, "\tFILE_GENERIC_WRITE\n");
+    if ((m & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE)
+        dprintf(1, "\tFILE_GENERIC_EXECUTE\n");
+}
+
+void print_nfs_access_mask(int on, int m)
+{
+    if (!on) return;
+    dprintf(1, "--> print_nfs_access_mask: %x\n", m);
+    if (m & ACE4_READ_DATA)
+        dprintf(1, "\tACE4_READ_DATA\n");
+    if (m & ACE4_LIST_DIRECTORY)
+        dprintf(1, "\tACE4_LIST_DIRECTORY\n");
+    if (m & ACE4_WRITE_DATA)
+        dprintf(1, "\tACE4_WRITE_DATA\n");
+    if (m & ACE4_ADD_FILE)
+        dprintf(1, "\tACE4_ADD_FILE\n");
+    if (m & ACE4_APPEND_DATA)
+        dprintf(1, "\tACE4_APPEND_DATA\n");
+    if (m & ACE4_ADD_SUBDIRECTORY)
+        dprintf(1, "\tACE4_ADD_SUBDIRECTORY\n");
+    if (m & ACE4_READ_NAMED_ATTRS)
+        dprintf(1, "\tACE4_READ_NAMED_ATTRS\n");
+    if (m & ACE4_WRITE_NAMED_ATTRS)
+        dprintf(1, "\tACE4_WRITE_NAMED_ATTRS\n");
+    if (m & ACE4_EXECUTE)
+        dprintf(1, "\tACE4_EXECUTE\n");
+    if (m & ACE4_DELETE_CHILD)
+        dprintf(1, "\tACE4_DELETE_CHILD\n");
+    if (m & ACE4_READ_ATTRIBUTES)
+        dprintf(1, "\tACE4_READ_ATTRIBUTES\n");
+    if (m & ACE4_WRITE_ATTRIBUTES)
+        dprintf(1, "\tACE4_WRITE_ATTRIBUTES\n");
+    if (m & ACE4_DELETE)
+        dprintf(1, "\tACE4_DELETE\n");
+    if (m & ACE4_READ_ACL)
+        dprintf(1, "\tACE4_READ_ACL\n");
+    if (m & ACE4_WRITE_ACL)
+        dprintf(1, "\tACE4_WRITE_ACL\n");
+    if (m & ACE4_WRITE_OWNER)
+        dprintf(1, "\tACE4_WRITE_OWNER\n");
+    if (m & ACE4_SYNCHRONIZE)
+        dprintf(1, "\tACE4_SYNCHRONIZE\n");
 }
