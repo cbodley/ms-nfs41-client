@@ -119,16 +119,15 @@ typedef struct _updowncall_entry {
     BOOLEAN async_op;
     SECURITY_CLIENT_CONTEXT sec_ctx;
     PSECURITY_CLIENT_CONTEXT psec_ctx;
+    HANDLE open_state;
+    HANDLE session;
     union {
         struct {
             PUNICODE_STRING srv_name;
             PUNICODE_STRING root;
             DWORD sec_flavor;
-            HANDLE session;
         } Mount;
-        struct {
-            HANDLE open_state;
-            HANDLE session;
+        struct {                       
             PMDL MdlAddress;
             PVOID buf;
             LONGLONG offset;
@@ -136,8 +135,6 @@ typedef struct _updowncall_entry {
             PRX_CONTEXT rxcontext;
         } ReadWrite;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             HANDLE handle;
             LONGLONG offset;
             LONGLONG length;
@@ -145,16 +142,12 @@ typedef struct _updowncall_entry {
             BOOLEAN blocking;
         } Lock;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             ULONG count;
             LOWIO_LOCK_LIST locks;
         } Unlock;
         struct {
             FILE_BASIC_INFORMATION binfo;
             FILE_STANDARD_INFORMATION sinfo;
-            HANDLE session;
-            HANDLE open_state;
             PUNICODE_STRING filename;
             UNICODE_STRING symlink;
             ULONG access_mask;
@@ -169,15 +162,11 @@ typedef struct _updowncall_entry {
             BOOLEAN symlink_embedded;
         } Open;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             PUNICODE_STRING filename;
             BOOLEAN remove;
             BOOLEAN renamed;
         } Close;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             PUNICODE_STRING filter;
             PVOID buf;
             ULONG buf_len;
@@ -187,8 +176,6 @@ typedef struct _updowncall_entry {
             BOOLEAN initial_query;
         } QueryFile;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             PUNICODE_STRING filename;
             PVOID buf;
             ULONG buf_len;
@@ -198,27 +185,19 @@ typedef struct _updowncall_entry {
             ULONG access_mode;
         } SetFile;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             DWORD mode;
         } SetEa;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             PUNICODE_STRING filename;
             PUNICODE_STRING target;
             BOOLEAN set;
         } Symlink;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             FS_INFORMATION_CLASS query;
             PVOID buf;
             LONG buf_len;
         } Volume;
         struct {
-            HANDLE open_state;
-            HANDLE session;
             SECURITY_INFORMATION query;
             PVOID buf;
             DWORD buf_len;
@@ -572,11 +551,11 @@ NTSTATUS marshal_nfs41_unmount(nfs41_updowncall_entry *entry,
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.Mount.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
 
     *len = header_len;
 
-    DbgP("session=0x%x\n", entry->u.Mount.session);
+    DbgP("session=0x%x\n", entry->session);
 out:
     DbgEx();
     return status;
@@ -616,7 +595,7 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
     tmp += sizeof(entry->u.Open.copts);
     RtlCopyMemory(tmp, &entry->u.Open.disp, sizeof(entry->u.Open.disp));
     tmp += sizeof(entry->u.Open.disp);
-    RtlCopyMemory(tmp, &entry->u.Open.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Open.open_owner_id,
         sizeof(entry->u.Open.open_owner_id));
@@ -629,7 +608,7 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
             "session=0x%x open_owner_id=0x%x mode=%o\n", 
             entry->u.Open.access_mask, entry->u.Open.access_mode,
             entry->u.Open.attrs, entry->u.Open.copts, entry->u.Open.disp,
-            entry->u.Open.session, entry->u.Open.open_owner_id,
+            entry->session, entry->u.Open.open_owner_id,
             entry->u.Open.mode); 
 out:
     DbgEx();
@@ -682,15 +661,15 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
     }
     RtlCopyMemory(tmp, &entry->u.ReadWrite.buf, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.ReadWrite.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.ReadWrite.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
 
     *len = header_len;
 
     DbgP("len=%u offset=%lu session=0x%p open_state=0x%p\n",
         entry->u.ReadWrite.len, entry->u.ReadWrite.offset,
-        entry->u.ReadWrite.session, entry->u.ReadWrite.open_state);
+        entry->session, entry->open_state);
 out:
     DbgEx();
     return status;
@@ -718,9 +697,9 @@ NTSTATUS marshal_nfs41_lock(nfs41_updowncall_entry *entry,
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.Lock.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Lock.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Lock.offset, sizeof(LONGLONG));
     tmp += sizeof(LONGLONG);
@@ -735,7 +714,7 @@ NTSTATUS marshal_nfs41_lock(nfs41_updowncall_entry *entry,
 
     DbgP("session=%p open_state=%p offset=%llx length=%llx "
         "exclusive=%u blocking=%u\n",
-        entry->u.Lock.open_state, entry->u.Lock.session,
+        entry->open_state, entry->session,
         entry->u.Lock.offset, entry->u.Lock.length,
         entry->u.Lock.exclusive, entry->u.Lock.blocking);
 out:
@@ -766,9 +745,9 @@ NTSTATUS marshal_nfs41_unlock(nfs41_updowncall_entry *entry,
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.Unlock.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Unlock.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Unlock.count, sizeof(ULONG));
     tmp += sizeof(ULONG);
@@ -784,9 +763,8 @@ NTSTATUS marshal_nfs41_unlock(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("session=%p open_state=%p count=%u\n",
-        entry->u.Unlock.open_state, entry->u.Unlock.session,
-        entry->u.Unlock.count);
+    DbgP("session=%p open_state=%p count=%u\n", entry->open_state, 
+        entry->session, entry->u.Unlock.count);
 out:
     DbgEx();
     return status;
@@ -819,9 +797,9 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.Close.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Close.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Close.remove, sizeof(BOOLEAN));
     if (entry->u.Close.remove) {
@@ -834,7 +812,7 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
     *len = header_len;
 
     DbgP("session=0x%x open_state=0x%x remove=%d renamed=%d filename=%wZ\n", 
-        entry->u.Close.session, entry->u.Close.open_state,
+        entry->session, entry->open_state,
         entry->u.Close.remove, entry->u.Close.renamed, 
         entry->u.Close.filename);
 out:
@@ -878,9 +856,9 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryFile.return_single, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
 
     *len = header_len;
 
@@ -888,8 +866,7 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
         "session=0x%x open_state=0x%x\n",
         entry->u.QueryFile.filter, entry->u.QueryFile.InfoClass,
         entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan,
-        entry->u.QueryFile.return_single, entry->u.QueryFile.session,
-        entry->u.QueryFile.open_state);
+        entry->u.QueryFile.return_single, entry->session, entry->open_state);
 out:
     DbgEx();
     return status;
@@ -919,15 +896,14 @@ NTSTATUS marshal_nfs41_filequery(nfs41_updowncall_entry *entry,
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.QueryFile.buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
 
     *len = header_len;
 
     DbgP("class=%d session=0x%x open_state=0x%x\n",
-        entry->u.QueryFile.InfoClass, entry->u.QueryFile.session,
-        entry->u.QueryFile.open_state);
+        entry->u.QueryFile.InfoClass, entry->session, entry->open_state);
 out:
     DbgEx();
     return status;
@@ -962,9 +938,9 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, entry->u.SetFile.buf, entry->u.SetFile.buf_len);
     tmp += entry->u.SetFile.buf_len;
-    RtlCopyMemory(tmp, &entry->u.SetFile.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.SetFile.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.SetFile.open_owner_id, sizeof(ULONG));
     tmp += sizeof(ULONG);
@@ -977,7 +953,7 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
     DbgP("filename='%wZ' class=%d session=0x%x open_state=0x%x "
         "open_owner_id=0x%x access_mask=0x%x access_mode=0x%x\n",
         entry->u.SetFile.filename, entry->u.SetFile.InfoClass,
-        entry->u.SetFile.session, entry->u.SetFile.open_state,
+        entry->session, entry->open_state,
         entry->u.SetFile.open_owner_id, entry->u.SetFile.access_mask,
         entry->u.SetFile.access_mode);
     print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf, 
@@ -1008,16 +984,16 @@ NTSTATUS marshal_nfs41_easet(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.SetEa.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.SetEa.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.SetEa.mode, sizeof(DWORD));
 
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x mode=0x%x\n",
-        entry->u.SetEa.session, entry->u.SetEa.open_state, entry->u.SetEa.mode);
+    DbgP("session=0x%x open_state=0x%x mode=0x%x\n", entry->session, 
+        entry->open_state, entry->u.SetEa.mode);
 out:
     DbgEx();
     return status;
@@ -1047,9 +1023,9 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.Symlink.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Symlink.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     marshall_unicode_as_ansi(&tmp, entry->u.Symlink.filename);
     RtlCopyMemory(tmp, &entry->u.Symlink.set, sizeof(BOOLEAN));
@@ -1060,8 +1036,8 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
     *len = header_len;
 
     DbgP("session=0x%x open_state=0x%x symlink name %wZ symlink target %wZ\n",
-        entry->u.Symlink.session, entry->u.Symlink.open_state, 
-        entry->u.Symlink.filename, entry->u.Symlink.set?entry->u.Symlink.target : NULL);
+        entry->session, entry->open_state, entry->u.Symlink.filename, 
+        entry->u.Symlink.set?entry->u.Symlink.target : NULL);
 out:
     DbgEx();
     return status;
@@ -1088,14 +1064,15 @@ NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.Volume.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Volume.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(FS_INFORMATION_CLASS));
     *len = header_len;
 
-    DbgP("session=0x%x\n", entry->u.Volume.session);
+    DbgP("session=0x%x open_state=0x%x qury=0x%x\n", entry->session, 
+        entry->open_state, entry->u.Volume.query);
 out:
     DbgEx();
     return status;
@@ -1122,15 +1099,15 @@ NTSTATUS marshal_nfs41_getacl(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.Acl.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Acl.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x query=%d\n", entry->u.Acl.session, 
-        entry->u.Acl.open_state, entry->u.Acl.query);
+    DbgP("session=0x%x open_state=0x%x query=%d\n", entry->session, 
+        entry->open_state, entry->u.Acl.query);
 out:
     DbgEx();
     return status;
@@ -1158,9 +1135,9 @@ NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.Acl.session, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->u.Acl.open_state, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     tmp += sizeof(SECURITY_INFORMATION);
@@ -1170,7 +1147,7 @@ NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
     *len = header_len;
 
     DbgP("session=0x%x open_state=0x%x query=%d sec_desc_len=%d\n", 
-        entry->u.Acl.session, entry->u.Acl.open_state, 
+        entry->session, entry->open_state, 
         entry->u.Acl.query, entry->u.Acl.buf_len);
 out:
     DbgEx();
@@ -1289,6 +1266,9 @@ handle_upcall(
 NTSTATUS nfs41_UpcallCreate(
     IN DWORD opcode,
     IN PSECURITY_CLIENT_CONTEXT clnt_sec_ctx,
+    IN HANDLE session,
+    IN HANDLE open_state,
+    IN DWORD version,
     OUT nfs41_updowncall_entry **entry_out)
 {
     NTSTATUS status = STATUS_SUCCESS;
@@ -1307,6 +1287,9 @@ NTSTATUS nfs41_UpcallCreate(
     entry->xid = get_next_xid();
     entry->opcode = opcode;
     entry->state = NFS41_WAITING_FOR_UPCALL;
+    entry->session = session;
+    entry->open_state = open_state;
+    entry->version = version;
     /*XXX KeInitializeEvent will bugcheck under verifier if allocated from PagedPool? */
     KeInitializeEvent(&entry->cond, SynchronizationEvent, FALSE);
     ExInitializeFastMutex(&entry->lock);
@@ -1521,10 +1504,10 @@ nfs41_downcall (
     if (!tmp->status) {
         switch (tmp->opcode) {
         case NFS41_MOUNT:
-            RtlCopyMemory(&cur->u.Mount.session, buf, sizeof(HANDLE));
+            RtlCopyMemory(&cur->session, buf, sizeof(HANDLE));
             buf += sizeof(HANDLE);
             RtlCopyMemory(&cur->version, buf, sizeof(DWORD));
-            DbgP("[mount] session pointer 0x%x version %d\n", cur->u.Mount.session, cur->version);
+            DbgP("[mount] session pointer 0x%x version %d\n", cur->session, cur->version);
             break;
         case NFS41_WRITE:
         case NFS41_READ:
@@ -1551,7 +1534,7 @@ nfs41_downcall (
             buf += sizeof(FILE_BASIC_INFORMATION);
             RtlCopyMemory(&cur->u.Open.sinfo, buf, sizeof(FILE_STANDARD_INFORMATION));
             buf += sizeof(FILE_STANDARD_INFORMATION);
-            RtlCopyMemory(&cur->u.Open.open_state, buf, sizeof(HANDLE));
+            RtlCopyMemory(&cur->open_state, buf, sizeof(HANDLE));
             buf += sizeof(HANDLE);
             RtlCopyMemory(&cur->u.Open.mode, buf, sizeof(DWORD));
             buf += sizeof(DWORD);
@@ -1574,7 +1557,7 @@ nfs41_downcall (
                 DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
             }
             DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
-                cur->u.Open.open_state, cur->u.Open.mode, cur->u.Open.changeattr);
+                cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr);
             break;
         case NFS41_DIR_QUERY:
         case NFS41_FILE_QUERY:
@@ -1660,10 +1643,10 @@ NTSTATUS nfs41_shutdown_daemon(DWORD version)
     nfs41_updowncall_entry *entry = NULL;
 
     DbgEn();
-    status = nfs41_UpcallCreate(NFS41_SHUTDOWN, NULL, &entry);
+    status = nfs41_UpcallCreate(NFS41_SHUTDOWN, NULL, INVALID_HANDLE_VALUE,
+        INVALID_HANDLE_VALUE, version, &entry);
     if (status)
         goto out;
-    entry->version = version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -1913,11 +1896,10 @@ NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
     nfs41_updowncall_entry *entry;
 
     DbgEn();
-    status = nfs41_UpcallCreate(NFS41_UNMOUNT, NULL, &entry);
+    status = nfs41_UpcallCreate(NFS41_UNMOUNT, NULL, session, 
+        INVALID_HANDLE_VALUE, version, &entry);
     if (status)
         goto out;
-    entry->u.Mount.session = session;
-    entry->version = version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -2267,20 +2249,20 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root,
     nfs41_updowncall_entry *entry;
 
     DbgEn();
-    status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, &entry);
+    status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, INVALID_HANDLE_VALUE,
+        INVALID_HANDLE_VALUE, *version, &entry);
     if (status)
         goto out;
     entry->u.Mount.srv_name = srv_name;
     entry->u.Mount.root = root;
     entry->u.Mount.sec_flavor = sec_flavor;
-    entry->version = *version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
     SeDeleteClientSecurity(&entry->sec_ctx);
-    *session = entry->u.Mount.session;
+    *session = entry->session;
 
     /* map windows ERRORs to NTSTATUS */
     status = map_mount_errors(entry->status);
@@ -2855,7 +2837,8 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_OPEN, NULL, &entry);
+    status = nfs41_UpcallCreate(NFS41_OPEN, NULL, pVNetRootContext->session, 
+        INVALID_HANDLE_VALUE, pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
     entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
@@ -2864,8 +2847,6 @@ NTSTATUS nfs41_Create(
     entry->u.Open.attrs = params.FileAttributes;
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
-    entry->u.Open.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
     if (isDataAccess(params.DesiredAccess))
         entry->u.Open.open_owner_id = get_next_open_owner();
     // if we are creating a file check if nfsv3attributes were passed in
@@ -2953,7 +2934,7 @@ NTSTATUS nfs41_Create(
     }
     print_fobx(1, RxContext->pFobx);
     nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
-    nfs41_fobx->nfs41_open_state = entry->u.Open.open_state;
+    nfs41_fobx->nfs41_open_state = entry->open_state;
     {
         SECURITY_SUBJECT_CONTEXT sec_ctx;
         SECURITY_QUALITY_OF_SERVICE sec_qos;
@@ -3189,12 +3170,11 @@ NTSTATUS nfs41_CloseSrvOpen (
     DbgEn();
     print_close_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.Close.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.Close.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
     if (!RxContext->pFcb->OpenCount) {
         entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
         entry->u.Close.renamed = nfs41_fcb->Renamed;
@@ -3342,10 +3322,11 @@ NTSTATUS nfs41_QueryDirectory (
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.QueryFile.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.QueryFile.InfoClass = InfoClass;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
@@ -3353,8 +3334,6 @@ NTSTATUS nfs41_QueryDirectory (
     entry->u.QueryFile.initial_query = RxContext->QueryDirectory.InitialQuery;
     entry->u.QueryFile.restart_scan = RxContext->QueryDirectory.RestartScan;
     entry->u.QueryFile.return_single = RxContext->QueryDirectory.ReturnSingleEntry;
-    entry->u.QueryFile.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3494,15 +3473,14 @@ NTSTATUS nfs41_QueryVolumeInformation (
             goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.Volume.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.Volume.session = pVNetRootContext->session;
     entry->u.Volume.query = InfoClass;
     entry->u.Volume.buf = RxContext->Info.Buffer;
     entry->u.Volume.buf_len = RxContext->Info.LengthRemaining;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3703,13 +3681,12 @@ NTSTATUS nfs41_SetEaInformation (
     } else
         goto out;
 
-    status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.SetEa.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.SetEa.session = pVNetRootContext->session;
     entry->u.SetEa.mode = attrs->mode;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3772,13 +3749,12 @@ NTSTATUS nfs41_QuerySecurityInformation (
     if (info_class == SACL_SECURITY_INFORMATION)
         goto out;
 
-    status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.Acl.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.Acl.session = pVNetRootContext->session;
     entry->u.Acl.query = info_class;
-    entry->version = pNetRootContext->nfs41d_version;
     /* we can't provide RxContext->CurrentIrp->UserBuffer to the upcall thread 
      * because it becomes an invalid pointer with that execution context
      */
@@ -3863,15 +3839,14 @@ NTSTATUS nfs41_SetSecurityInformation (
     if (info_class == SACL_SECURITY_INFORMATION)
         goto out;
 
-    status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.Acl.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.Acl.session = pVNetRootContext->session;
     entry->u.Acl.query = info_class;
     entry->u.Acl.buf = sec_desc;
     entry->u.Acl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3987,15 +3962,14 @@ NTSTATUS nfs41_QueryFileInformation (
     }
     print_queryfile_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.QueryFile.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.QueryFile.InfoClass = InfoClass;
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
-    entry->u.QueryFile.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4179,14 +4153,13 @@ NTSTATUS nfs41_SetFileInformation (
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.SetFile.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.SetFile.filename = FileName;
     entry->u.SetFile.InfoClass = InfoClass;
-    entry->version = pNetRootContext->nfs41d_version;
-
     switch(InfoClass) {
     case FileAllocationInformation:
     case FileEndOfFileInformation:
@@ -4208,7 +4181,6 @@ NTSTATUS nfs41_SetFileInformation (
         entry->u.SetFile.buf = RxContext->Info.Buffer;
         entry->u.SetFile.buf_len = RxContext->Info.Length;
     }
-    entry->u.SetFile.session = pVNetRootContext->session;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4368,15 +4340,14 @@ NTSTATUS nfs41_Read (
     DbgEn();
     print_readwrite_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_READ, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_READ, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.ReadWrite.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
-    entry->u.ReadWrite.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
     if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) == FALSE) {
         entry->u.ReadWrite.rxcontext = RxContext;
         async = entry->async_op = TRUE;
@@ -4433,15 +4404,14 @@ NTSTATUS nfs41_Write (
     DbgEn();
     print_readwrite_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.ReadWrite.open_state = nfs41_fobx->nfs41_open_state;
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
-    entry->u.ReadWrite.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) == FALSE) {
         entry->u.ReadWrite.rxcontext = RxContext;
@@ -4573,16 +4543,15 @@ NTSTATUS nfs41_Lock(
 /*  RxReleaseFcbResourceForThreadInMRx(RxContext, RxContext->pFcb,
         LowIoContext->ResourceThreadId); */
 
-    status = nfs41_UpcallCreate(NFS41_LOCK, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_LOCK, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.Lock.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.Lock.session = pVNetRootContext->session;
     entry->u.Lock.offset = LowIoContext->ParamsFor.Locks.ByteOffset;
     entry->u.Lock.length = LowIoContext->ParamsFor.Locks.Length;
     entry->u.Lock.exclusive = BooleanFlagOn(flags, SL_EXCLUSIVE_LOCK);
     entry->u.Lock.blocking = !BooleanFlagOn(flags, SL_FAIL_IMMEDIATELY);
-    entry->version = pNetRootContext->nfs41d_version;
 
 retry_upcall:
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
@@ -4657,12 +4626,11 @@ NTSTATUS nfs41_Unlock(
 /*  RxReleaseFcbResourceForThreadInMRx(RxContext, RxContext->pFcb,
         LowIoContext->ResourceThreadId); */
 
-    status = nfs41_UpcallCreate(NFS41_UNLOCK, &nfs41_fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_UNLOCK, &nfs41_fobx->sec_ctx, 
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.Unlock.open_state = nfs41_fobx->nfs41_open_state;
-    entry->u.Unlock.session = pVNetRootContext->session;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (LowIoContext->Operation == LOWIO_OP_UNLOCK_MULTIPLE) {
         entry->u.Unlock.count = unlock_list_count(
@@ -4760,16 +4728,15 @@ static NTSTATUS nfs41_SetReparsePoint(
     TargetName.Buffer = &Reparse->SymbolicLinkReparseBuffer.PathBuffer[
         Reparse->SymbolicLinkReparseBuffer.PrintNameOffset/sizeof(WCHAR)];
 
-    status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
+        VNetRoot->session, Fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
 
-    entry->u.Symlink.session = VNetRoot->session;
-    entry->u.Symlink.open_state = Fobx->nfs41_open_state;
     entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = TRUE;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4815,16 +4782,15 @@ static NTSTATUS nfs41_GetReparsePoint(
     TargetName.Buffer = (PWCH)((PBYTE)FsCtl->pOutputBuffer + HeaderLen);
     TargetName.MaximumLength = (USHORT)min(FsCtl->OutputBufferLength - HeaderLen, 0xFFFF);
 
-    status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, &entry);
+    status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
+        VNetRoot->session, Fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
 
-    entry->u.Symlink.session = VNetRoot->session;
-    entry->u.Symlink.open_state = Fobx->nfs41_open_state;
     entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = FALSE;
-    entry->version = pNetRootContext->nfs41d_version;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
