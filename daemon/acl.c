@@ -37,17 +37,10 @@ static int parse_getacl(unsigned char *buffer, uint32_t length,
     int status;
     getacl_upcall_args *args = &upcall->args.getacl;
 
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->query, sizeof(args->query));
     if (status) goto out;
 
-    dprintf(1, "parsing NFS41_ACL_QUERY: info_class=%d root=0x%p "
-            "open_state=0x%p\n", args->query, args->root, args->state);
+    dprintf(1, "parsing NFS41_ACL_QUERY: info_class=%d\n", args->query);
 out:
     return status;
 }
@@ -273,7 +266,7 @@ static int handle_getacl(nfs41_upcall *upcall)
 {
     int status = ERROR_NOT_SUPPORTED;
     getacl_upcall_args *args = &upcall->args.getacl;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     nfs41_file_info info;
     bitmap4 attr_request;
     LPSTR domain = NULL;
@@ -429,12 +422,6 @@ static int parse_setacl(unsigned char *buffer, uint32_t length,
     setacl_upcall_args *args = &upcall->args.setacl;
     ULONG sec_desc_len;
 
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->query, sizeof(args->query));
     if (status) goto out;
     status = safe_read(&buffer, &length, &sec_desc_len, sizeof(ULONG));
@@ -453,9 +440,8 @@ static int parse_setacl(unsigned char *buffer, uint32_t length,
         goto out_free;
     } else status = 0;
 
-    dprintf(1, "parsing NFS41_ACL_SET: info_class=%d root=0x%p open_state=0x%p"
-            " sec_desc_len=%d\n", args->query, args->root, args->state, 
-            sec_desc_len);
+    dprintf(1, "parsing NFS41_ACL_SET: info_class=%d sec_desc_len=%d\n", 
+            args->query, sec_desc_len);
 out:
     return status;
 out_free:
@@ -710,7 +696,7 @@ static int handle_setacl(nfs41_upcall *upcall)
 {
     int status = ERROR_NOT_SUPPORTED;
     setacl_upcall_args *args = &upcall->args.setacl;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     nfs41_file_info info;
     stateid_arg stateid;
     nfsacl41 nfs4_acl;

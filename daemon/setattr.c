@@ -52,22 +52,18 @@ static int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     }
     status = safe_read(&buffer, &length, args->buf, args->buf_len);
     if (status) goto out_free;
-    status = safe_read(&buffer, &length, &args->root, sizeof(args->root));
-    if (status) goto out_free;
-    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
-    if (status) goto out_free;
-    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
     if (status) goto out_free;
     status = safe_read(&buffer, &length, &args->access_mask, sizeof(ULONG));
     if (status) goto out_free;
     status = safe_read(&buffer, &length, &args->access_mode, sizeof(ULONG));
     if (status) goto out_free;
+    args->root = upcall->root_ref;
+    args->state = upcall->state_ref;
 
     dprintf(1, "parsing NFS41_FILE_SET: filename='%s' info_class=%d "
-        "buf_len=%d root=%p open_state=%p\nopen_owner_id=%d "
-        "access_mask=%x access_mode=%x\n", args->path, args->set_class, 
-        args->buf_len, args->root, args->state, args->open_owner_id,
+        "buf_len=%d\nopen_owner_id=%d access_mask=%x access_mode=%x\n", 
+        args->path, args->set_class, args->buf_len, args->open_owner_id,
         args->access_mask, args->access_mode);
 out:
     return status;
@@ -468,7 +464,7 @@ out:
 static int handle_setattr(nfs41_upcall *upcall)
 {
     setattr_upcall_args *args = &upcall->args.setattr;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     int status;
 
     switch (args->set_class) {
@@ -529,17 +525,10 @@ static int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall 
     int status;
     setexattr_upcall_args *args = &upcall->args.setexattr;
 
-    status = safe_read(&buffer, &length, &args->root, sizeof(args->root));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
     status = safe_read(&buffer, &length, &args->mode, sizeof(args->mode));
     if (status) goto out;
 
-    dprintf(1, "parsing NFS41_EA_SET: root=%p open_state=%p mode=%o\n", 
-        args->root, args->state, args->mode);
+    dprintf(1, "parsing NFS41_EA_SET: mode=%o\n", args->mode);
 out:
     return status;
 }
@@ -548,7 +537,7 @@ static int handle_setexattr(nfs41_upcall *upcall)
 {
     int status;
     setexattr_upcall_args *args = &upcall->args.setexattr;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     stateid_arg stateid;
     nfs41_file_info info;
 

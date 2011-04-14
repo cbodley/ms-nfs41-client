@@ -97,9 +97,18 @@ int upcall_parse(
     if (status) goto out;
     status = safe_read(&buffer, &length, &upcall->opcode, sizeof(uint32_t));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &upcall->root_ref, sizeof(HANDLE));
+    if (status) goto out;
+    if (upcall->root_ref != INVALID_HANDLE_VALUE)
+        nfs41_root_ref(upcall->root_ref);
+    status = safe_read(&buffer, &length, &upcall->state_ref, sizeof(HANDLE));
+    if (status) goto out;
+    if (upcall->state_ref != INVALID_HANDLE_VALUE)
+        nfs41_open_state_ref(upcall->state_ref);
 
-    dprintf(2, "version=%d xid=%d opcode=%s\n", version, upcall->xid, 
-        opcode2string(upcall->opcode));
+    dprintf(2, "version=%d xid=%d opcode=%s session=0x%x open_state=0x%x\n", 
+        version, upcall->xid, opcode2string(upcall->opcode), upcall->root_ref, 
+        upcall->state_ref);
     if (version != NFS41D_VERSION) {
         eprintf("received version %d expecting version %d\n", version, NFS41D_VERSION);
         upcall->status = status = NFSD_VERSION_MISMATCH;
@@ -196,11 +205,11 @@ void upcall_cleanup(
     if (op && op->cleanup && upcall->status != NFSD_VERSION_MISMATCH)
         op->cleanup(upcall);
 
-    if (upcall->state_ref) {
+    if (upcall->state_ref && upcall->state_ref != INVALID_HANDLE_VALUE) {
         nfs41_open_state_deref(upcall->state_ref);
         upcall->state_ref = NULL;
     }
-    if (upcall->root_ref) {
+    if (upcall->root_ref && upcall->root_ref != INVALID_HANDLE_VALUE) {
         nfs41_root_deref(upcall->root_ref);
         upcall->root_ref = NULL;
     }

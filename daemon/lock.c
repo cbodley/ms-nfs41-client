@@ -122,12 +122,6 @@ static int parse_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     int status;
     lock_upcall_args *args = &upcall->args.lock;
 
-    status = safe_read(&buffer, &length, &args->state, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->offset, sizeof(LONGLONG));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->length, sizeof(LONGLONG));
@@ -137,10 +131,9 @@ static int parse_lock(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     status = safe_read(&buffer, &length, &args->blocking, sizeof(BOOLEAN));
     if (status) goto out;
 
-    dprintf(1, "parsing NFS41_LOCK: state=%p root=%p offset=0x%llx "
-        "length=0x%llx exclusive=%u blocking=%u\n",
-        args->state, args->root, args->offset, args->length,
-        args->exclusive, args->blocking);
+    dprintf(1, "parsing NFS41_LOCK: offset=0x%llx length=0x%llx exclusive=%u "
+            "blocking=%u\n", args->offset, args->length, args->exclusive, 
+            args->blocking);
 out:
     return status;
 }
@@ -156,7 +149,7 @@ static int handle_lock(nfs41_upcall *upcall)
 {
     stateid_arg stateid;
     lock_upcall_args *args = &upcall->args.lock;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     const uint32_t type = get_lock_type(args->exclusive, args->blocking);
     int status;
 
@@ -182,7 +175,7 @@ static void cancel_lock(IN nfs41_upcall *upcall)
 {
     stateid_arg stateid;
     lock_upcall_args *args = &upcall->args.lock;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     int status = NO_ERROR;
 
     dprintf(1, "--> cancel_lock()\n");
@@ -213,20 +206,13 @@ static int parse_unlock(unsigned char *buffer, uint32_t length, nfs41_upcall *up
     int status;
     unlock_upcall_args *args = &upcall->args.unlock;
 
-    status = safe_read(&buffer, &length, &args->state, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->count, sizeof(ULONG));
     if (status) goto out;
 
     args->buf = buffer;
     args->buf_len = length;
 
-    dprintf(1, "parsing NFS41_UNLOCK: state=%p root=%p count=%u\n",
-        args->state, args->root, args->count);
+    dprintf(1, "parsing NFS41_UNLOCK: count=%u\n", args->count);
 out:
     return status;
 }
@@ -235,7 +221,7 @@ static int handle_unlock(nfs41_upcall *upcall)
 {
     stateid_arg stateid;
     unlock_upcall_args *args = &upcall->args.unlock;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     uint32_t i, nsuccess = 0;
     unsigned char *buf = args->buf;
     uint32_t buf_len = args->buf_len;

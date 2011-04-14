@@ -195,12 +195,6 @@ static int parse_symlink(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     symlink_upcall_args *args = &upcall->args.symlink;
     int status;
 
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(nfs41_open_state *));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
     status = get_name(&buffer, &length, &args->path);
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->set, sizeof(BOOLEAN));
@@ -211,8 +205,7 @@ static int parse_symlink(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     else
         args->target_set = NULL;
 
-    dprintf(1, "parsing NFS41_SYMLINK: root=0x%p open_state=0x%p "
-        "path='%s' set=%u target='%s'\n", args->root, args->state,
+    dprintf(1, "parsing NFS41_SYMLINK: path='%s' set=%u target='%s'\n",
         args->path, args->set, args->target_set);
 out:
     return status;
@@ -231,7 +224,7 @@ static int map_symlink_errors(int status)
 static int handle_symlink(nfs41_upcall *upcall)
 {
     symlink_upcall_args *args = &upcall->args.symlink;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     int status = NO_ERROR;
 
     if (args->set) {

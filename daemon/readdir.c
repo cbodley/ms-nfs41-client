@@ -60,19 +60,13 @@ static int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->single, sizeof(args->single));
     if (status) goto out;
-    status = safe_read(&buffer, &length, &args->root, sizeof(args->root));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
+    args->root = upcall->root_ref;
+    args->state = upcall->state_ref;
 
     dprintf(1, "parsing NFS41_DIR_QUERY: info_class=%d buf_len=%d "
-        "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d "
-        "root=0x%p state=0x%p\n",
+        "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d\n",
         args->query_class, args->buf_len, args->filter,
-        args->initial, args->restart, args->single,
-        args->root, args->state);
+        args->initial, args->restart, args->single);
 out:
     return status;
 }
@@ -454,7 +448,7 @@ static int handle_readdir(nfs41_upcall *upcall)
 {
     int status;
     readdir_upcall_args *args = &upcall->args.readdir;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     unsigned char *entry_buf = NULL;
     uint32_t entry_buf_len;
     bitmap4 attr_request;
@@ -544,7 +538,7 @@ fetch_entries:
         StringCbCopyA(entry->name, entry->name_len, args->filter);
         entry->next_entry_offset = 0;
 
-        status = lookup_entry(args->root,
+        status = lookup_entry(upcall->root_ref,
              state->session, &state->file, entry);
         if (status) {
             dprintf(1, "single_lookup failed with %d\n", status);

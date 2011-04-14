@@ -454,7 +454,8 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    header_len = sizeof(entry->version) + sizeof(entry->xid) + sizeof(entry->opcode);
+    header_len = sizeof(entry->version) + sizeof(entry->xid) + 
+        sizeof(entry->opcode) + 2 * sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -462,13 +463,19 @@ NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
     else
         *len = header_len;
     RtlCopyMemory(tmp, &entry->version, sizeof(entry->version));
-    tmp += sizeof(DWORD);
+    tmp += sizeof(entry->version);
     RtlCopyMemory(tmp, &entry->xid, sizeof(entry->xid));
-    tmp += sizeof(xid);
+    tmp += sizeof(entry->xid);
     RtlCopyMemory(tmp, &entry->opcode, sizeof(entry->opcode));
+    tmp += sizeof(entry->opcode);
+    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
 
-    DbgP("[upcall] entry=%p xid=%d opcode=%d version=%d\n", entry, entry->xid, 
-        entry->opcode, entry->version);
+    DbgP("[upcall] entry=%p xid=%d opcode=%d version=%d session=0x%x "
+        "open_state=0x%x\n", entry, entry->xid, entry->opcode, entry->version,
+        entry->session, entry->open_state);
 out:
     return status;
 }
@@ -534,26 +541,12 @@ NTSTATUS marshal_nfs41_unmount(nfs41_updowncall_entry *entry,
                             ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
-    ULONG header_len = 0;
-    unsigned char *tmp = buf;
 
     DbgEn();
 
-    status = marshal_nfs41_header(entry, tmp, buf_len, len);
+    status = marshal_nfs41_header(entry, buf, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
-    else 
-        tmp += *len;
-
-
-    header_len = *len + sizeof(HANDLE);
-    if (header_len > buf_len) { 
-        status = STATUS_INSUFFICIENT_RESOURCES;
-        goto out;
-    }
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-
-    *len = header_len;
 
     DbgP("session=0x%x\n", entry->session);
 out:
@@ -578,7 +571,7 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
     header_len = *len + length_as_ansi(entry->u.Open.filename) +
-        6 * sizeof(ULONG) + sizeof(HANDLE) + sizeof(DWORD);
+        6 * sizeof(ULONG) + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -595,8 +588,6 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
     tmp += sizeof(entry->u.Open.copts);
     RtlCopyMemory(tmp, &entry->u.Open.disp, sizeof(entry->u.Open.disp));
     tmp += sizeof(entry->u.Open.disp);
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Open.open_owner_id,
         sizeof(entry->u.Open.open_owner_id));
     tmp += sizeof(entry->u.Open.open_owner_id);
@@ -605,11 +596,10 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
     *len = header_len;
 
     DbgP("mask=0x%x mode=0x%x attrs=0x%x opts=0x%x dispo=0x%x "
-            "session=0x%x open_owner_id=0x%x mode=%o\n", 
-            entry->u.Open.access_mask, entry->u.Open.access_mode,
-            entry->u.Open.attrs, entry->u.Open.copts, entry->u.Open.disp,
-            entry->session, entry->u.Open.open_owner_id,
-            entry->u.Open.mode); 
+            "open_owner_id=0x%x mode=%o\n", entry->u.Open.access_mask, 
+            entry->u.Open.access_mode, entry->u.Open.attrs, 
+            entry->u.Open.copts, entry->u.Open.disp,
+            entry->u.Open.open_owner_id, entry->u.Open.mode); 
 out:
     DbgEx();
     return status;
@@ -631,7 +621,7 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
     header_len = *len + sizeof(entry->u.ReadWrite.len) +
-        sizeof(entry->u.ReadWrite.offset) + 3 * sizeof(HANDLE);
+        sizeof(entry->u.ReadWrite.offset) + sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -660,16 +650,10 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
         goto out;
     }
     RtlCopyMemory(tmp, &entry->u.ReadWrite.buf, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
 
     *len = header_len;
 
-    DbgP("len=%u offset=%lu session=0x%p open_state=0x%p\n",
-        entry->u.ReadWrite.len, entry->u.ReadWrite.offset,
-        entry->session, entry->open_state);
+    DbgP("len=%u offset=%lu\n", entry->u.ReadWrite.len, entry->u.ReadWrite.offset);
 out:
     DbgEx();
     return status;
@@ -691,16 +675,11 @@ NTSTATUS marshal_nfs41_lock(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
 
-    header_len = *len + 2 * sizeof(HANDLE) + 2 * sizeof(LONGLONG) +
-        2 * sizeof(BOOLEAN);
+    header_len = *len + 2 * sizeof(LONGLONG) + 2 * sizeof(BOOLEAN);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Lock.offset, sizeof(LONGLONG));
     tmp += sizeof(LONGLONG);
     RtlCopyMemory(tmp, &entry->u.Lock.length, sizeof(LONGLONG));
@@ -712,9 +691,7 @@ NTSTATUS marshal_nfs41_lock(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("session=%p open_state=%p offset=%llx length=%llx "
-        "exclusive=%u blocking=%u\n",
-        entry->open_state, entry->session,
+    DbgP("offset=%llx length=%llx exclusive=%u blocking=%u\n",
         entry->u.Lock.offset, entry->u.Lock.length,
         entry->u.Lock.exclusive, entry->u.Lock.blocking);
 out:
@@ -739,16 +716,12 @@ NTSTATUS marshal_nfs41_unlock(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
 
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(ULONG) +
+    header_len = *len + sizeof(ULONG) + 
         entry->u.Unlock.count * 2 * sizeof(LONGLONG);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Unlock.count, sizeof(ULONG));
     tmp += sizeof(ULONG);
 
@@ -763,8 +736,7 @@ NTSTATUS marshal_nfs41_unlock(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("session=%p open_state=%p count=%u\n", entry->open_state, 
-        entry->session, entry->u.Unlock.count);
+    DbgP("count=%u\n", entry->u.Unlock.count);
 out:
     DbgEx();
     return status;
@@ -788,7 +760,7 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
         tmp += *len;
 
 
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(BOOLEAN);
+    header_len = *len + sizeof(BOOLEAN);
     if (entry->u.Close.remove)
         header_len += length_as_ansi(entry->u.Close.filename) +
             sizeof(BOOLEAN);
@@ -797,10 +769,6 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Close.remove, sizeof(BOOLEAN));
     if (entry->u.Close.remove) {
         tmp += sizeof(BOOLEAN);
@@ -811,10 +779,8 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x remove=%d renamed=%d filename=%wZ\n", 
-        entry->session, entry->open_state,
-        entry->u.Close.remove, entry->u.Close.renamed, 
-        entry->u.Close.filename);
+    DbgP("remove=%d renamed=%d filename=%wZ\n", entry->u.Close.remove, 
+        entry->u.Close.renamed, entry->u.Close.filename);
 out:
     DbgEx();
     return status;
@@ -837,8 +803,7 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
         tmp += *len;
 
     header_len = *len + 2 * sizeof(ULONG) +
-        length_as_ansi(entry->u.QueryFile.filter) +
-        3 * sizeof(BOOLEAN) + 2 * sizeof(HANDLE);
+        length_as_ansi(entry->u.QueryFile.filter) + 3 * sizeof(BOOLEAN);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -855,18 +820,13 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.QueryFile.restart_scan, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryFile.return_single, sizeof(BOOLEAN));
-    tmp += sizeof(BOOLEAN);
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
 
     *len = header_len;
 
-    DbgP("filter='%wZ' class=%d\n\t1st\\restart\\single=%d\\%d\\%d "
-        "session=0x%x open_state=0x%x\n",
+    DbgP("filter='%wZ' class=%d\n\t1st\\restart\\single=%d\\%d\\%d\n",
         entry->u.QueryFile.filter, entry->u.QueryFile.InfoClass,
         entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan,
-        entry->u.QueryFile.return_single, entry->session, entry->open_state);
+        entry->u.QueryFile.return_single);
 out:
     DbgEx();
     return status;
@@ -887,7 +847,7 @@ NTSTATUS marshal_nfs41_filequery(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + 2 * sizeof(ULONG) + 2 * sizeof(HANDLE);
+    header_len = *len + 2 * sizeof(ULONG);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -902,8 +862,7 @@ NTSTATUS marshal_nfs41_filequery(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("class=%d session=0x%x open_state=0x%x\n",
-        entry->u.QueryFile.InfoClass, entry->session, entry->open_state);
+    DbgP("class=%d\n", entry->u.QueryFile.InfoClass);
 out:
     DbgEx();
     return status;
@@ -925,7 +884,7 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
     header_len = *len + length_as_ansi(entry->u.SetFile.filename) +
-        5 * sizeof(ULONG) + entry->u.SetFile.buf_len + 2 * sizeof(HANDLE);
+        5 * sizeof(ULONG) + entry->u.SetFile.buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -938,10 +897,6 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, entry->u.SetFile.buf, entry->u.SetFile.buf_len);
     tmp += entry->u.SetFile.buf_len;
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.SetFile.open_owner_id, sizeof(ULONG));
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.SetFile.access_mask, sizeof(ULONG));
@@ -950,12 +905,10 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("filename='%wZ' class=%d session=0x%x open_state=0x%x "
-        "open_owner_id=0x%x access_mask=0x%x access_mode=0x%x\n",
-        entry->u.SetFile.filename, entry->u.SetFile.InfoClass,
-        entry->session, entry->open_state,
-        entry->u.SetFile.open_owner_id, entry->u.SetFile.access_mask,
-        entry->u.SetFile.access_mode);
+    DbgP("filename='%wZ' class=%d open_owner_id=0x%x access_mask=0x%x "
+        "access_mode=0x%x\n", entry->u.SetFile.filename, 
+        entry->u.SetFile.InfoClass, entry->u.SetFile.open_owner_id, 
+        entry->u.SetFile.access_mask, entry->u.SetFile.access_mode);
     print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf, 
         entry->u.SetFile.buf_len);
 out:
@@ -978,22 +931,17 @@ NTSTATUS marshal_nfs41_easet(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(DWORD);
+    header_len = *len + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.SetEa.mode, sizeof(DWORD));
 
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x mode=0x%x\n", entry->session, 
-        entry->open_state, entry->u.SetEa.mode);
+    DbgP("mode=0x%x\n", entry->u.SetEa.mode);
 out:
     DbgEx();
     return status;
@@ -1014,7 +962,7 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(BOOLEAN) +
+    header_len = *len + sizeof(BOOLEAN) +
         length_as_ansi(entry->u.Symlink.filename);
     if (entry->u.Symlink.set)
         header_len += length_as_ansi(entry->u.Symlink.target);
@@ -1023,10 +971,6 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     marshall_unicode_as_ansi(&tmp, entry->u.Symlink.filename);
     RtlCopyMemory(tmp, &entry->u.Symlink.set, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
@@ -1035,8 +979,7 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x symlink name %wZ symlink target %wZ\n",
-        entry->session, entry->open_state, entry->u.Symlink.filename, 
+    DbgP("symlink name %wZ symlink target %wZ\n", entry->u.Symlink.filename, 
         entry->u.Symlink.set?entry->u.Symlink.target : NULL);
 out:
     DbgEx();
@@ -1058,21 +1001,16 @@ NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(FS_INFORMATION_CLASS);
+    header_len = *len + sizeof(FS_INFORMATION_CLASS);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(FS_INFORMATION_CLASS));
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x qury=0x%x\n", entry->session, 
-        entry->open_state, entry->u.Volume.query);
+    DbgP("query=0x%x\n", entry->u.Volume.query);
 out:
     DbgEx();
     return status;
@@ -1093,21 +1031,16 @@ NTSTATUS marshal_nfs41_getacl(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(SECURITY_INFORMATION);
+    header_len = *len + sizeof(SECURITY_INFORMATION);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x query=%d\n", entry->session, 
-        entry->open_state, entry->u.Acl.query);
+    DbgP("query=%d\n", entry->u.Acl.query);
 out:
     DbgEx();
     return status;
@@ -1128,17 +1061,13 @@ NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + 2 * sizeof(HANDLE) + sizeof(SECURITY_INFORMATION) +
+    header_len = *len + sizeof(SECURITY_INFORMATION) +
         sizeof(ULONG) + entry->u.Acl.buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
-    RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-    tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     tmp += sizeof(SECURITY_INFORMATION);
     RtlCopyMemory(tmp, &entry->u.Acl.buf_len, sizeof(DWORD));
@@ -1146,9 +1075,7 @@ NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, entry->u.Acl.buf, entry->u.Acl.buf_len);
     *len = header_len;
 
-    DbgP("session=0x%x open_state=0x%x query=%d sec_desc_len=%d\n", 
-        entry->session, entry->open_state, 
-        entry->u.Acl.query, entry->u.Acl.buf_len);
+    DbgP("query=%d sec_desc_len=%d\n", entry->u.Acl.query, entry->u.Acl.buf_len);
 out:
     DbgEx();
     return status;

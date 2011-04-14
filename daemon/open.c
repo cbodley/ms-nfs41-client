@@ -158,9 +158,6 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->disposition, sizeof(ULONG));
     if (status) goto out;
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
     status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(DWORD));
@@ -168,10 +165,9 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
 
     dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
         "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
-        "(kernel) disposition=%d\n\tsession=%p open_owner_id=%d mode=%o\n", 
+        "(kernel) disposition=%d\n\topen_owner_id=%d mode=%o\n", 
         args->path, args->access_mask, args->access_mode, args->file_attrs,
-        args->create_opts, args->disposition, args->root, args->open_owner_id,
-        args->mode);
+        args->create_opts, args->disposition, args->open_owner_id, args->mode);
     print_disposition(2, args->disposition);
     print_access_mask(2, args->access_mask);
     print_share_mode(2, args->access_mode);
@@ -295,7 +291,7 @@ static int handle_open(nfs41_upcall *upcall)
         state->type = NF4REG;
 
     // always do a lookup
-    status = nfs41_lookup(args->root, nfs41_root_session(args->root),
+    status = nfs41_lookup(upcall->root_ref, nfs41_root_session(upcall->root_ref),
         &state->path, &state->parent, &state->file, &info, &state->session);
 
     if (status == ERROR_REPARSE) {
@@ -317,7 +313,7 @@ static int handle_open(nfs41_upcall *upcall)
             }
 
             /* redo the lookup until it doesn't return REPARSE */
-            status = nfs41_lookup(args->root, state->session,
+            status = nfs41_lookup(upcall->root_ref, state->session,
                 &state->path, &state->parent, NULL, NULL, &state->session);
         } while (status == ERROR_REPARSE);
 
@@ -356,7 +352,7 @@ static int handle_open(nfs41_upcall *upcall)
                 /* continue and open the symlink itself, but we need to
                  * know if the target is a regular file or directory */
                 nfs41_file_info target_info;
-                int target_status = nfs41_symlink_follow(args->root,
+                int target_status = nfs41_symlink_follow(upcall->root_ref,
                     state->session, &state->file, &target_info);
                 if (target_status == NO_ERROR && target_info.type == NF4DIR)
                     info.symlink_dir = TRUE;
@@ -460,7 +456,8 @@ static int handle_open(nfs41_upcall *upcall)
             goto out_free_state;
         }
     }
-    args->state = state;
+    upcall->state_ref = state;
+    nfs41_open_state_ref(upcall->state_ref);
 out:
     return status;
 out_free_state:
@@ -477,7 +474,7 @@ static int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *
     if (status) goto out;
     status = safe_write(&buffer, length, &args->std_info, sizeof(args->std_info));
     if (status) goto out;
-    status = safe_write(&buffer, length, &args->state, sizeof(args->state));
+    status = safe_write(&buffer, length, &upcall->state_ref, sizeof(HANDLE));
     if (status) goto out;
     status = safe_write(&buffer, length, &args->mode, sizeof(args->mode));
     if (status) goto out;
@@ -498,7 +495,7 @@ static int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *
         }
     }
     dprintf(2, "NFS41_OPEN: passing open_state=0x%p mode %o changeattr 0x%x\n", 
-        args->state, args->mode, args->changeattr);
+        upcall->state_ref, args->mode, args->changeattr);
 out:
     return status;
 }
@@ -507,7 +504,7 @@ static void cancel_open(IN nfs41_upcall *upcall)
 {
     int status = NFS4_OK;
     open_upcall_args *args = &upcall->args.open;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
 
     dprintf(1, "--> cancel_open('%s')\n", args->path);
 
@@ -546,11 +543,6 @@ static int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
     int status;
     close_upcall_args *args = &upcall->args.close;
 
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(nfs41_open_state *));
-    if (status) goto out;
     status = safe_read(&buffer, &length, &args->remove, sizeof(BOOLEAN));
     if (status) goto out;
     if (args->remove) {
@@ -560,10 +552,8 @@ static int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
         if (status) goto out;
     }
 
-    dprintf(1, "parsing NFS41_CLOSE: close root=0x%p "
-        "open_state=0x%p remove=%d renamed=%d filename='%s'\n",
-        args->root, args->state, args->remove, args->renamed,
-        args->remove ? args->path : "");
+    dprintf(1, "parsing NFS41_CLOSE: remove=%d renamed=%d filename='%s'\n",
+        args->remove, args->renamed, args->remove ? args->path : "");
 out:
     return status;
 }
@@ -572,7 +562,7 @@ static int handle_close(nfs41_upcall *upcall)
 {
     int status = NFS4_OK, rm_status = NFS4_OK;
     close_upcall_args *args = &upcall->args.close;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
 
     /* return associated file layouts if necessary */
     if (state->type == NF4REG)
@@ -618,10 +608,8 @@ static int handle_close(nfs41_upcall *upcall)
 
 static void cleanup_close(nfs41_upcall *upcall)
 {
-    close_upcall_args *args = &upcall->args.close;
-
     /* release the initial reference from create_open_state() */
-    nfs41_open_state_deref(args->state);
+    nfs41_open_state_deref(upcall->state_ref);
 }
 
 

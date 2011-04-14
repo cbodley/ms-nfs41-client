@@ -67,16 +67,9 @@ static int parse_getattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->buf_len, sizeof(args->buf_len));
     if (status) goto out;
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(args->state));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
 
-    dprintf(1, "parsing NFS41_FILE_QUERY: info_class=%d buf_len=%d "
-        "root=0x%p open_state=0x%p\n",
-        args->query_class, args->buf_len, args->root, args->state);
+    dprintf(1, "parsing NFS41_FILE_QUERY: info_class=%d buf_len=%d\n",
+        args->query_class, args->buf_len);
 out:
     return status;
 }
@@ -85,7 +78,7 @@ static int handle_getattr(nfs41_upcall *upcall)
 {
     int status;
     getattr_upcall_args *args = &upcall->args.getattr;
-    nfs41_open_state *state = args->state;
+    nfs41_open_state *state = upcall->state_ref;
     nfs41_file_info info;
 
     ZeroMemory(&info, sizeof(info));
@@ -98,7 +91,7 @@ static int handle_getattr(nfs41_upcall *upcall)
 
     if (info.type == NF4LNK) {
         nfs41_file_info target_info;
-        int target_status = nfs41_symlink_follow(args->root,
+        int target_status = nfs41_symlink_follow(upcall->root_ref,
             state->session, &state->file, &target_info);
         if (target_status == NO_ERROR && target_info.type == NF4DIR)
             info.symlink_dir = TRUE;

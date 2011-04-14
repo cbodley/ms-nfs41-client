@@ -31,21 +31,14 @@
 typedef struct __mount_upcall_args {
     const char *hostname;
     const char *path;
-    nfs41_root *root;
     DWORD       sec_flavor;
 } mount_upcall_args;
-
-typedef struct __unmount_upcall_args {
-    nfs41_root *root;
-} unmount_upcall_args;
 
 typedef struct __open_upcall_args {
     nfs41_abs_path symlink;
     FILE_BASIC_INFO basic_info;
     FILE_STANDARD_INFO std_info;
     const char *path;
-    nfs41_root *root;
-    nfs41_open_state *state;
     ULONG access_mask;
     ULONG access_mode; 
     ULONG file_attrs;
@@ -60,15 +53,11 @@ typedef struct __open_upcall_args {
 
 typedef struct __close_upcall_args {
     const char *path;
-    nfs41_root *root;
-    nfs41_open_state *state;
     BOOLEAN remove;
     BOOLEAN renamed;
 } close_upcall_args;
 
 typedef struct __readwrite_upcall_args {
-    nfs41_root *root;
-    nfs41_open_state *state;
     unsigned char *buffer;
     LONGLONG offset;
     ULONG len;
@@ -76,8 +65,6 @@ typedef struct __readwrite_upcall_args {
 } readwrite_upcall_args;
 
 typedef struct __lock_upcall_args {
-    nfs41_open_state *state;
-    nfs41_root *root;
     LONGLONG offset;
     LONGLONG length;
     BOOLEAN exclusive;
@@ -85,8 +72,6 @@ typedef struct __lock_upcall_args {
 } lock_upcall_args;
 
 typedef struct __unlock_upcall_args {
-    nfs41_open_state *state;
-    nfs41_root *root;
     uint32_t count;
     unsigned char *buf;
     uint32_t buf_len;
@@ -97,8 +82,6 @@ typedef struct __getattr_upcall_args {
     FILE_STANDARD_INFO std_info;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
     FILE_INTERNAL_INFORMATION intr_info;
-    nfs41_root *root;
-    nfs41_open_state *state;
     int query_class;
     int buf_len;
     int query_reply_len;
@@ -117,8 +100,6 @@ typedef struct __setattr_upcall_args {
 } setattr_upcall_args;
 
 typedef struct __setexattr_upcall_args {
-    nfs41_root *root;
-    nfs41_open_state *state;
     uint32_t mode;
 } setexattr_upcall_args;
 
@@ -138,15 +119,11 @@ typedef struct __readdir_upcall_args {
 typedef struct __symlink_upcall_args {
     nfs41_abs_path target_get;
     char *target_set;
-    nfs41_root *root;
-    nfs41_open_state *state;
     const char *path;
     BOOLEAN set;
 } symlink_upcall_args;
 
 typedef struct __volume_upcall_args {
-    nfs41_root *root;
-    nfs41_open_state *state;
     FS_INFORMATION_CLASS query;
     int len;
     union {
@@ -157,23 +134,18 @@ typedef struct __volume_upcall_args {
 } volume_upcall_args;
 
 typedef struct __getacl_upcall_args {
-    nfs41_root *root;
-    nfs41_open_state *state;
     SECURITY_INFORMATION query;
     PSECURITY_DESCRIPTOR sec_desc;
     DWORD sec_desc_len;
 } getacl_upcall_args;
 
 typedef struct __setacl_upcall_args {
-    nfs41_root *root;
-    nfs41_open_state *state;
     SECURITY_INFORMATION query;
     PSECURITY_DESCRIPTOR sec_desc;
 } setacl_upcall_args;
 
 typedef union __upcall_args {
     mount_upcall_args       mount;
-    unmount_upcall_args     unmount;
     open_upcall_args        open;
     close_upcall_args       close;
     readwrite_upcall_args   rw;
@@ -243,22 +215,5 @@ void upcall_cancel(
 
 void upcall_cleanup(
     IN nfs41_upcall *upcall);
-
-
-static __inline void upcall_root_ref(
-    IN nfs41_upcall *upcall,
-    IN nfs41_root *root)
-{
-    nfs41_root_ref(root);
-    upcall->root_ref = root;
-}
-
-static __inline void upcall_open_state_ref(
-    IN nfs41_upcall *upcall,
-    IN nfs41_open_state *state)
-{
-    nfs41_open_state_ref(state);
-    upcall->state_ref = state;
-}
 
 #endif /* !__NFS41_DAEMON_UPCALL_H__ */

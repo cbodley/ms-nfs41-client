@@ -46,17 +46,11 @@ static int parse_volume(unsigned char *buffer, uint32_t length, nfs41_upcall *up
 {
     int status;
     volume_upcall_args *args = &upcall->args.volume;
-    status = safe_read(&buffer, &length, &args->root, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_root_ref(upcall, args->root);
-    status = safe_read(&buffer, &length, &args->state, sizeof(HANDLE));
-    if (status) goto out;
-    upcall_open_state_ref(upcall, args->state);
+
     status = safe_read(&buffer, &length, &args->query, sizeof(FS_INFORMATION_CLASS));
     if (status) goto out;
 
-    dprintf(1, "parsing NFS41_VOLUME_QUERY: root=0x%p, query=%d\n",
-        args->root, args->query);
+    dprintf(1, "parsing NFS41_VOLUME_QUERY: query=%d\n", args->query);
 out:
     return status;
 }
@@ -95,7 +89,8 @@ out:
 
 static int handle_volume_attributes(
     IN nfs41_session *session,
-    IN volume_upcall_args *args)
+    IN volume_upcall_args *args,
+    IN nfs41_open_state *state)
 {
     /* query the case_ attributes of the root filesystem */
     nfs41_file_info info = { 0 };
@@ -105,7 +100,7 @@ static int handle_volume_attributes(
     PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
     int status = NO_ERROR;
 
-    status = nfs41_getattr(session, &args->state->file, &attr_request, &info);
+    status = nfs41_getattr(session, &state->file, &attr_request, &info);
     if (status) {
         eprintf("nfs41_getattr() failed with %s\n",
             nfs_error_string(status));
@@ -122,7 +117,7 @@ static int handle_volume_attributes(
         attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
     if (!info.case_insensitive)
         attr->FileSystemAttributes |= FILE_CASE_SENSITIVE_SEARCH;
-    if (args->state->file.fh.superblock->aclsupport)
+    if (state->file.fh.superblock->aclsupport)
         attr->FileSystemAttributes |= FILE_PERSISTENT_ACLS;
 
     attr->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
@@ -142,7 +137,7 @@ out:
 static int handle_volume(nfs41_upcall *upcall)
 {
     volume_upcall_args *args = &upcall->args.volume;
-    nfs41_session *session = nfs41_root_session(args->root);
+    nfs41_session *session = nfs41_root_session(upcall->root_ref);
     int status;
 
     switch (args->query) {
@@ -151,7 +146,7 @@ static int handle_volume(nfs41_upcall *upcall)
         args->info.size.SectorsPerAllocationUnit = SECTORS_PER_UNIT;
         args->info.size.BytesPerSector = BYTES_PER_SECTOR;
 
-        status = get_volume_size_info(session, args->state,
+        status = get_volume_size_info(session, upcall->state_ref,
             "FileFsSizeInformation",
             &args->info.size.TotalAllocationUnits.QuadPart,
             &args->info.size.AvailableAllocationUnits.QuadPart,
@@ -163,7 +158,7 @@ static int handle_volume(nfs41_upcall *upcall)
         args->info.fullsize.SectorsPerAllocationUnit = SECTORS_PER_UNIT;
         args->info.fullsize.BytesPerSector = BYTES_PER_SECTOR;
 
-        status = get_volume_size_info(session, args->state,
+        status = get_volume_size_info(session, upcall->state_ref,
             "FileFsFullSizeInformation",
             &args->info.fullsize.TotalAllocationUnits.QuadPart,
             &args->info.fullsize.CallerAvailableAllocationUnits.QuadPart,
@@ -171,7 +166,7 @@ static int handle_volume(nfs41_upcall *upcall)
         break;
 
     case FileFsAttributeInformation:
-        status = handle_volume_attributes(session, args);
+        status = handle_volume_attributes(session, args, upcall->state_ref);
         break;
 
     default:

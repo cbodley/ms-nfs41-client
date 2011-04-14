@@ -100,7 +100,8 @@ static int handle_mount(nfs41_upcall *upcall)
         goto out_err;
     }
 
-    args->root = root;
+    upcall->root_ref = root;
+    nfs41_root_ref(upcall->root_ref);
 out:
     return status;
 
@@ -112,10 +113,9 @@ out_err:
 static int marshall_mount(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status;
-    mount_upcall_args *args = &upcall->args.mount;
     dprintf(2, "NFS41_MOUNT: writing pointer to nfs41_root %p and version %d\n", 
-        args->root, NFS41D_VERSION);
-    status = safe_write(&buffer, length, &args->root, sizeof(args->root));
+        upcall->root_ref, NFS41D_VERSION);
+    status = safe_write(&buffer, length, &upcall->root_ref, sizeof(HANDLE));
     if (status) goto out;
     status = safe_write(&buffer, length, &NFS41D_VERSION, sizeof(DWORD));
 out:
@@ -124,8 +124,7 @@ out:
 
 static void cancel_mount(IN nfs41_upcall *upcall)
 {
-    mount_upcall_args *args = &upcall->args.mount;
-    nfs41_root_deref(args->root);
+    nfs41_root_deref(upcall->root_ref);
 }
 
 const nfs41_upcall_op nfs41_op_mount = {
@@ -139,24 +138,15 @@ const nfs41_upcall_op nfs41_op_mount = {
 /* NFS41_UNMOUNT */
 static int parse_unmount(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall) 
 {
-    int status;
-    unmount_upcall_args *args = &upcall->args.unmount;
-
-    status = safe_read(&buffer, &length, &args->root, sizeof(nfs41_session *));
-    if (status) goto out;
-
-    dprintf(1, "parsing NFS41_UNMOUNT: unmount root=%p\n", args->root);
-out:
-    return status;
+    dprintf(1, "parsing NFS41_UNMOUNT: root=%p\n", upcall->root_ref);
+    return ERROR_SUCCESS;
 }
 
 static int handle_unmount(nfs41_upcall *upcall)
 {
-    int status = NO_ERROR;
-    unmount_upcall_args *args = &upcall->args.unmount;
     /* release the original reference from nfs41_root_create() */
-    nfs41_root_deref(args->root);
-    return status;
+    nfs41_root_deref(upcall->root_ref);
+    return ERROR_SUCCESS;
 }
 
 const nfs41_upcall_op nfs41_op_unmount = {
