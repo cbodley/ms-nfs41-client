@@ -2951,6 +2951,12 @@ NTSTATUS nfs41_Create(
 #endif
     }
 
+    if (params.CreateOptions & FILE_WRITE_THROUGH ||
+        params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) {
+            DbgP("Disable caching\n");
+            SrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
+    }
+
     if (params.CreateOptions & FILE_DELETE_ON_CLOSE) {
         DbgP("We need to delete this file on close\n");
         nfs41_fcb->StandardInfo.DeletePending = TRUE;
