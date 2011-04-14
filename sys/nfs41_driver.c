@@ -135,7 +135,6 @@ typedef struct _updowncall_entry {
             PRX_CONTEXT rxcontext;
         } ReadWrite;
         struct {
-            HANDLE handle;
             LONGLONG offset;
             LONGLONG length;
             BOOLEAN exclusive;
