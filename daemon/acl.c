@@ -221,6 +221,7 @@ static int convert_nfs4acl_2_dacl(nfsacl41 *acl, int file_type,
         for (i = 0; i < acl->count; i++) {
             // nfs4 acemask should be exactly the same as file access mask
             mask = acl->aces[i].acemask;
+            dprintf(1, "access mask %x\n", mask);
             if (acl->aces[i].acetype == ACE4_ACCESS_ALLOWED_ACE_TYPE) {
                 status = AddAccessAllowedAce(dacl, ACL_REVISION, mask, sids[i]);
                 if (!status) {
