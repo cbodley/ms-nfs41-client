@@ -404,14 +404,18 @@ void print_debug_header(PRX_CONTEXT RxContext)
         print_file_object(0, IrpSp->FileObject);
     } else
         DbgP("Couldn't print FileObject IrpSp is NULL\n");
-    print_fcb(1, RxContext->pFcb);
-    print_srv_open(1, RxContext->pRelevantSrvOpen);
-    print_fobx(1, RxContext->pFobx);
+
+    print_fo_all(1, RxContext);
     if (RxContext->pFobx) {
         PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
-        DbgP("Session=0x%x OpenState=0x%x\n", pVNetRootContext->session, 
-            nfs41_fobx->nfs41_open_state);
+        if (pVNetRootContext && nfs41_fobx)
+            DbgP("Session=0x%x OpenState=0x%x\n", pVNetRootContext->session, 
+                nfs41_fobx->nfs41_open_state);
     }
+    if (RxContext->CurrentIrpSp) 
+        print_irps_flags(1, RxContext->CurrentIrpSp);
+    if (RxContext->CurrentIrp)
+        print_irp_flags(1, RxContext->CurrentIrp);
 }
 
 /* convert strings from unicode -> ansi during marshalling to
@@ -526,7 +530,7 @@ NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("server name=%wZ mount point=%wZ sec_flavor=%s\n", 
+    DbgP("marshal_nfs41_mount: server name=%wZ mount point=%wZ sec_flavor=%s\n", 
             entry->u.Mount.srv_name, entry->u.Mount.root, 
             secflavorop2name(entry->u.Mount.sec_flavor));
 out:
@@ -547,7 +551,6 @@ NTSTATUS marshal_nfs41_unmount(nfs41_updowncall_entry *entry,
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
 
-    DbgP("session=0x%x\n", entry->session);
 out:
     DbgEx();
     return status;
@@ -594,11 +597,11 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("mask=0x%x mode=0x%x attrs=0x%x opts=0x%x dispo=0x%x "
-            "open_owner_id=0x%x mode=%o\n", entry->u.Open.access_mask, 
-            entry->u.Open.access_mode, entry->u.Open.attrs, 
-            entry->u.Open.copts, entry->u.Open.disp,
-            entry->u.Open.open_owner_id, entry->u.Open.mode); 
+    DbgP("marshal_nfs41_open: mask=0x%x mode=0x%x attrs=0x%x opts=0x%x "
+         "dispo=0x%x open_owner_id=0x%x mode=%o\n", entry->u.Open.access_mask, 
+         entry->u.Open.access_mode, entry->u.Open.attrs, 
+         entry->u.Open.copts, entry->u.Open.disp,
+         entry->u.Open.open_owner_id, entry->u.Open.mode); 
 out:
     DbgEx();
     return status;
@@ -634,8 +637,6 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
         entry->u.ReadWrite.buf = 
             MmMapLockedPagesSpecifyCache(entry->u.ReadWrite.MdlAddress, 
                 UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
-        DbgP("MdlAddress=%p Userspace=%p\n", entry->u.ReadWrite.MdlAddress, 
-             entry->u.ReadWrite.buf);
         if (entry->u.ReadWrite.buf == NULL) {
             print_error("MmMapLockedPagesSpecifyCache failed to map pages\n");
             status = STATUS_INSUFFICIENT_RESOURCES;
@@ -652,7 +653,9 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("len=%u offset=%lu\n", entry->u.ReadWrite.len, entry->u.ReadWrite.offset);
+    DbgP("marshal_nfs41_rw: len=%u offset=%lu MdlAddress=%p Userspace=%p\n", 
+         entry->u.ReadWrite.len, entry->u.ReadWrite.offset, 
+         entry->u.ReadWrite.MdlAddress, entry->u.ReadWrite.buf);
 out:
     DbgEx();
     return status;
@@ -690,9 +693,9 @@ NTSTATUS marshal_nfs41_lock(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("offset=%llx length=%llx exclusive=%u blocking=%u\n",
-        entry->u.Lock.offset, entry->u.Lock.length,
-        entry->u.Lock.exclusive, entry->u.Lock.blocking);
+    DbgP("marshal_nfs41_lock: offset=%llx length=%llx exclusive=%u "
+         "blocking=%u\n", entry->u.Lock.offset, entry->u.Lock.length,
+         entry->u.Lock.exclusive, entry->u.Lock.blocking);
 out:
     DbgEx();
     return status;
@@ -735,7 +738,7 @@ NTSTATUS marshal_nfs41_unlock(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("count=%u\n", entry->u.Unlock.count);
+    DbgP("marshal_nfs41_unlock: count=%u\n", entry->u.Unlock.count);
 out:
     DbgEx();
     return status;
@@ -778,8 +781,8 @@ NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("remove=%d renamed=%d filename=%wZ\n", entry->u.Close.remove, 
-        entry->u.Close.renamed, entry->u.Close.filename);
+    DbgP("marshal_nfs41_close: remove=%d renamed=%d filename=%wZ\n", 
+         entry->u.Close.remove, entry->u.Close.renamed, entry->u.Close.filename);
 out:
     DbgEx();
     return status;
@@ -822,10 +825,10 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("filter='%wZ' class=%d\n\t1st\\restart\\single=%d\\%d\\%d\n",
-        entry->u.QueryFile.filter, entry->u.QueryFile.InfoClass,
-        entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan,
-        entry->u.QueryFile.return_single);
+    DbgP("marshal_nfs41_dirquery: filter='%wZ'class=%d "
+         "1st\\restart\\single=%d\\%d\\%d\n", entry->u.QueryFile.filter, 
+         entry->u.QueryFile.InfoClass, entry->u.QueryFile.initial_query, 
+         entry->u.QueryFile.restart_scan, entry->u.QueryFile.return_single);
 out:
     DbgEx();
     return status;
@@ -861,7 +864,7 @@ NTSTATUS marshal_nfs41_filequery(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("class=%d\n", entry->u.QueryFile.InfoClass);
+    DbgP("marshal_nfs41_filequery: class=%d\n", entry->u.QueryFile.InfoClass);
 out:
     DbgEx();
     return status;
@@ -904,10 +907,10 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("filename='%wZ' class=%d open_owner_id=0x%x access_mask=0x%x "
-        "access_mode=0x%x\n", entry->u.SetFile.filename, 
-        entry->u.SetFile.InfoClass, entry->u.SetFile.open_owner_id, 
-        entry->u.SetFile.access_mask, entry->u.SetFile.access_mode);
+    DbgP("marshal_nfs41_fileset: filename='%wZ' class=%d open_owner_id=0x%x "
+         "access_mask=0x%x access_mode=0x%x\n", entry->u.SetFile.filename, 
+         entry->u.SetFile.InfoClass, entry->u.SetFile.open_owner_id, 
+         entry->u.SetFile.access_mask, entry->u.SetFile.access_mode);
     print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf, 
         entry->u.SetFile.buf_len);
 out:
@@ -940,7 +943,7 @@ NTSTATUS marshal_nfs41_easet(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("mode=0x%x\n", entry->u.SetEa.mode);
+    DbgP("marshal_nfs41_easet: mode=0x%x\n", entry->u.SetEa.mode);
 out:
     DbgEx();
     return status;
@@ -978,8 +981,9 @@ NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
 
     *len = header_len;
 
-    DbgP("symlink name %wZ symlink target %wZ\n", entry->u.Symlink.filename, 
-        entry->u.Symlink.set?entry->u.Symlink.target : NULL);
+    DbgP("marshal_nfs41_symlink: name %wZ symlink target %wZ\n", 
+         entry->u.Symlink.filename, 
+         entry->u.Symlink.set?entry->u.Symlink.target : NULL);
 out:
     DbgEx();
     return status;
@@ -1009,7 +1013,7 @@ NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(FS_INFORMATION_CLASS));
     *len = header_len;
 
-    DbgP("query=0x%x\n", entry->u.Volume.query);
+    DbgP("marshal_nfs41_volume: class=%d\n", entry->u.Volume.query);
 out:
     DbgEx();
     return status;
@@ -1039,7 +1043,7 @@ NTSTATUS marshal_nfs41_getacl(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     *len = header_len;
 
-    DbgP("query=%d\n", entry->u.Acl.query);
+    DbgP("marshal_nfs41_getacl: class=0x%x\n", entry->u.Acl.query);
 out:
     DbgEx();
     return status;
@@ -1074,7 +1078,8 @@ NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, entry->u.Acl.buf, entry->u.Acl.buf_len);
     *len = header_len;
 
-    DbgP("query=%d sec_desc_len=%d\n", entry->u.Acl.query, entry->u.Acl.buf_len);
+    DbgP("marshal_nfs41_setacl: class=0x%x sec_desc_len=%d\n", 
+         entry->u.Acl.query, entry->u.Acl.buf_len);
 out:
     DbgEx();
     return status;
@@ -4766,6 +4771,8 @@ NTSTATUS nfs41_FsCtl(
         DbgP("FSCTL_GET_REPARSE_POINT\n");
         status = nfs41_GetReparsePoint(RxContext);
         break;
+    default:
+        DbgP("FsControlCode: %d\n", RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode);
     }
     DbgEx();
     return status;

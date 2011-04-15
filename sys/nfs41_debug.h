@@ -28,6 +28,7 @@
 
 ULONG __cdecl DbgP(IN PCCH fmt, ...);
 ULONG __cdecl print_error(IN PCCH fmt, ...);
+VOID print_fo_all(int on, IN PRX_CONTEXT c);
 VOID print_srv_call(int on, IN PMRX_SRV_CALL p);
 VOID print_net_root(int on, IN PMRX_NET_ROOT p);
 VOID print_v_net_root(int on, IN PMRX_V_NET_ROOT p);

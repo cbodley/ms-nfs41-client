@@ -301,6 +301,13 @@ void print_file_object(int on, PFILE_OBJECT file)
         file->SharedRead, file->SharedWrite, file->SharedDelete, file->Flags);
 }
 
+void print_fo_all(int on, PRX_CONTEXT c)
+{
+    if (!on) return;
+    DbgP("OpenCount %d FCB %p SRV %p FOBX %p\n", c->pFcb->OpenCount, c->pFcb,
+        c->pRelevantSrvOpen, c->pFobx);
+}
+
 VOID print_fcb(int on, IN PMRX_FCB p)
 {
     if (!on) return;
@@ -370,61 +377,56 @@ VOID print_fobx(int on, IN PMRX_FOBX p)
 VOID print_irp_flags(int on, PIRP irp) 
 {
     if (!on) return;
-    DbgP("RxContext->CurrentIrp %p\n", irp);
-    DbgP("IRP FLAGS:\n");
-    if (irp->Flags & IRP_NOCACHE)
-        DbgP("\tIRP_NOCACHE\n");
-    if (irp->Flags & IRP_PAGING_IO)
-        DbgP("\tIRP_PAGING_IO\n");
-    if (irp->Flags & IRP_MOUNT_COMPLETION)
-        DbgP("\tIRP_MOUNT_COMPLETION\n");
-    if (irp->Flags & IRP_SYNCHRONOUS_API)
-        DbgP("\tIRP_SYNCHRONOUS_API\n");
-    if (irp->Flags & IRP_ASSOCIATED_IRP)
-        DbgP("\tIRP_ASSOCIATED_IRP\n");
-    if (irp->Flags & IRP_BUFFERED_IO)
-        DbgP("\tIRP_BUFFERED_IO\n");
-    if (irp->Flags & IRP_DEALLOCATE_BUFFER)
-        DbgP("\tIRP_DEALLOCATE_BUFFER\n");
-    if (irp->Flags & IRP_INPUT_OPERATION)
-        DbgP("\tIRP_INPUT_OPERATION\n");
-    if (irp->Flags & IRP_SYNCHRONOUS_PAGING_IO)
-        DbgP("\tIRP_SYNCHRONOUS_PAGING_IO\n");
-    if (irp->Flags & IRP_CREATE_OPERATION)
-        DbgP("\tIRP_CREATE_OPERATION\n");
-    if (irp->Flags & IRP_READ_OPERATION)
-        DbgP("\tIRP_READ_OPERATION\n");
-    if (irp->Flags & IRP_WRITE_OPERATION)
-        DbgP("\tIRP_WRITE_OPERATION\n");
-    if (irp->Flags & IRP_CLOSE_OPERATION)
-        DbgP("\tIRP_CLOSE_OPERATION\n");
-    if (irp->Flags & IRP_DEFER_IO_COMPLETION)
-        DbgP("\tIRP_DEFER_IO_COMPLETION\n");
+    if (irp->Flags)
+        DbgP("IRP FLAGS: 0x%x %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n", 
+            irp->Flags,
+            (irp->Flags & IRP_NOCACHE)?"NOCACHE":"",
+            (irp->Flags & IRP_PAGING_IO)?"PAGING_IO":"",
+            (irp->Flags & IRP_MOUNT_COMPLETION)?"MOUNT":"",
+            (irp->Flags & IRP_SYNCHRONOUS_API)?"SYNC":"",
+            (irp->Flags & IRP_ASSOCIATED_IRP)?"ASSOC_IPR":"",
+            (irp->Flags & IRP_BUFFERED_IO)?"BUFFERED":"",
+            (irp->Flags & IRP_DEALLOCATE_BUFFER)?"DEALLOC_BUF":"",
+            (irp->Flags & IRP_INPUT_OPERATION)?"INPUT_OP":"",
+            (irp->Flags & IRP_SYNCHRONOUS_PAGING_IO)?"SYNC_PAGIN_IO":"",
+            (irp->Flags & IRP_CREATE_OPERATION)?"CREATE_OP":"",
+            (irp->Flags & IRP_READ_OPERATION)?"READ_OP":"",
+            (irp->Flags & IRP_WRITE_OPERATION)?"WRITE_OP":"",
+            (irp->Flags & IRP_CLOSE_OPERATION)?"CLOSE_OP":"",
+            (irp->Flags & IRP_DEFER_IO_COMPLETION)?"DEFER_IO":"");
 }
 
 void print_irps_flags(int on, PIO_STACK_LOCATION irps)
 {
     if (!on) return;
-    DbgP("RxContext->CurrentIrpSp %p\n", irps);
-    if(irps->Flags & SL_CASE_SENSITIVE)
-        DbgP("\tSL_CASE_SENSITIVE\n");
-    if(irps->Flags & SL_OPEN_PAGING_FILE)
-        DbgP("\tSL_OPEN_PAGING_FILE\n");
-    if(irps->Flags & SL_FORCE_ACCESS_CHECK)
-        DbgP("\tSL_FORCE_ACCESS_CHECK\n");
-    if(irps->Flags & SL_OPEN_TARGET_DIRECTORY)
-        DbgP("\tSL_OPEN_TARGET_DIRECTORY\n");
+    if (irps->Flags)
+        DbgP("IRPSP FLAGS 0x%x %s %s %s %s\n", irps->Flags,
+            (irps->Flags & SL_CASE_SENSITIVE)?"CASE_SENSITIVE":"",
+            (irps->Flags & SL_OPEN_PAGING_FILE)?"PAGING_FILE":"",
+            (irps->Flags & SL_FORCE_ACCESS_CHECK)?"ACCESS_CHECK":"",
+            (irps->Flags & SL_OPEN_TARGET_DIRECTORY)?"TARGET_DIR":"");
 }
 void print_nt_create_params(int on, NT_CREATE_PARAMETERS params)
 {
     if (!on) return;
-    DbgP("File attributes %ld: %s %s %s %s %s\n", params.FileAttributes,
-        (params.FileAttributes & FILE_ATTRIBUTE_TEMPORARY)?"TEMPFILE":"",
-        (params.FileAttributes & FILE_ATTRIBUTE_READONLY)?"READONLY":"",
-        (params.FileAttributes & FILE_ATTRIBUTE_HIDDEN)?"HIDDEN":"",
-        (params.FileAttributes & FILE_ATTRIBUTE_SYSTEM)?"SYSTEM":"",
-        (params.FileAttributes & FILE_ATTRIBUTE_ARCHIVE)?"ARCHIVE":"");
-
+    if (params.FileAttributes)
+        DbgP("File attributes %x: %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n", 
+            params.FileAttributes,
+            (params.FileAttributes & FILE_ATTRIBUTE_TEMPORARY)?"TEMPFILE ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_READONLY)?"READONLY ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_HIDDEN)?"HIDDEN ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_SYSTEM)?"SYSTEM ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_ARCHIVE)?"ARCHIVE ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)?"DIR ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_DEVICE)?"DEVICE ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_NORMAL)?"NORMAL ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_SPARSE_FILE)?"SPARSE_FILE ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)?"REPARSE_POINT ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_COMPRESSED)?"COMPRESSED ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)?"NOT INDEXED ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_ENCRYPTED)?"ENCRYPTED ":"",
+            (params.FileAttributes & FILE_ATTRIBUTE_VIRTUAL)?"VIRTUAL":"");
+ 
     if (params.Disposition  == FILE_SUPERSEDE)
         DbgP("Create Dispositions: FILE_SUPERSEDE\n");
     if (params.Disposition == FILE_CREATE)
@@ -438,58 +440,49 @@ void print_nt_create_params(int on, NT_CREATE_PARAMETERS params)
     if (params.Disposition == FILE_OVERWRITE_IF)
         DbgP("Create Dispositions: FILE_OVERWRITE_IF\n");
 
-    DbgP("Create Attributes: %s %s %s\n", 
+    DbgP("Create Attributes: 0x%x %s %s %s %s %s %s %s %s %s %s %s %s %s %s "
+        "%s %s\n", params.CreateOptions, 
         (params.CreateOptions & FILE_DIRECTORY_FILE)?"DIRFILE":"",
         (params.CreateOptions & FILE_NON_DIRECTORY_FILE)?"FILE":"",
-        (params.CreateOptions & FILE_DELETE_ON_CLOSE)?"DELETEONCLOSE":"");
-    if (on > 1) {
-    DbgP("More Create Attrss:\n");
-        if (params.CreateOptions & FILE_WRITE_THROUGH)
-            DbgP("\tFILE_WRITE_THROUGH\n");
-        if (params.CreateOptions & FILE_SEQUENTIAL_ONLY)
-            DbgP("\tFILE_SEQUENTIAL_ONLY\n");
-        if (params.CreateOptions & FILE_RANDOM_ACCESS)
-            DbgP("\tFILE_RANDOM_ACCESS\n");
-        if (params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)
-            DbgP("\tFILE_NO_INTERMEDIATE_BUFFERING\n");
-        if (params.CreateOptions & FILE_SYNCHRONOUS_IO_ALERT)
-            DbgP("\tFILE_SYNCHRONOUS_IO_ALERT\n");
-        if (params.CreateOptions & FILE_SYNCHRONOUS_IO_NONALERT)
-            DbgP("\tFILE_SYNCHRONOUS_IO_NONALERT\n");
-        if (params.CreateOptions & FILE_CREATE_TREE_CONNECTION)
-            DbgP("\tFILE_CREATE_TREE_CONNECTION\n");
-        if (params.CreateOptions & FILE_COMPLETE_IF_OPLOCKED)
-            DbgP("\tFILE_COMPLETE_IF_OPLOCKED\n");
-        if (params.CreateOptions & FILE_NO_EA_KNOWLEDGE)
-            DbgP("\tFILE_NO_EA_KNOWLEDGE\n");
-        if (params.CreateOptions & FILE_OPEN_REPARSE_POINT)
-            DbgP("\tFILE_OPEN_REPARSE_POINT\n");
-        if (params.CreateOptions & FILE_OPEN_BY_FILE_ID)
-            DbgP("\tFILE_OPEN_BY_FILE_ID\n");
-        if (params.CreateOptions & FILE_OPEN_FOR_BACKUP_INTENT)
-            DbgP("\tFILE_OPEN_FOR_BACKUP_INTENT\n");
-        if (params.CreateOptions & FILE_RESERVE_OPFILTER)
-            DbgP("\tFILE_RESERVE_OPFILTER \n");
-    }
+        (params.CreateOptions & FILE_DELETE_ON_CLOSE)?"DELETE_ON_CLOSE":"",
+        (params.CreateOptions & FILE_WRITE_THROUGH)?"WRITE_THROUGH":"",
+        (params.CreateOptions & FILE_SEQUENTIAL_ONLY)?"SEQUENTIAL":"",
+        (params.CreateOptions & FILE_RANDOM_ACCESS)?"RANDOM":"",
+        (params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)?"NO_BUFFERING":"",
+        (params.CreateOptions & FILE_SYNCHRONOUS_IO_ALERT)?"SYNC_ALERT":"",
+        (params.CreateOptions & FILE_SYNCHRONOUS_IO_NONALERT)?"SYNC_NOALERT":"",
+        (params.CreateOptions & FILE_CREATE_TREE_CONNECTION)?"CREATE_TREE_CONN":"",
+        (params.CreateOptions & FILE_COMPLETE_IF_OPLOCKED)?"OPLOCKED":"",
+        (params.CreateOptions & FILE_NO_EA_KNOWLEDGE)?"NO_EA":"",
+        (params.CreateOptions & FILE_OPEN_REPARSE_POINT)?"OPEN_REPARSE":"",
+        (params.CreateOptions & FILE_OPEN_BY_FILE_ID)?"BY_ID":"",
+        (params.CreateOptions & FILE_OPEN_FOR_BACKUP_INTENT)?"4_BACKUP":"",
+        (params.CreateOptions & FILE_RESERVE_OPFILTER)?"OPFILTER":"");
 
     DbgP("Share Access: %s %s %s\n", 
-        (params.ShareAccess & FILE_SHARE_READ)?"READ ":"",
-        (params.ShareAccess & FILE_SHARE_WRITE)?"WRITE ":"",
+        (params.ShareAccess & FILE_SHARE_READ)?"READ":"",
+        (params.ShareAccess & FILE_SHARE_WRITE)?"WRITE":"",
         (params.ShareAccess & FILE_SHARE_DELETE)?"DELETE":"");
 
-    DbgP("Desired Access: %s %s %s %s %s %s %s %s %s %s %s %s\n",
+    DbgP("Desired Access: 0x%x %s %s %s %s %s %s %s %s %s %s %s\n", 
+        params.DesiredAccess,
         (params.DesiredAccess & FILE_READ_DATA)?"READ":"",
         (params.DesiredAccess & STANDARD_RIGHTS_READ)?"READ_ACL":"",
         (params.DesiredAccess & FILE_READ_ATTRIBUTES)?"GETATTR":"",
         (params.DesiredAccess & FILE_READ_EA)?"READ_EA":"",
         (params.DesiredAccess & FILE_WRITE_DATA)?"WRITE":"",
-        (params.DesiredAccess & STANDARD_RIGHTS_WRITE)?"WRITE_ACL":"",
         (params.DesiredAccess & FILE_WRITE_ATTRIBUTES)?"SETATTR":"",
         (params.DesiredAccess & FILE_WRITE_EA)?"WRITE_EA":"",
         (params.DesiredAccess & FILE_APPEND_DATA)?"APPEND":"",
         (params.DesiredAccess & FILE_EXECUTE)?"EXEC":"",
         (params.DesiredAccess & FILE_LIST_DIRECTORY)?"LSDIR":"",
-        (params.DesiredAccess & FILE_TRAVERSE)?"TRAVERSE":"");
+        (params.DesiredAccess & FILE_TRAVERSE)?"TRAVERSE":"",
+        (params.DesiredAccess & FILE_LIST_DIRECTORY)?"LSDIR":"",
+        (params.DesiredAccess & DELETE)?"DELETE":"",
+        (params.DesiredAccess & READ_CONTROL)?"READ_CONTROL":"",
+        (params.DesiredAccess & WRITE_DAC)?"WRITE_DAC":"",
+        (params.DesiredAccess & WRITE_OWNER)?"WRITE_OWNER":"",
+        (params.DesiredAccess & SYNCHRONIZE)?"SYNCHRONIZE":"");
 }
 
 unsigned char * print_file_information_class(int InfoClass) 
