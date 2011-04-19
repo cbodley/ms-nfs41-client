@@ -2670,12 +2670,8 @@ BOOLEAN has_file_changed(
 void print_open_args(PRX_CONTEXT RxContext)
 {
     print_debug_header(RxContext);
-    print_net_root(0, RxContext->pFcb->pNetRoot);
-    print_v_net_root(0, RxContext->pRelevantSrvOpen->pVNetRoot);
     //DbgP("RxContext->FsdUid %ld\n", RxContext->FsdUid);
     //DbgP("RxInferFileType returns %d\n", RxInferFileType(RxContext));
-    print_irps_flags(0, RxContext->CurrentIrpSp);
-    print_irp_flags(0, RxContext->CurrentIrp);
     print_nt_create_params(1, RxContext->Create.NtCreateParameters);
 }
 
@@ -3639,14 +3635,11 @@ out:
 
 static void print_acl_args(SECURITY_INFORMATION info)
 {
-    if (info & OWNER_SECURITY_INFORMATION)
-        DbgP("OWNER_SECURITY_INFORMATION\n");
-    if (info & GROUP_SECURITY_INFORMATION)
-        DbgP("GROUP_SECURITY_INFORMATION\n");
-    if (info & DACL_SECURITY_INFORMATION)
-        DbgP("DACL_SECURITY_INFORMATION\n");
-    if (info & SACL_SECURITY_INFORMATION)
-        DbgP("SACL_SECURITY_INFORMATION\n");
+    DbgP("Security query: %s %s %s\n",
+        (info & OWNER_SECURITY_INFORMATION)?"OWNER":"",
+        (info & GROUP_SECURITY_INFORMATION)?"GROUP":"",
+        (info & DACL_SECURITY_INFORMATION)?"DACL":"",
+        (info & SACL_SECURITY_INFORMATION)?"SACL":"");
 }
 
 static NTSTATUS map_query_acl_error(DWORD error)

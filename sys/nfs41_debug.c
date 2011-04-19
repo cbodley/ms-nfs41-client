@@ -304,8 +304,10 @@ void print_file_object(int on, PFILE_OBJECT file)
 void print_fo_all(int on, PRX_CONTEXT c)
 {
     if (!on) return;
-    DbgP("OpenCount %d FCB %p SRV %p FOBX %p\n", c->pFcb->OpenCount, c->pFcb,
-        c->pRelevantSrvOpen, c->pFobx);
+    if (c->pFcb && c->pRelevantSrvOpen)
+        DbgP("OpenCount %d FCB %p SRV %p FOBX %p VNET %p NET %p\n", 
+            c->pFcb->OpenCount, c->pFcb, c->pRelevantSrvOpen, c->pFobx,
+            c->pRelevantSrvOpen->pVNetRoot, c->pFcb->pNetRoot);
 }
 
 VOID print_fcb(int on, IN PMRX_FCB p)
