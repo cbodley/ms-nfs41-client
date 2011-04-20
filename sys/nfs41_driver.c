@@ -2361,7 +2361,7 @@ static NTSTATUS has_nfs_prefix(
 {
     NTSTATUS status = STATUS_BAD_NETWORK_NAME;
 
-    if (NetRootName->Length >= SrvCallName->Length + NfsPrefix.Length) {
+    if (NetRootName->Length == SrvCallName->Length + NfsPrefix.Length) {
         const UNICODE_STRING NetRootPrefix = {
             NfsPrefix.Length,
             NetRootName->MaximumLength - SrvCallName->Length,
