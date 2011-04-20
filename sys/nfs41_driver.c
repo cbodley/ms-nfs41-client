@@ -282,6 +282,7 @@ typedef struct _NFS41_NETROOT_EXTENSION {
     HANDLE                  auth_sys_session;
     HANDLE                  gss_session;
     DWORD                   nfs41d_version;
+    BOOLEAN                 do_umount;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
         (((pNetRoot) == NULL) ? NULL : (PNFS41_NETROOT_EXTENSION)((pNetRoot)->Context))
@@ -2110,7 +2111,6 @@ NTSTATUS nfs41_CreateSrvCall(
     ASSERT( pSrvCall );
     ASSERT( NodeType(pSrvCall) == RDBSS_NTC_SRVCALL );
 
-    DbgP("pCallbackContext %p\n", pCallbackContext);
     if (IoGetCurrentProcess() == RxGetRDBSSProcess()) {
         DbgP("executing with RDBSS context\n");
         status = _nfs41_CreateSrvCall(pCallbackContext);
@@ -2411,14 +2411,15 @@ NTSTATUS nfs41_CreateVNetRoot(
     print_net_root(0, pNetRoot);
     print_v_net_root(1, pVNetRoot);
 
-    DbgP("pVNetRoot=%p pNetRoot=%p\n", pVNetRoot, pNetRoot);
-    DbgP("pNetRoot=%wZ pSrvCallName=%wZ VirtualNetRootStatus=0x%x "
-        "NetRootStatus=0x%x\n", pNetRoot->pNetRootName, pSrvCall->pSrvCallName, 
+    DbgP("pVNetRoot=%p pNetRoot=%p pSrvCall=%p\n", pVNetRoot, pNetRoot, pSrvCall);
+    DbgP("pNetRoot=%wZ Type=%d pSrvCallName=%wZ VirtualNetRootStatus=0x%x "
+        "NetRootStatus=0x%x\n", pNetRoot->pNetRootName, 
+        pNetRoot->Type, pSrvCall->pSrvCallName, 
         pCreateNetRootContext->VirtualNetRootStatus, 
         pCreateNetRootContext->NetRootStatus);
 
-    if (pNetRoot->Type != NET_ROOT_DISK) {
-        print_error("pNetRoot->Type %u != NET_ROOT_DISK\n", pNetRoot->Type);
+    if (pNetRoot->Type != NET_ROOT_DISK && pNetRoot->Type != NET_ROOT_WILD) {
+        print_error("Unsupported NetRoot Type %u\n", pNetRoot->Type);
         status = STATUS_NOT_SUPPORTED;
         goto out;
     }
@@ -2479,6 +2480,7 @@ NTSTATUS nfs41_CreateVNetRoot(
     if (status != STATUS_SUCCESS)
         goto out;
     pNetRootContext->nfs41d_version = nfs41d_version;
+    pNetRootContext->do_umount = TRUE;
     if (pVNetRootContext->sec_flavor == RPCSEC_AUTH_SYS)
         pNetRootContext->auth_sys_session = pVNetRootContext->session;
     else
@@ -2574,10 +2576,10 @@ NTSTATUS nfs41_FinalizeNetRoot(
     DbgEn();
     print_net_root(1, pNetRoot);
 
-    if (pNetRoot->Type != NET_ROOT_DISK) {
+    if (pNetRoot->Type != NET_ROOT_DISK && pNetRoot->Type != NET_ROOT_WILD) {
         status = STATUS_NOT_SUPPORTED;
         goto out;
-    }        
+    }
 
     if (pNetRootContext == NULL || (pNetRootContext->auth_sys_session == NULL &&
             pNetRootContext->gss_session == NULL)) {
@@ -2591,7 +2593,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }
 
-    if (pNetRootContext->auth_sys_session) {
+    if (pNetRootContext->auth_sys_session && pNetRootContext->do_umount) {
         status = nfs41_unmount(pNetRootContext->auth_sys_session, pNetRootContext->nfs41d_version);
         if (status) {
             print_error("nfs41_mount AUTH_SYS failed with %d\n", status);
@@ -2640,7 +2642,8 @@ NTSTATUS nfs41_FinalizeVNetRoot(
     NTSTATUS status = STATUS_SUCCESS;
     DbgEn();
     print_v_net_root(1, pVNetRoot);
-    if (pVNetRoot->pNetRoot->Type != NET_ROOT_DISK)
+    if (pVNetRoot->pNetRoot->Type != NET_ROOT_DISK && 
+            pVNetRoot->pNetRoot->Type != NET_ROOT_WILD)
         status = STATUS_NOT_SUPPORTED;
     DbgEx();
     return status;
@@ -2747,9 +2750,10 @@ NTSTATUS nfs41_Create(
     if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer)
         print_ea_info(1, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
 
-    if (Fcb->pNetRoot->Type != NET_ROOT_DISK) {
-        print_error("unknown netroot type %d\n", Fcb->pNetRoot->Type);
-        status = STATUS_NOT_IMPLEMENTED;
+    if (Fcb->pNetRoot->Type != NET_ROOT_DISK && 
+            Fcb->pNetRoot->Type != NET_ROOT_WILD) {
+        print_error("Unsupported NetRoot Type %u\n", Fcb->pNetRoot->Type);
+        status = STATUS_NOT_SUPPORTED;
         goto out;
     }
 
@@ -4889,7 +4893,7 @@ NTSTATUS nfs41_init_ops()
                             RDBSS_MANAGE_SRV_OPEN_EXTENSION |
                             RDBSS_MANAGE_FOBX_EXTENSION);
 
-    nfs41_ops.MRxSrvCallSize  = 0; 
+    nfs41_ops.MRxSrvCallSize  = 0; // srvcall extension is not handled in rdbss
     nfs41_ops.MRxNetRootSize  = sizeof(NFS41_NETROOT_EXTENSION);
     nfs41_ops.MRxVNetRootSize = sizeof(NFS41_V_NET_ROOT_EXTENSION);
     nfs41_ops.MRxFcbSize      = sizeof(NFS41_FCB);
