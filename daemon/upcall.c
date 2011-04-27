@@ -28,9 +28,6 @@
 #include "daemon_debug.h"
 #include "util.h"
 
-
-#define NFSD_VERSION_MISMATCH 116
-
 extern const nfs41_upcall_op nfs41_op_mount;
 extern const nfs41_upcall_op nfs41_op_unmount;
 extern const nfs41_upcall_op nfs41_op_open;

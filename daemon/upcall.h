@@ -27,6 +27,8 @@
 #include "nfs41_ops.h"
 #include "from_kernel.h"
 
+#define NFSD_VERSION_MISMATCH 116
+
 /* structures for upcall arguments */
 typedef struct __mount_upcall_args {
     const char *hostname;

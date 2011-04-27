@@ -144,7 +144,8 @@ write_downcall:
                 GetLastError(), upcall.xid, opcode2string(upcall.opcode));
             upcall_cancel(&upcall);
         }
-        upcall_cleanup(&upcall);
+        if (upcall.status != NFSD_VERSION_MISMATCH)
+            upcall_cleanup(&upcall);
     }
     CloseHandle(pipe);
 
