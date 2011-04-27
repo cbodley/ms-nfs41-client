@@ -2465,8 +2465,9 @@ NTSTATUS nfs41_CreateVNetRoot(
         pVNetRootContext->session = pNetRootContext->auth_sys_session;
         DbgP("Using existing AUTH_SYS session 0x%x\n", pVNetRootContext->session);
         goto out;
-    } else if (pVNetRootContext->sec_flavor != RPCSEC_AUTH_SYS &&
-                pNetRootContext->gss_session) {    
+    } else if ((pVNetRootContext->sec_flavor != RPCSEC_AUTH_SYS ||
+                pNetRoot->Type != NET_ROOT_WILD) &&
+                    pNetRootContext->gss_session) {    
         pVNetRootContext->session = pNetRootContext->gss_session;
         DbgP("Using existing AUTHGSS session 0x%x\n", pVNetRootContext->session);
         goto out;
