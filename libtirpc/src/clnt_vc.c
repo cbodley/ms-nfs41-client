@@ -514,7 +514,9 @@ clnt_vc_call(cl, proc, xdr_args, args_ptr, xdr_results, results_ptr, timeout)
 #else
 	/* XXX Need Windows signal/event stuff XXX */
 #endif
+
     acquire_fd_lock(ct->ct_fd);
+
 	if (!ct->ct_waitset) {
 		/* If time is not within limits, we ignore it. */
 		if (time_not_ok(&timeout) == FALSE)
@@ -577,7 +579,10 @@ call_again:
 		ct->reply_msg.acpted_rply.ar_results.proc = (xdrproc_t)xdr_void;
         if (!ct->use_stored_reply_msg) {
 		    if (!xdrrec_skiprecord(xdrs)) {
-			    release_fd_lock(ct->ct_fd, mask);
+#ifdef NO_CB_4_KRB5P
+                if (cl->cb_thread != INVALID_HANDLE_VALUE)  
+#endif
+			        release_fd_lock(ct->ct_fd, mask);
                 SwitchToThread();
 			    continue;
 		    }
