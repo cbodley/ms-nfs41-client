@@ -64,7 +64,8 @@ static VOID PrintUsage(LPTSTR pProcess)
         TEXT("Mount options:\n")
         TEXT("\tro\tmount as read-only\n")
         TEXT("\trsize=#\tread buffer size in bytes\n")
-        TEXT("\twsize=#\twrite buffer size in bytes\n"),
+        TEXT("\twsize=#\twrite buffer size in bytes\n")
+        TEXT("\tsec=krb5:krb5i:krb5p\tspecify gss security flavor\n"),
         pProcess, pProcess, pProcess);
 }
 
