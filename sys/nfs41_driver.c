@@ -4876,6 +4876,7 @@ NTSTATUS nfs41_FsdDispatch (
 
 out:
 #ifdef DEBUG_FSDDISPATCH
+    DbgP("IoStatus status = 0x%x info = 0x%x\n", Irp->IoStatus.Status, Irp->IoStatus.Information);
     DbgEx();
 #endif
     return status;
