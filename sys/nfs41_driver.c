@@ -3705,7 +3705,7 @@ NTSTATUS nfs41_QuerySecurityInformation (
         DbgP("nfs41_QuerySecurityInformation: provided buffer size=%d but we need %d\n",
                 RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, 
                 entry->u.Acl.buf_len);
-        status = STATUS_BUFFER_TOO_SMALL;
+        status = STATUS_BUFFER_OVERFLOW;
         RxContext->InformationToReturn = entry->u.Acl.buf_len;
     } else if (entry->status == STATUS_SUCCESS) {
         if (RtlValidSecurityDescriptor(entry->u.Acl.buf)) {
