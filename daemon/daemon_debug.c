@@ -29,6 +29,7 @@
 #include "nfs41_driver.h"
 #include "nfs41_ops.h"
 #include "service.h"
+#include "rpc/rpc.h"
 
 static int g_debug_level = DEFAULT_DEBUG_LEVEL;
 
@@ -478,6 +479,27 @@ const char* nfs_error_string(int status)
     }
 }
 
+const char* rpc_error_string(int status)
+{
+    switch (status)
+    {
+    case RPC_CANTENCODEARGS: return "RPC_CANTENCODEARGS";
+    case RPC_CANTDECODERES: return "RPC_CANTDECODERES";
+    case RPC_CANTSEND: return "RPC_CANTSEND";
+    case RPC_CANTRECV: return "RPC_CANTRECV";
+    case RPC_TIMEDOUT: return "RPC_TIMEDOUT";
+    case RPC_INTR: return "RPC_INTR";
+    case RPC_UDERROR: return "RPC_UDERROR";
+    case RPC_VERSMISMATCH: return "RPC_VERSMISMATCH";
+    case RPC_AUTHERROR: return "RPC_AUTHERROR";
+    case RPC_PROGUNAVAIL: return "RPC_PROGUNAVAIL";
+    case RPC_PROGVERSMISMATCH: return "RPC_PROGVERSMISMATCH";
+    case RPC_PROCUNAVAIL: return "RPC_PROCUNAVAIL";
+    case RPC_CANTDECODEARGS: return "RPC_CANTDECODEARGS";
+    case RPC_SYSTEMERROR: return "RPC_SYSTEMERROR";
+    default: return "invalid rpc error code";
+    }
+}
 void print_condwait_status(int level, int status)
 {
     if (level > g_debug_level) return;

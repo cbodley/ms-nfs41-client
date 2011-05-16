@@ -105,6 +105,45 @@ static int get_client_for_multi_addr(
     return status;
 }
 
+int create_rpcsec_auth_client(
+    IN uint32_t sec_flavor,
+    IN char *server_name,
+    CLIENT	*client
+    )
+{
+    int status = ERROR_NETWORK_UNREACHABLE;
+
+    switch (sec_flavor) {
+    case RPCSEC_AUTHGSS_KRB5:
+        client->cl_auth = authsspi_create_default(client, server_name, 
+            RPCSEC_SSPI_SVC_NONE);
+        break;
+    case RPCSEC_AUTHGSS_KRB5I:
+        client->cl_auth = authsspi_create_default(client, server_name, 
+            RPCSEC_SSPI_SVC_INTEGRITY);
+        break;
+    case RPCSEC_AUTHGSS_KRB5P:
+        client->cl_auth = authsspi_create_default(client, server_name, 
+            RPCSEC_SSPI_SVC_PRIVACY);
+        break;
+    default:
+        eprintf("create_rpc_auth_client: unknown rpcsec flavor %d\n", 
+                sec_flavor);
+        client->cl_auth = NULL;
+    }
+
+    if (client->cl_auth == NULL) {
+        eprintf("nfs41_rpc_clnt_create: failed to create %s\n", 
+                secflavorop2name(sec_flavor));
+        goto out;
+    } else 
+        dprintf(1, "nfs41_rpc_clnt_create: successfully created %s\n", 
+            secflavorop2name(sec_flavor));
+    status = 0;
+out:
+    return status;
+}
+
 /* Returns a client structure and an associated lock */
 int nfs41_rpc_clnt_create(
     IN const multi_addr4 *addrs,
@@ -121,7 +160,6 @@ int nfs41_rpc_clnt_create(
     uint32_t addr_index;
     int status;
     char machname[MAXHOSTNAMELEN + 1];
-    char server_name[NI_MAXHOST];
     gid_t gids[1];
 
     rpc = calloc(1, sizeof(nfs41_rpc_clnt));
@@ -141,7 +179,7 @@ int nfs41_rpc_clnt_create(
         goto out_free_rpc_clnt;
     }
     status = get_client_for_multi_addr(addrs, wsize, rsize, needcb?rpc:NULL, 
-                server_name, &client, &addr_index);
+                rpc->server_name, &client, &addr_index);
     if (status) {
         clnt_pcreateerror("connecting failed");
         goto out_free_rpc_cond;
@@ -153,44 +191,25 @@ int nfs41_rpc_clnt_create(
         goto out_err_client;
     }
 
-    switch (sec_flavor) {
-    case RPCSEC_AUTH_SYS:
+    rpc->sec_flavor = sec_flavor;
+    if (sec_flavor == RPCSEC_AUTH_SYS) {
         if (gethostname(machname, sizeof(machname)) == -1) {
             eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
             goto out_err_client;
         }
         machname[sizeof(machname) - 1] = '\0';
         client->cl_auth = authsys_create(machname, uid, gid, 0, gids);
-        break;
-    case RPCSEC_AUTHGSS_KRB5:
-        client->cl_auth = authsspi_create_default(client, server_name, 
-            RPCSEC_SSPI_SVC_NONE);
-        break;
-    case RPCSEC_AUTHGSS_KRB5I:
-        client->cl_auth = authsspi_create_default(client, server_name, 
-            RPCSEC_SSPI_SVC_INTEGRITY);
-        break;
-    case RPCSEC_AUTHGSS_KRB5P:
-        client->cl_auth = authsspi_create_default(client, server_name, 
-            RPCSEC_SSPI_SVC_PRIVACY);
-        break;
-    default:
-        eprintf("nfs41_rpc_clnt_create: unknown rpcsec flavor %d\n", 
-                sec_flavor);
-        client->cl_auth = NULL;
-    }
-
-    if (client->cl_auth == NULL) {
-        // XXX log failure in auth creation somewhere
-        // XXX Better error return
-        eprintf("nfs41_rpc_clnt_create: failed to create %s\n", 
+    } else {
+        status = create_rpcsec_auth_client(sec_flavor, rpc->server_name, client);
+        if (status) {
+            eprintf("nfs41_rpc_clnt_create: failed to establish security "
+                    "context with %s\n", rpc->server_name);
+            status = ERROR_NETWORK_UNREACHABLE;
+            goto out_err_client;
+        } else
+            dprintf(1, "nfs41_rpc_clnt_create: successfully created %s\n", 
                 secflavorop2name(sec_flavor));
-        status = ERROR_NETWORK_UNREACHABLE;
-        goto out_err_client;
-    } else 
-        dprintf(1, "nfs41_rpc_clnt_create: successfully created %s\n", 
-            secflavorop2name(sec_flavor));
-
+    }
     rpc->rpc = client;
 
     /* keep a copy of the address and buffer sizes for reconnect */
@@ -267,7 +286,17 @@ static int rpc_reconnect(
     if (status)
         goto out_unlock;
 
-    client->cl_auth = rpc->rpc->cl_auth;
+    if(rpc->sec_flavor == RPCSEC_AUTH_SYS)
+        client->cl_auth = rpc->rpc->cl_auth;
+    else {
+        auth_destroy(rpc->rpc->cl_auth);
+        status = create_rpcsec_auth_client(rpc->sec_flavor, rpc->server_name, client);
+        if (status) {
+            eprintf("Failed to reestablish security context\n");
+            status = ERROR_NETWORK_UNREACHABLE;
+            goto out_err_client;
+        }
+    }
     if (send_null(client) != RPC_SUCCESS) {
         eprintf("rpc_reconnect: send_null failed\n");
         status = ERROR_NETWORK_UNREACHABLE;
@@ -321,11 +350,13 @@ int nfs41_send_compound(
     ReleaseSRWLockShared(&rpc->lock);
 
     if (rpc_status != RPC_SUCCESS) {
-        eprintf("clnt_call returned rpc_status=%i\n", rpc_status);
+        eprintf("clnt_call returned rpc_status = %s\n", 
+            rpc_error_string(rpc_status));
         switch(rpc_status) {
         case RPC_CANTRECV:
         case RPC_CANTSEND:
         case RPC_TIMEDOUT:
+        case RPC_AUTHERROR:
             if (!rpc->is_valid_session && ++count > 3) {
                 status = ERROR_NETWORK_UNREACHABLE;
                 break;
@@ -335,7 +366,7 @@ int nfs41_send_compound(
             while (rpc_renew_in_progress(rpc, NULL)) {
                 status = WaitForSingleObject(rpc->cond, INFINITE);
                 if (status != WAIT_OBJECT_0) {
-                    dprintf(1, "nfs41_rpc_renew_in_progress: WaitForSingleObject failed\n");
+                    dprintf(1, "rpc_renew_in_progress: WaitForSingleObject failed\n");
                     print_condwait_status(1, status);
                     status = ERROR_LOCK_VIOLATION;
                     goto out;
@@ -345,13 +376,13 @@ int nfs41_send_compound(
             }
             rpc_renew_in_progress(rpc, &one);
             if (rpc_reconnect(rpc))
-                eprintf("Failed to reconnect!\n");
+                eprintf("rpc_reconnect: Failed to reconnect!\n");
             rpc_renew_in_progress(rpc, &zero);
             goto try_again;
         default:
             eprintf("UNHANDLED RPC_ERROR: %d\n", rpc_status);
 			status = ERROR_NETWORK_UNREACHABLE;
-            break;
+            goto out;
         }
         goto out;
     }
