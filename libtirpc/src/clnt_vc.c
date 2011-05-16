@@ -64,6 +64,7 @@
 #include <string.h>
 //#include <unistd.h>
 //#include <signal.h>
+#include <time.h>
 
 #include <rpc/rpc.h>
 #include "rpc_com.h"
@@ -499,6 +500,7 @@ clnt_vc_call(cl, proc, xdr_args, args_ptr, xdr_results, results_ptr, timeout)
 	bool_t shipnow;
 	int refreshes = 2;
     u_int seq = -1;
+    time_t start_send, time_now;
 #ifndef _WIN32
 	sigset_t mask, newmask;
 #else
@@ -560,6 +562,7 @@ call_again:
 	 * Keep receiving until we get a valid transaction id
 	 */
 
+    time(&start_send);
 	while (TRUE) {
 #ifdef NO_CB_4_KRB5P
         if (cl->cb_thread != INVALID_HANDLE_VALUE) {
@@ -583,6 +586,11 @@ call_again:
                 if (cl->cb_thread != INVALID_HANDLE_VALUE)  
 #endif
 			        release_fd_lock(ct->ct_fd, mask);
+                time(&time_now);
+                if (time_now - start_send >= timeout.tv_sec) {
+                    ct->ct_error.re_status = RPC_TIMEDOUT;
+                    goto out;
+                }
                 SwitchToThread();
 			    continue;
 		    }
