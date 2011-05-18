@@ -164,7 +164,8 @@ authsspi_create_default(CLIENT *clnt, char *service, int svc)
         NULL, NULL, NULL, NULL, &sec->cred, &sec->expiry);
     if (maj_stat != SEC_E_OK) {
         log_debug("authgss_create_default: AcquireCredentialsHandleA failed with %x", maj_stat);
-        goto out_free_sec;
+        free(sec);
+        goto out;
     }
 
 	auth = authsspi_create(clnt, name, sec);
