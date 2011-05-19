@@ -322,6 +322,8 @@ int nfs_to_windows_error(int status, int default_error)
     case NFS4ERR_BAD_STATEID:
     case NFS4ERR_ADMIN_REVOKED: return ERROR_FILE_INVALID;
 
+    case NFS4ERR_WRONGSEC:      return ERROR_ACCESS_DENIED;
+
     default:
         dprintf(1, "nfs error %s not mapped to windows error; "
             "returning default error %d\n",
