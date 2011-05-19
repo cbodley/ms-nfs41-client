@@ -2663,7 +2663,98 @@ static bool_t decode_op_write(
     return TRUE;
 }
 
+/* 
+ * OP_SECINFO_NO_NAME
+ */
+static bool_t xdr_secinfo(
+    XDR *xdr,
+    nfs41_secinfo_info *secinfo)
+{
+    if (!xdr_u_int32_t(xdr, &secinfo->sec_flavor))
+        return FALSE;
+    if (secinfo->sec_flavor == RPCSEC_GSS) {
+        char *p = secinfo->oid;
+        if (!xdr_bytes(xdr, (char **)&p, &secinfo->oid_len, MAX_OID_LEN))
+            return FALSE;
+        if (!xdr_u_int32_t(xdr, &secinfo->qop))
+            return FALSE;
+        if (!xdr_enum(xdr, (enum_t *)&secinfo->type))
+            return FALSE;
+    }
+    return TRUE;
+}
 
+static bool_t encode_op_secinfo_noname(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_secinfo_noname_args *args = (nfs41_secinfo_noname_args *)argop->arg;
+
+    if (unexpected_op(argop->op, OP_SECINFO_NO_NAME))
+        return FALSE;
+
+    if (!xdr_enum(xdr, (enum_t *)&args->type))
+        return FALSE;
+
+    return TRUE;
+}
+
+static bool_t decode_op_secinfo_noname(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_secinfo_noname_res *res = (nfs41_secinfo_noname_res *)resop->res;
+    nfs41_secinfo_info *secinfo = res->secinfo;
+    if (unexpected_op(resop->op, OP_SECINFO_NO_NAME))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &res->status))
+        return FALSE;
+
+    if (res->status == NFS4_OK)
+        return xdr_array(xdr, (char**)&secinfo, &res->count,
+            MAX_SECINFOS, sizeof(nfs41_secinfo_info), (xdrproc_t)xdr_secinfo);
+
+    return TRUE;
+}
+
+/* 
+ * OP_SECINFO
+ */
+static bool_t encode_op_secinfo(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_secinfo_args *args = (nfs41_secinfo_args *)argop->arg;
+
+    if (unexpected_op(argop->op, OP_SECINFO))
+        return FALSE;
+
+    if (!encode_component(xdr, args->name))
+        return FALSE;
+
+    return TRUE;
+}
+
+static bool_t decode_op_secinfo(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_secinfo_noname_res *res = (nfs41_secinfo_noname_res *)resop->res;
+    nfs41_secinfo_info *secinfo = res->secinfo;
+
+    if (unexpected_op(resop->op, OP_SECINFO))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &res->status))
+        return FALSE;
+
+    if (res->status == NFS4_OK)
+        return xdr_array(xdr, (char**)&secinfo, &res->count,
+            MAX_SECINFOS, sizeof(nfs41_secinfo_info), (xdrproc_t)xdr_secinfo);
+
+    return TRUE;
+}
 /*
  * OP_GETDEVICEINFO
  */
@@ -3231,7 +3322,7 @@ static const op_table_entry g_op_table[] = {
     { NULL, NULL }, /* OP_RENEW = 30 */
     { encode_op_restorefh, decode_op_restorefh }, /* OP_RESTOREFH = 31 */
     { encode_op_savefh, decode_op_savefh }, /* OP_SAVEFH = 32 */
-    { NULL, NULL }, /* OP_SECINFO = 33 */
+    { encode_op_secinfo, decode_op_secinfo }, /* OP_SECINFO = 33 */
     { encode_op_setattr, decode_op_setattr }, /* OP_SETATTR = 34 */
     { NULL, NULL }, /* OP_SETCLIENTID = 35 */
     { NULL, NULL }, /* OP_SETCLIENTID_CONFIRM  = 36 */
@@ -3250,7 +3341,7 @@ static const op_table_entry g_op_table[] = {
     { encode_op_layoutcommit, decode_op_layoutcommit }, /* OP_LAYOUTCOMMIT = 49 */
     { encode_op_layoutget, decode_op_layoutget }, /* OP_LAYOUTGET = 50 */
     { encode_op_layoutreturn, decode_op_layoutreturn }, /* OP_LAYOUTRETURN = 51 */
-    { NULL, NULL }, /* OP_SECINFO_NO_NAME = 52 */
+    { encode_op_secinfo_noname, decode_op_secinfo_noname }, /* OP_SECINFO_NO_NAME = 52 */
     { encode_op_sequence, decode_op_sequence }, /* OP_SEQUENCE = 53 */
     { NULL, NULL }, /* OP_SET_SSV = 54 */
     { NULL, NULL }, /* OP_TEST_STATEID = 55 */

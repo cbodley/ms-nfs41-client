@@ -793,6 +793,45 @@ typedef struct __nfs41_write_res {
     nfs41_write_res_ok      resok4;
 } nfs41_write_res;
 
+/* OP_SECINFO */
+enum sec_flavor {
+    RPC_GSS_SVC_NONE = 1,
+    RPC_GSS_SVC_INTEGRITY = 2,
+    RPC_GSS_SVC_PRIVACY = 3,
+};
+
+#define RPCSEC_GSS 6
+#define MAX_OID_LEN 128
+typedef struct __nfs41_secinfo_info {
+    char                    oid[MAX_OID_LEN];
+    uint32_t                oid_len;
+    uint32_t                sec_flavor;
+    uint32_t                qop;
+    enum sec_flavor         type;
+} nfs41_secinfo_info;
+
+typedef struct __nfs41_secinfo_args {
+    const nfs41_component   *name;
+} nfs41_secinfo_args;
+
+#define MAX_SECINFOS 6
+
+/* OP_SECINFO_NO_NAME */
+enum secinfo_no_name_type {
+    SECINFO_STYLE4_CURRENT_FH = 0,
+    SECINFO_STYLE4_PARENT = 1
+};
+
+typedef struct __nfs41_secinfo_noname_args {
+    enum secinfo_noname_type type;
+} nfs41_secinfo_noname_args;
+
+typedef struct __nfs41_secinfo_noname_res {
+    uint32_t                status;
+    /* case NFS4_OK: */
+    nfs41_secinfo_info      *secinfo;
+    uint32_t                count;
+} nfs41_secinfo_noname_res;
 
 /* LAYOUTGET */
 typedef struct __pnfs_layoutget_args {
@@ -1096,6 +1135,15 @@ enum nfsstat4 nfs41_fs_locations(
     IN const nfs41_component *name,
     OUT fs_locations4 *locations);
 
+int nfs41_secinfo(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN const nfs41_component *name,
+    OUT nfs41_secinfo_info *secinfo);
+
+int nfs41_secinfo_noname(
+    IN nfs41_session *session,
+    OUT nfs41_secinfo_info *secinfo);
 
 enum nfsstat4 pnfs_rpc_layoutget(
     IN nfs41_session *session,
