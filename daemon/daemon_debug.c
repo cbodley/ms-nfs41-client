@@ -30,6 +30,7 @@
 #include "nfs41_ops.h"
 #include "service.h"
 #include "rpc/rpc.h"
+#include "rpc/auth_sspi.h"
 
 static int g_debug_level = DEFAULT_DEBUG_LEVEL;
 
@@ -500,6 +501,16 @@ const char* rpc_error_string(int status)
     default: return "invalid rpc error code";
     }
 }
+
+const char* gssauth_string(int type) {
+    switch(type) {
+    case RPCSEC_SSPI_SVC_NONE: return "RPCSEC_SSPI_SVC_NONE";
+    case RPCSEC_SSPI_SVC_INTEGRITY: return "RPCSEC_SSPI_SVC_INTEGRITY";
+    case RPCSEC_SSPI_SVC_PRIVACY: return "RPCSEC_SSPI_SVC_PRIVACY";
+    default: return "invalid gss auth type";
+    }
+}
+
 void print_condwait_status(int level, int status)
 {
     if (level > g_debug_level) return;
