@@ -219,6 +219,8 @@ int nfs41_rpc_clnt_create(
     rpc->wsize = wsize;
     rpc->rsize = rsize;
     rpc->is_valid_session = TRUE;
+    rpc->uid = uid;
+    rpc->gid = gid;
 
     //initialize rpc client lock
     InitializeSRWLock(&rpc->lock);

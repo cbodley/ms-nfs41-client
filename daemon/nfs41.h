@@ -115,6 +115,8 @@ typedef struct __nfs41_rpc_clnt {
     uint32_t rsize;
     uint32_t version;
     uint32_t sec_flavor;
+    uint32_t uid;
+    uint32_t gid;
     char server_name[NI_MAXHOST];
     bool_t is_valid_session;
     bool_t in_recovery;
