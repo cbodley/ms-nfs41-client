@@ -291,6 +291,7 @@ int nfs41_session_create(
         EXCHGID4_FLAG_USE_NON_PNFS))
 #endif
         session->flags |= CREATE_SESSION4_FLAG_CONN_BACK_CHAN;
+    session->flags |= CREATE_SESSION4_FLAG_PERSIST;
     ReleaseSRWLockShared(&client->exid_lock);
 
     status = nfs41_create_session(client, session, TRUE);

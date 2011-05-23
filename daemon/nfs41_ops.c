@@ -149,9 +149,19 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session, bool_t try_
         goto out;
     } else clnt->seq_id++;
 
-    if (reply.csr_flags != req.csa_flags)
+    if (reply.csr_flags != req.csa_flags) {
         eprintf("WARNING: requested session flags %x received %x\n",
             req.csa_flags, reply.csr_flags);
+        if ((session->flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN) &&
+                !(reply.csr_flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN))
+            eprintf("WARNING: we asked to use this session for callbacks but "
+                    "server refused\n");
+        if ((session->flags & CREATE_SESSION4_FLAG_PERSIST) &&
+            !(reply.csr_flags & CREATE_SESSION4_FLAG_PERSIST))
+            eprintf("WARNING: we asked for persistent session but "
+                    "server refused\n");
+        session->flags = reply.csr_flags;
+    }
     else
         dprintf(1, "session flags %x\n", reply.csr_flags);
 
