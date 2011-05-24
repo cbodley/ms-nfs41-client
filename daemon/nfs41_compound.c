@@ -145,7 +145,7 @@ static int recover_open(
     } else if (status == NFS4ERR_NO_GRACE) {
         dprintf(1, "not in grace period, retrying a normal open\n");
         status = nfs41_open(session, open->share_access,
-            open->share_deny, OPEN4_NOCREATE, 0, FALSE, open, NULL);
+            open->share_deny, OPEN4_NOCREATE, 0, 0, FALSE, open, NULL);
 
         /* update the stateid arg with the new open->stateid */
         memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));

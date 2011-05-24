@@ -1835,16 +1835,6 @@ static bool_t decode_op_getattr(
 /*
  * OP_OPEN
  */
-static bool_t encode_creatverfattr(
-    XDR *xdr,
-    creatverfattr *cva)
-{
-    if (!xdr_opaque(xdr, (char *)cva->cva_verf, NFS4_VERIFIER_SIZE))
-        return FALSE;
-
-    return xdr_fattr4(xdr, &cva->cva_attrs);
-}
-
 static bool_t encode_createhow4(
     XDR *xdr,
     createhow4 *ch)
@@ -1858,13 +1848,16 @@ static bool_t encode_createhow4(
     {
     case UNCHECKED4:
     case GUARDED4:
-        result = encode_createattrs4(xdr, &ch->u.createattrs);
+        result = encode_createattrs4(xdr, &ch->createattrs);
         break;
     case EXCLUSIVE4:
-        result = xdr_opaque(xdr, (char *)ch->u.createverf, NFS4_VERIFIER_SIZE);
+        result = xdr_opaque(xdr, (char *)ch->createverf, NFS4_VERIFIER_SIZE);
         break;
     case EXCLUSIVE4_1:
-        result = encode_creatverfattr(xdr, &ch->u.ch_createboth);
+        if (!xdr_opaque(xdr, (char *)ch->createverf, NFS4_VERIFIER_SIZE))
+            return FALSE;
+        if (!encode_createattrs4(xdr, &ch->createattrs))
+            return FALSE;
         break;
     }
     return result;

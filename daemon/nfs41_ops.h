@@ -524,21 +524,10 @@ enum createmode4 {
     EXCLUSIVE4_1    = 3
 };
 
-typedef struct __creatverfattr {
-    unsigned char           cva_verf[NFS4_VERIFIER_SIZE];
-    fattr4                  cva_attrs;
-} creatverfattr;
-
 typedef struct __createhow4 {
-    uint32_t                mode;
-    union {
-    /* case UNCHECKED4, GUARDED4: */
-        createattrs4        createattrs;
-    /* case EXCLUSIVE4: */
-        unsigned char       createverf[NFS4_VERIFIER_SIZE];
-    /* case EXCLUSIVE4_1: */
-        creatverfattr       ch_createboth;
-    } u;
+    uint32_t            mode;
+    createattrs4        createattrs;
+    unsigned char       *createverf;
 } createhow4;
 
 enum opentype4 {
@@ -972,6 +961,7 @@ int nfs41_open(
     IN uint32_t allow,
     IN uint32_t deny,
     IN uint32_t create,
+    IN uint32_t how_mode,
     IN uint32_t mode,
     IN bool_t try_recovery,
     IN OUT nfs41_open_state *state,

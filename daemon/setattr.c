@@ -479,7 +479,7 @@ static int handle_setattr(nfs41_upcall *upcall)
             map_access_2_allowdeny(args->access_mask, args->access_mode,
                 &state->share_access, &state->share_deny);
             status = nfs41_open(state->session, state->share_access,
-                state->share_deny, OPEN4_NOCREATE, 0, TRUE, state, NULL);
+                state->share_deny, OPEN4_NOCREATE, 0, 0, TRUE, state, NULL);
             if (status) {
                 dprintf(1, "nfs41_open() failed with %s\n", nfs_error_string(status));
                 status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);

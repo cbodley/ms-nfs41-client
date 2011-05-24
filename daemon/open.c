@@ -199,8 +199,9 @@ static BOOLEAN do_lookup(uint32_t type, ULONG access_mask, ULONG disposition)
     }
 }
 
-static int map_disposition_2_nfsopen(ULONG disposition, int in_status, 
-                                     uint32_t *create, uint32_t *last_error)
+static int map_disposition_2_nfsopen(ULONG disposition, int in_status, bool_t persistent,
+                                     uint32_t *create, uint32_t *createhowmode,
+                                     uint32_t *last_error)
 {
     int status = NO_ERROR;
     if (disposition == FILE_SUPERSEDE) {
@@ -214,8 +215,13 @@ static int map_disposition_2_nfsopen(ULONG disposition, int in_status,
         // if lookup succeeded which means the file exist, return an error
         if (!in_status)
             status = ERROR_FILE_EXISTS;
-        else
+        else {
             *create = OPEN4_CREATE;
+            if (persistent)
+                *createhowmode = GUARDED4;
+            else
+                *createhowmode = EXCLUSIVE4_1;
+        }
     } else if (disposition == FILE_OPEN) {
         if (in_status == NFS4ERR_NOENT)
             status = ERROR_FILE_NOT_FOUND;
@@ -415,11 +421,13 @@ static int handle_open(nfs41_upcall *upcall)
         args->mode = info.mode;
         args->changeattr = info.change;
     } else {
-        uint32_t create = 0;
+        uint32_t create = 0, createhowmode = 0;
 
         map_access_2_allowdeny(args->access_mask, args->access_mode,
             &state->share_access, &state->share_deny);
-        status = map_disposition_2_nfsopen(args->disposition, status, &create, &upcall->last_error);
+        status = map_disposition_2_nfsopen(args->disposition, status, 
+                    state->session->flags & CREATE_SESSION4_FLAG_PERSIST, 
+                    &create, &createhowmode, &upcall->last_error);
         if (status)
             goto out_free_state;
 
@@ -436,7 +444,8 @@ static int handle_open(nfs41_upcall *upcall)
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
             status = nfs41_open(state->session, state->share_access,
-                state->share_deny, create, args->mode, TRUE, state, &info);
+                state->share_deny, create, createhowmode, args->mode, 
+                TRUE, state, &info);
 
             if (status == NFS4_OK) {
                 /* add to the client's list of state for recovery */

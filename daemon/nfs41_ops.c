@@ -25,6 +25,7 @@
 #include <strsafe.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "nfs41_ops.h"
 #include "nfs41_compound.h"
@@ -302,6 +303,7 @@ int nfs41_open(
     IN uint32_t allow,
     IN uint32_t deny,
     IN uint32_t create,
+    IN uint32_t how_mode,
     IN uint32_t mode,
     IN bool_t try_recovery,
     IN OUT nfs41_open_state *state,
@@ -324,6 +326,7 @@ int nfs41_open(
     nfs41_savefh_res savefh_res;
     nfs41_restorefh_res restorefh_res;
     nfs41_file_info tmp_info, dir_info;
+    unsigned char createverf[NFS4_VERIFIER_SIZE];
 
     if (info == NULL)
         info = &tmp_info;
@@ -354,12 +357,18 @@ int nfs41_open(
     open_args.share_deny = deny; 
     open_args.owner = &state->owner;
     open_args.openhow.opentype = create;
-    open_args.openhow.how.mode = UNCHECKED4;
-    open_args.openhow.how.u.createattrs.info.attrmask.count = 2;
-    open_args.openhow.how.u.createattrs.info.attrmask.arr[0] = FATTR4_WORD0_SIZE;
-    open_args.openhow.how.u.createattrs.info.attrmask.arr[1] = FATTR4_WORD1_MODE;
-    open_args.openhow.how.u.createattrs.info.mode = mode;
-    open_args.openhow.how.u.createattrs.info.size = 0;
+    open_args.openhow.how.mode = how_mode;
+    open_args.openhow.how.createattrs.info.attrmask.count = 2;
+    open_args.openhow.how.createattrs.info.attrmask.arr[0] = FATTR4_WORD0_SIZE;
+    open_args.openhow.how.createattrs.info.attrmask.arr[1] = FATTR4_WORD1_MODE;
+    open_args.openhow.how.createattrs.info.mode = mode;
+    open_args.openhow.how.createattrs.info.size = 0;
+    if (how_mode == EXCLUSIVE4_1) {
+        DWORD tid = GetCurrentThreadId();
+        open_args.openhow.how.createverf = createverf;
+        time((time_t*)open_args.openhow.how.createverf);
+        memcpy(open_args.openhow.how.createverf+4, &tid, sizeof(tid)); 
+    }
     open_args.claim.claim = CLAIM_NULL;
     open_args.claim.u.null.filename = &state->file.name;
     open_res.resok4.stateid = &state->stateid;
