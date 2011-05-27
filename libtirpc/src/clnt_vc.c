@@ -582,17 +582,20 @@ call_again:
 		ct->reply_msg.acpted_rply.ar_results.proc = (xdrproc_t)xdr_void;
         if (!ct->use_stored_reply_msg) {
 		    if (!xdrrec_skiprecord(xdrs)) {
+                if (ct->ct_error.re_status != RPC_CANTRECV) {
+                    time(&time_now);
+                    if (time_now - start_send >= timeout.tv_sec) {
+                        ct->ct_error.re_status = RPC_TIMEDOUT;
+                        goto out;
+                    }
 #ifdef NO_CB_4_KRB5P
-                if (cl->cb_thread != INVALID_HANDLE_VALUE)  
+                    if (cl->cb_thread != INVALID_HANDLE_VALUE)  
 #endif
-			        release_fd_lock(ct->ct_fd, mask);
-                time(&time_now);
-                if (time_now - start_send >= timeout.tv_sec) {
-                    ct->ct_error.re_status = RPC_TIMEDOUT;
-                    goto out;
+			            release_fd_lock(ct->ct_fd, mask);
+                    SwitchToThread();
+			        continue;
                 }
-                SwitchToThread();
-			    continue;
+                goto out;
 		    }
             if (!xdr_getxiddir(xdrs, &ct->reply_msg)) {
 			    if (ct->ct_error.re_status == RPC_SUCCESS) {
@@ -621,6 +624,11 @@ call_again:
 			break;
         }
         else {
+            time(&time_now);
+            if (time_now - start_send >= timeout.tv_sec) {
+                ct->ct_error.re_status = RPC_TIMEDOUT;
+                goto out;
+            }
             ct->use_stored_reply_msg = TRUE;
             release_fd_lock(ct->ct_fd, mask);
             SwitchToThread();
@@ -930,8 +938,7 @@ read_vc(ctp, buf, len)
 	*/
 	struct ct_data *ct = (struct ct_data *)ctp;
 	struct pollfd fd;
-	int milliseconds = (int)((ct->ct_wait.tv_sec * 1000) +
-	    (ct->ct_wait.tv_usec / 1000));
+	int milliseconds = ct->ct_wait.tv_usec;
 
 	if (len == 0)
 		return (0);
