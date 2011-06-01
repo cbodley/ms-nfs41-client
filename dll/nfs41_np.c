@@ -780,7 +780,8 @@ NPEnumResource(
     if ( Status == WN_SUCCESS)
     {
         Status = WN_NO_MORE_ENTRIES;
-        for (Index = *(PULONG)hEnum; Index < pSharedMemory->NextAvailableIndex; Index++)
+        for (Index = *(PULONG)hEnum; EntriesCopied < *lpcCount && 
+                Index < pSharedMemory->NextAvailableIndex; Index++)
         {
             pNfsNetResource = &pSharedMemory->NetResources[Index];
 
@@ -834,13 +835,9 @@ NPEnumResource(
                     StringCbCopyW( StringZone, sizeof(NFS41_PROVIDER_NAME_U), NFS41_PROVIDER_NAME_U );
                     StringZone += sizeof(NFS41_PROVIDER_NAME_U)/sizeof(WCHAR);
                     EntriesCopied++;
-                    if(EntriesCopied >= *lpcCount)
-                    {
-                        Status = WN_SUCCESS;
-                        break;
-                    }
                     // set new bottom of string zone
                     StringZone = (PWCHAR)( (PBYTE) StringZone - SpaceNeeded );
+                    Status = WN_SUCCESS;
                 }
                 pNetResource++;
             }
