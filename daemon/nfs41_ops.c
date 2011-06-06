@@ -1741,6 +1741,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
+    IN uint64_t minlength,
     IN uint64_t length,
     OUT pnfs_layoutget_res_ok *layoutget_res_ok)
 {
@@ -1773,7 +1774,8 @@ enum nfsstat4 pnfs_rpc_layoutget(
     layoutget_args.layout_type = PNFS_LAYOUTTYPE_FILE;
     layoutget_args.iomode = iomode;
     layoutget_args.offset = offset;
-    layoutget_args.minlength = layoutget_args.length = length;
+    layoutget_args.minlength = minlength;
+    layoutget_args.length = length;
     layoutget_args.stateid = stateid;
     layoutget_args.maxcount = session->fore_chan_attrs.ca_maxresponsesize - READ_OVERHEAD;
     ZeroMemory(&layoutget_res, sizeof(layoutget_res));

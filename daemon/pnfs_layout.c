@@ -286,6 +286,7 @@ static enum pnfs_status file_layout_fetch(
     IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
+    IN uint64_t minlength,
     IN uint64_t length)
 {
     pnfs_layoutget_res_ok layoutget_res = { 0 };
@@ -299,8 +300,8 @@ static enum pnfs_status file_layout_fetch(
 
     /* drop the lock during the rpc call */
     ReleaseSRWLockExclusive(&state->lock);
-    nfsstat = pnfs_rpc_layoutget(session, meta_file,
-        stateid, iomode, offset, length, &layoutget_res);
+    nfsstat = pnfs_rpc_layoutget(session, meta_file, stateid,
+        iomode, offset, minlength, length, &layoutget_res);
     AcquireSRWLockExclusive(&state->lock);
 
     if (nfsstat) {
@@ -395,14 +396,14 @@ static enum pnfs_status file_layout_cache(
 
             if ((state->status & PNFS_LAYOUT_NOT_RW) == 0) {
                 /* try to get a RW layout first */
-                status = file_layout_fetch(state, session,
-                    meta_file, stateid, PNFS_IOMODE_RW, offset, length);
+                status = file_layout_fetch(state, session, meta_file,
+                    stateid, PNFS_IOMODE_RW, offset, 0, NFS4_UINT32_MAX);
             }
 
             if (status && iomode == PNFS_IOMODE_READ) {
                 /* fall back on READ if necessary */
-                status = file_layout_fetch(state, session,
-                    meta_file, stateid, iomode, offset, length);
+                status = file_layout_fetch(state, session, meta_file,
+                    stateid, iomode, offset, 0, NFS4_UINT32_MAX);
             }
         }
 
@@ -517,9 +518,9 @@ static enum pnfs_status file_layout_get(
 {
     enum pnfs_status status;
 
-    /* request a range for the entire file */
-    status = file_layout_cache(state, session, meta_file,
-        stateid, iomode, 0, NFS4_UINT64_MAX);
+    /* request a range that covers this io */
+    status = file_layout_cache(state, session,
+        meta_file, stateid, iomode, offset, length);
     if (status) {
         dprintf(FLLVL, "file_layout_cache() failed with %s\n",
             pnfs_error_string(status));

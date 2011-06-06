@@ -1151,6 +1151,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     IN stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
+    IN uint64_t minlength,
     IN uint64_t length,
     OUT pnfs_layoutget_res_ok *layoutget_res);
 
