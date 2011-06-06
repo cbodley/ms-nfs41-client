@@ -3344,9 +3344,9 @@ NTSTATUS nfs41_QueryVolumeInformation (
         case FileFsVolumeInformation:
         {
             PFILE_FS_VOLUME_INFORMATION pVolInfo = RxContext->Info.Buffer;
-            DECLARE_CONST_UNICODE_STRING(Label, L"PnfsLabel");
+            DECLARE_CONST_UNICODE_STRING(Label, L"PnfsVolume");
 
-            SizeUsed = sizeof(FILE_FS_VOLUME_INFORMATION) + Label.Length;
+            SizeUsed = sizeof(FILE_FS_VOLUME_INFORMATION) + Label.Length;            
             if (RemainingLength < SizeUsed) {
 #if 0
                 status = STATUS_BUFFER_TOO_SMALL;
@@ -3361,6 +3361,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
             pVolInfo->VolumeCreationTime.QuadPart = 0;
             pVolInfo->VolumeSerialNumber = 0xBABAFACE;
             pVolInfo->SupportsObjects = FALSE;
+            pVolInfo->VolumeLabelLength = Label.Length;
             RtlCopyMemory(&pVolInfo->VolumeLabel[0], (PVOID)Label.Buffer, Label.Length);
             RxContext->Info.LengthRemaining -= SizeUsed;
             status = STATUS_SUCCESS;
