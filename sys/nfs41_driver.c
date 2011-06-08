@@ -1237,8 +1237,8 @@ NTSTATUS nfs41_UpcallCreate(
             print_error("SeCreateClientSecurityFromSubjectContext "
                 "failed with %x\n", status);
             RxFreePool(entry);
-        }
-        entry->psec_ctx = &entry->sec_ctx;
+        } else
+            entry->psec_ctx = &entry->sec_ctx;
         SeReleaseSubjectContext(&sec_ctx);
     } else
         entry->psec_ctx = clnt_sec_ctx;
