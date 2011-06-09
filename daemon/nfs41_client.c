@@ -30,6 +30,7 @@
 #include <winsock2.h> /* for hostent struct */
 
 #include "tree.h"
+#include "delegation.h"
 #include "daemon_debug.h"
 #include "nfs41_ops.h"
 
@@ -248,6 +249,7 @@ int nfs41_client_create(
         goto out_err_client;
 
     list_init(&client->state.opens);
+    list_init(&client->state.delegations);
     InitializeCriticalSection(&client->state.lock);
 
     //initialize a lock used to protect access to client id and client id seq#
@@ -326,6 +328,7 @@ void nfs41_client_free(
     IN nfs41_client *client)
 {
     dprintf(2, "nfs41_client_free(%llu)\n", client->clnt_id);
+    nfs41_client_delegation_free(client);
     if (client->session) nfs41_session_free(client->session);
     nfs41_destroy_clientid(client->rpc, client->clnt_id);
     if (client->server) nfs41_server_deref(client->server);

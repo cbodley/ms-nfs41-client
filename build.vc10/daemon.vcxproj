@@ -195,6 +195,7 @@
     <ClCompile Include="..\daemon\callback_xdr.c" />
     <ClCompile Include="..\daemon\callback_server.c" />
     <ClCompile Include="..\daemon\daemon_debug.c" />
+    <ClCompile Include="..\daemon\delegation.c" />
     <ClCompile Include="..\daemon\getattr.c" />
     <ClCompile Include="..\daemon\idmap.c" />
     <ClCompile Include="..\daemon\lock.c" />
@@ -227,6 +228,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\daemon\daemon_debug.h" />
+    <ClInclude Include="..\daemon\delegation.h" />
     <ClInclude Include="..\daemon\from_kernel.h" />
     <ClInclude Include="..\daemon\idmap.h" />
     <ClInclude Include="..\daemon\list.h" />

@@ -80,6 +80,13 @@ typedef struct __nfs41_server {
     LONG ref_count;
 } nfs41_server;
 
+typedef struct __nfs41_delegation_state {
+    open_delegation4 state;
+    nfs41_fh fh;
+    struct list_entry client_entry; /* entry in nfs41_client.delegations */
+    LONG ref_count;
+} nfs41_delegation_state;
+
 typedef struct __nfs41_lock_state {
     struct list_entry open_entry; /* entry in nfs41_open_state.locks */
     uint64_t offset;
@@ -110,6 +117,10 @@ typedef struct __nfs41_open_state {
     uint32_t share_access;
     uint32_t share_deny;
 
+    struct {
+        nfs41_delegation_state *state;
+    } delegation;
+
     struct { /* list of open lock state for recovery */
         stateid4 stateid;
         struct list_entry list;
@@ -137,6 +148,7 @@ typedef struct __nfs41_rpc_clnt {
 
 struct client_state {
     struct list_entry opens; /* list of associated nfs41_open_state */
+    struct list_entry delegations; /* list of associated delegations */
     CRITICAL_SECTION lock;
 };
 

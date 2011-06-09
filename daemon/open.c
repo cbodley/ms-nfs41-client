@@ -26,6 +26,7 @@
 #include <strsafe.h>
 
 #include "nfs41_ops.h"
+#include "delegation.h"
 #include "from_kernel.h"
 #include "daemon_debug.h"
 #include "upcall.h"
@@ -63,6 +64,7 @@ static int create_open_state(
         (const char*)state->owner.owner);
     state->ref_count = 1;
     list_init(&state->locks.list);
+    list_init(&state->client_entry);
 
     *state_out = state;
     status = NO_ERROR;
@@ -82,6 +84,8 @@ static void open_state_free(
     /* free associated lock state */
     list_for_each_tmp(entry, tmp, &state->locks.list)
         free(list_container(entry, nfs41_lock_state, open_entry));
+    if (state->delegation.state)
+        nfs41_delegation_deref(state->delegation.state);
     free(state);
 }
 
@@ -119,7 +123,7 @@ void nfs41_open_stateid_arg(
 }
 
 /* client list of associated open state */
-void client_state_add(
+static void client_state_add(
     IN nfs41_open_state *state)
 {
     nfs41_client *client = state->session->client;
@@ -129,7 +133,7 @@ void client_state_add(
     LeaveCriticalSection(&client->state.lock);
 }
 
-void client_state_remove(
+static void client_state_remove(
     IN nfs41_open_state *state)
 {
     nfs41_client *client = state->session->client;
@@ -148,7 +152,9 @@ int nfs41_open(
     OUT OPTIONAL nfs41_file_info *info)
 {
     open_claim4 claim;
+    stateid4 open_stateid;
     open_delegation4 delegation = { 0 };
+    nfs41_delegation_state *deleg_state = NULL;
     int status;
 
     claim.claim = CLAIM_NULL;
@@ -156,18 +162,45 @@ int nfs41_open(
 
     status = nfs41_rpc_open(state->session, &state->parent, &state->file,
         &state->owner, &claim, state->share_access, state->share_deny,
-        create, createhow, mode, TRUE, &state->stateid, &delegation, info);
+        create, createhow, mode, TRUE, &open_stateid, &delegation, info);
     if (status)
         goto out;
 
-    if (delegation.type == OPEN_DELEGATE_READ ||
-        delegation.type == OPEN_DELEGATE_WRITE)
-        nfs41_delegreturn(state->session, &state->file, &delegation.stateid);
+    /* allocate delegation state and register it with the client */
+    nfs41_delegation_granted(state->session,
+        &state->file, &delegation, &deleg_state);
+
+    AcquireSRWLockExclusive(&state->lock);
+    /* update the stateid */
+    memcpy(&state->stateid, &open_stateid, sizeof(open_stateid));
+    state->do_close = 1;
+    state->delegation.state = deleg_state;
+    ReleaseSRWLockExclusive(&state->lock);
+out:
+    return status;
+}
+
+static int open_or_delegate(
+    IN OUT nfs41_open_state *state,
+    IN uint32_t create,
+    IN uint32_t createhow,
+    IN uint32_t mode,
+    IN bool_t try_recovery,
+    OUT nfs41_file_info *info)
+{
+    int status;
+
+    /* check for existing delegation */
+    status = nfs41_delegate_open(state->session->client, &state->file, create,
+        state->share_access, state->share_deny, &state->delegation.state, info);
+
+    /* get an open stateid if we have no delegation stateid */
+    if (status)
+        status = nfs41_open(state, create, createhow, mode, try_recovery, info);
 
     /* register the client's open state on success */
-    client_state_add(state);
-    state->do_close = 1;
-out:
+    if (status == NFS4_OK)
+        client_state_add(state);
     return status;
 }
 
@@ -509,8 +542,8 @@ static int handle_open(nfs41_upcall *upcall)
             args->std_info.Directory = 1;
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
-            status = nfs41_open(state, create, createhowmode,
-                args->mode, TRUE, &info);
+            status = open_or_delegate(state, create,
+                createhowmode, args->mode, TRUE, &info);
             if (status == NFS4_OK) {
                 nfs_to_basic_info(&info, &args->basic_info);
                 nfs_to_standard_info(&info, &args->std_info);
@@ -589,8 +622,6 @@ static void cancel_open(IN nfs41_upcall *upcall)
             dprintf(1, "cancel_open: nfs41_close() failed with %s\n",
                 nfs_error_string(status));
 
-        /* remove from the client's list of state for recovery */
-        client_state_remove(state);
     } else if (args->created) {
         const nfs41_component *name = &state->file.name;
         status = nfs41_remove(state->session, &state->parent, name);
@@ -599,6 +630,8 @@ static void cancel_open(IN nfs41_upcall *upcall)
                 nfs_error_string(status));
     }
 
+    /* remove from the client's list of state for recovery */
+    client_state_remove(state);
     nfs41_open_state_deref(state);
 out:
     status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
@@ -664,10 +697,10 @@ static int handle_close(nfs41_upcall *upcall)
                 nfs_error_string(status));
             status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
         }
-
-        /* remove from the client's list of state for recovery */
-        client_state_remove(state);
     }
+
+    /* remove from the client's list of state for recovery */
+    client_state_remove(state);
 
     if (status || !rm_status)
         return status;
