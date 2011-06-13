@@ -811,7 +811,10 @@ static enum pnfs_status file_layout_recall(
     /* under an exclusive lock, flag the layout as recalled */
     AcquireSRWLockExclusive(&state->lock);
 
-    if (recall->recall.type == PNFS_RETURN_FILE
+    if ((state->status & PNFS_LAYOUT_GRANTED) == 0) {
+        /* return NOMATCHINGLAYOUT if it wasn't actually granted */
+        status = PNFSERR_NO_LAYOUT;
+    } else if (recall->recall.type == PNFS_RETURN_FILE
         && stateid_arg->seqid > state->stateid.seqid + 1) {
         /* the server has processed an outstanding LAYOUTGET or LAYOUTRETURN;
          * we must return ERR_DELAY until we get the response and update our
