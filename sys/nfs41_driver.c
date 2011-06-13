@@ -4404,6 +4404,11 @@ NTSTATUS nfs41_IsLockRealizable (
         ByteOffset->QuadPart,Length->QuadPart,
         BooleanFlagOn(LowIoLockFlags, SL_EXCLUSIVE_LOCK),
         !BooleanFlagOn(LowIoLockFlags, SL_FAIL_IMMEDIATELY));
+
+    /* NFS lock operations with length=0 MUST fail with NFS4ERR_INVAL */
+    if (Length->QuadPart == 0)
+        status = STATUS_NOT_SUPPORTED;
+
     DbgEx();
     return status;
 }

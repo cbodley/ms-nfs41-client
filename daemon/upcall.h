@@ -67,8 +67,8 @@ typedef struct __readwrite_upcall_args {
 } readwrite_upcall_args;
 
 typedef struct __lock_upcall_args {
-    LONGLONG offset;
-    LONGLONG length;
+    uint64_t offset;
+    uint64_t length;
     BOOLEAN exclusive;
     BOOLEAN blocking;
 } lock_upcall_args;

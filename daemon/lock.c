@@ -155,6 +155,13 @@ static int handle_lock(nfs41_upcall *upcall)
 
     nfs41_lock_stateid_arg(state, &stateid);
 
+    /* 18.10.3. Operation 12: LOCK - Create Lock
+     * "To lock the file from a specific offset through the end-of-file
+     * (no matter how long the file actually is) use a length field equal
+     * to NFS4_UINT64_MAX." */
+    if (args->length >= NFS4_UINT64_MAX - args->offset)
+        args->length = NFS4_UINT64_MAX;
+
     status = nfs41_lock(state->session, &state->file, &state->owner,
         type, args->offset, args->length, FALSE, TRUE, &stateid);
     if (status) {
@@ -239,6 +246,10 @@ static int handle_unlock(nfs41_upcall *upcall)
     for (i = 0; i < args->count; i++) {
         if (safe_read(&buf, &buf_len, &offset, sizeof(LONGLONG))) break;
         if (safe_read(&buf, &buf_len, &length, sizeof(LONGLONG))) break;
+
+        /* do the same translation as LOCK, or the ranges won't match */
+        if (length >= NFS4_UINT64_MAX - offset)
+            length = NFS4_UINT64_MAX;
 
         status = nfs41_unlock(state->session,
             &state->file, offset, length, &stateid);
