@@ -498,7 +498,7 @@ clnt_vc_call(cl, proc, xdr_args, args_ptr, xdr_results, results_ptr, timeout)
 	u_int32_t x_id;
 	u_int32_t *msg_x_id = &ct->ct_u.ct_mcalli;    /* yuk */
 	bool_t shipnow;
-	int refreshes = 2;
+	static int refreshes = 2;
     u_int seq = -1;
     time_t start_send, time_now;
 #ifndef _WIN32
@@ -663,7 +663,7 @@ call_again:
 			    &(ct->reply_msg.acpted_rply.ar_verf));
 		}
 		/* maybe our credentials need to be refreshed ... */
-		if (refreshes-- && AUTH_REFRESH(cl->cl_auth, &ct->reply_msg))
+		if (refreshes-- > 0 && AUTH_REFRESH(cl->cl_auth, &ct->reply_msg))
 			goto call_again;
 	}  /* end of unsuccessful completion */
     ct->reply_msg.rm_direction = -1;
