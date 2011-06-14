@@ -640,6 +640,16 @@ typedef struct __nfs41_op_open_res {
 } nfs41_op_open_res;
 
 
+/* OP_OPENATTR */
+typedef struct __nfs41_openattr_args {
+    bool_t                  createdir;
+} nfs41_openattr_args;
+
+typedef struct __nfs41_openattr_res {
+    uint32_t                status;
+} nfs41_openattr_res;
+
+
 /* OP_READ */
 typedef struct __nfs41_read_args {
     stateid_arg             *stateid; /* -> nfs41_op_open_res_ok.stateid */
@@ -1167,5 +1177,11 @@ enum nfsstat4 pnfs_rpc_getdeviceinfo(
     IN nfs41_session *session,
     IN unsigned char *deviceid,
     OUT pnfs_file_device *device);
+
+enum nfsstat4 nfs41_rpc_openattr(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN bool_t createdir,
+    OUT nfs41_fh *fh_out);
 
 #endif /* !__NFS41_NFS_OPS_H__ */

@@ -1934,3 +1934,47 @@ enum nfsstat4 pnfs_rpc_getdeviceinfo(
 out:
     return status;
 }
+
+enum nfsstat4 nfs41_rpc_openattr(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN bool_t createdir,
+    OUT nfs41_fh *fh_out)
+{
+    enum nfsstat4 status;
+    nfs41_compound compound;
+    nfs_argop4 argops[4];
+    nfs_resop4 resops[4];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_putfh_args putfh_args;
+    nfs41_putfh_res putfh_res;
+    nfs41_openattr_args openattr_args;
+    nfs41_openattr_res openattr_res;
+    nfs41_getfh_res getfh_res;
+
+    compound_init(&compound, argops, resops, "openattr");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 0);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
+    putfh_args.file = file;
+    putfh_args.in_recovery = FALSE;
+
+    compound_add_op(&compound, OP_OPENATTR, &openattr_args, &openattr_res);
+    openattr_args.createdir = createdir;
+
+    compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
+    getfh_res.fh = fh_out;
+
+    status = compound_encode_send_decode(session, &compound, TRUE);
+    if (status)
+        goto out;
+
+    compound_error(status = compound.res.status);
+out:
+    return status;
+}

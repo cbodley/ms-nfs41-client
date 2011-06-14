@@ -2098,6 +2098,34 @@ static bool_t decode_op_open(
 
 
 /*
+ * OP_OPENATTR
+ */
+static bool_t encode_op_openattr(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_openattr_args *args = (nfs41_openattr_args*)argop->arg;
+
+    if (unexpected_op(argop->op, OP_OPENATTR))
+        return FALSE;
+
+    return xdr_bool(xdr, &args->createdir);
+}
+
+static bool_t decode_op_openattr(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_openattr_res *res = (nfs41_openattr_res*)resop->res;
+
+    if (unexpected_op(resop->op, OP_OPENATTR))
+        return FALSE;
+
+    return xdr_u_int32_t(xdr, &res->status);
+}
+
+
+/*
  * OP_READ
  */
 static bool_t encode_op_read(
@@ -3301,7 +3329,7 @@ static const op_table_entry g_op_table[] = {
     { NULL, NULL }, /* OP_LOOKUPP = 16 */
     { NULL, NULL }, /* OP_NVERIFY = 17 */
     { encode_op_open, decode_op_open }, /* OP_OPEN = 18 */
-    { NULL, NULL }, /* OP_OPENATTR = 19 */
+    { encode_op_openattr, decode_op_openattr }, /* OP_OPENATTR = 19 */
     { NULL, NULL }, /* OP_OPEN_CONFIRM = 20 */
     { NULL, NULL }, /* OP_OPEN_DOWNGRADE = 21 */
     { encode_op_putfh, decode_op_putfh }, /* OP_PUTFH = 22 */
