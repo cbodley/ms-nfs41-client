@@ -581,6 +581,7 @@ static int name_cache_lookup(
         target = name_cache_search(cache, parent, &component);
         path_pos = component.name + component.len;
         if (target == NULL || (skip_invis && entry_invis(target, is_negative))) {
+            target = NULL;
             if (is_last_component(component.name, path_end))
                 status = ERROR_FILE_NOT_FOUND;
             else
