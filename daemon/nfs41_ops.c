@@ -702,7 +702,8 @@ int nfs41_write(
 
     init_getattr_request(&attr_request);
 
-    compound_init(&compound, argops, resops, "write");
+    compound_init(&compound, argops, resops,
+        stateid->stateid.seqid == 0 ? "ds write" : "write");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
@@ -780,7 +781,8 @@ int nfs41_read(
     nfs41_read_args read_args;
     nfs41_read_res read_res;
 
-    compound_init(&compound, argops, resops, "read");
+    compound_init(&compound, argops, resops,
+        stateid->stateid.seqid == 0 ? "ds read" : "read");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 0);
