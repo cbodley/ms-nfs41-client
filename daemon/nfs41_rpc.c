@@ -359,7 +359,7 @@ int nfs41_send_compound(
         case RPC_CANTSEND:
         case RPC_TIMEDOUT:
         case RPC_AUTHERROR:
-            if (!rpc->is_valid_session && ++count > 3) {
+            if (++count > 3 || !rpc->is_valid_session) {
                 status = ERROR_NETWORK_UNREACHABLE;
                 break;
             }
@@ -377,8 +377,20 @@ int nfs41_send_compound(
                 goto try_again;
             }
             rpc_renew_in_progress(rpc, &one);
-            if (rpc_reconnect(rpc))
-                eprintf("rpc_reconnect: Failed to reconnect!\n");
+            if (rpc_status == RPC_AUTHERROR && rpc->sec_flavor != RPCSEC_AUTH_SYS) {
+                AcquireSRWLockExclusive(&rpc->lock);
+                auth_destroy(rpc->rpc->cl_auth);
+                status = create_rpcsec_auth_client(rpc->sec_flavor, 
+                            rpc->server_name, rpc->rpc);
+                ReleaseSRWLockExclusive(&rpc->lock);
+                if (status) {
+                    eprintf("Failed to reestablish security context\n");
+                    status = ERROR_NETWORK_UNREACHABLE;
+                    goto out;
+                }
+            } else
+                if (rpc_reconnect(rpc))
+                    eprintf("rpc_reconnect: Failed to reconnect!\n");
             rpc_renew_in_progress(rpc, &zero);
             goto try_again;
         default:
