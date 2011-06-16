@@ -194,8 +194,26 @@ struct cb_notify_lock_res {
 };
 
 /* OP_CB_NOTIFY_DEVICEID */
+enum notify_deviceid_type4 {
+    NOTIFY_DEVICEID4_CHANGE = 1,
+    NOTIFY_DEVICEID4_DELETE = 2
+};
+struct notify_deviceid4 {
+    unsigned char           deviceid[16];
+    enum notify_deviceid_type4 type;
+    enum pnfs_layout_type   layouttype;
+    bool_t                  immediate;
+};
+struct notify4 {
+    bitmap4                 mask;
+    char                    *list;
+    uint32_t                len;
+};
 struct cb_notify_deviceid_args {
-    uint32_t                target_highest_slotid;
+    struct notify4          *notify_list;
+    uint32_t                notify_count;
+    struct notify_deviceid4 *change_list;
+    uint32_t                change_count;
 };
 
 struct cb_notify_deviceid_res {
@@ -211,6 +229,7 @@ union cb_op_args {
     struct cb_recall_slot_args recall_slot;
     struct cb_sequence_args sequence;
     struct cb_recall_args recall;
+    struct cb_notify_deviceid_args notify_deviceid;
 };
 struct cb_argop {
     enum_t                  opnum;
@@ -234,6 +253,7 @@ union cb_op_res {
     struct cb_recall_slot_res recall_slot;
     struct cb_sequence_res  sequence;
     struct cb_recall_res    recall;
+    struct cb_notify_deviceid_res notify_deviceid;
 };
 struct cb_resop {
     enum_t                  opnum;

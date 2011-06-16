@@ -317,6 +317,12 @@ enum pnfs_status pnfs_file_device_get(
 void pnfs_file_device_put(
     IN pnfs_file_device *device);
 
+struct notify_deviceid4; /* from nfs41_callback.h */
+enum notify_deviceid_type4;
+enum pnfs_status pnfs_file_device_notify(
+    IN struct pnfs_file_device_list *devices,
+    IN const struct notify_deviceid4 *change);
+
 enum pnfs_status pnfs_data_server_client(
     IN struct __nfs41_root *root,
     IN pnfs_data_server *server,

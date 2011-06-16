@@ -47,7 +47,7 @@ static __inline int unexpected_op(uint32_t op, uint32_t expected)
 }
 
 /* typedef uint32_t bitmap4<> */
-static bool_t xdr_bitmap4(
+bool_t xdr_bitmap4(
     XDR *xdr,
     bitmap4 *bitmap)
 {

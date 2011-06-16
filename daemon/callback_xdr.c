@@ -31,6 +31,8 @@
 
 
 /* common types */
+bool_t xdr_bitmap4(XDR *xdr, bitmap4 *bitmap);
+
 static bool_t common_stateid(XDR *xdr, stateid4 *stateid)
 {
     return xdr_u_int32_t(xdr, &stateid->seqid)
@@ -48,6 +50,12 @@ static bool_t common_fsid(XDR *xdr, nfs41_fsid *fsid)
 {
     return xdr_u_int64_t(xdr, &fsid->major)
         && xdr_u_int64_t(xdr, &fsid->minor);
+}
+
+static bool_t common_notify4(XDR *xdr, struct notify4 *notify)
+{
+    return xdr_bitmap4(xdr, &notify->mask)
+        && xdr_bytes(xdr, &notify->list, &notify->len, NFS4_OPAQUE_LIMIT);
 }
 
 /* OP_CB_LAYOUTRECALL */
@@ -409,12 +417,86 @@ out:
 }
 
 /* OP_CB_NOTIFY_DEVICEID */
-static bool_t op_cb_notify_deviceid_args(XDR *xdr, struct cb_notify_deviceid_args *res)
+static bool_t cb_notify_deviceid_change(XDR *xdr, struct notify_deviceid4 *change)
 {
     bool_t result;
 
-    result = xdr_u_int32_t(xdr, &res->target_highest_slotid);
-    if (!result) { CBX_ERR("notify_deviceid.target_highest_slotid"); goto out; }
+    result = xdr_u_int32_t(xdr, (uint32_t*)&change->layouttype);
+    if (!result) { CBX_ERR("notify_deviceid.change.layouttype"); goto out; }
+
+    result = xdr_opaque(xdr, (char*)change->deviceid, PNFS_DEVICEID_SIZE);
+    if (!result) { CBX_ERR("notify_deviceid.change.deviceid"); goto out; }
+
+    result = xdr_bool(xdr, &change->immediate);
+    if (!result) { CBX_ERR("notify_deviceid.change.immediate"); goto out; }
+out:
+    return result;
+}
+
+static bool_t cb_notify_deviceid_delete(XDR *xdr, struct notify_deviceid4 *change)
+{
+    bool_t result;
+
+    result = xdr_u_int32_t(xdr, (uint32_t*)&change->layouttype);
+    if (!result) { CBX_ERR("notify_deviceid.delete.layouttype"); goto out; }
+
+    result = xdr_opaque(xdr, (char*)change->deviceid, PNFS_DEVICEID_SIZE);
+    if (!result) { CBX_ERR("notify_deviceid.delete.deviceid"); goto out; }
+out:
+    return result;
+}
+
+static bool_t op_cb_notify_deviceid_args(XDR *xdr, struct cb_notify_deviceid_args *args)
+{
+    XDR notify_xdr;
+    uint32_t i, j, c;
+    bool_t result;
+
+    /* decode the generic notify4 list */
+    result = xdr_array(xdr, (char**)&args->notify_list,
+        &args->notify_count, CB_COMPOUND_MAX_OPERATIONS,
+        sizeof(struct notify4), (xdrproc_t)common_notify4);
+    if (!result) { CBX_ERR("notify_deviceid.notify_list"); goto out; }
+
+    switch (xdr->x_op) {
+    case XDR_FREE:
+        free(args->change_list);
+    case XDR_ENCODE:
+        return TRUE;
+    }
+
+    /* count the number of device changes */
+    args->change_count = 0;
+    for (i = 0; i < args->notify_count; i++)
+        args->change_count += args->notify_list[i].mask.count;
+
+    args->change_list = calloc(args->change_count, sizeof(struct notify_deviceid4));
+    if (args->change_list == NULL)
+        return FALSE;
+
+    c = 0;
+    for (i = 0; i < args->notify_count; i++) {
+        struct notify4 *notify = &args->notify_list[i];
+
+        /* decode the device notifications out of the opaque buffer */
+        xdrmem_create(&notify_xdr, notify->list, notify->len, XDR_DECODE);
+
+        for (j = 0; j < notify->mask.count; j++) {
+            struct notify_deviceid4 *change = &args->change_list[c++];
+            change->type = notify->mask.arr[j];
+
+            switch (change->type) {
+            case NOTIFY_DEVICEID4_CHANGE:
+                result = cb_notify_deviceid_change(&notify_xdr, change);
+                if (!result) { CBX_ERR("notify_deviceid.change"); goto out; }
+                break;
+            case NOTIFY_DEVICEID4_DELETE:
+                result = cb_notify_deviceid_delete(&notify_xdr, change);
+                if (!result) { CBX_ERR("notify_deviceid.delete"); goto out; }
+                break;
+            }
+        }
+    }
 out:
     return result;
 }

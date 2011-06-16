@@ -26,6 +26,7 @@
 #include <stdio.h>
 
 #include "nfs41_ops.h"
+#include "nfs41_callback.h"
 #include "daemon_debug.h"
 
 
@@ -418,5 +419,46 @@ enum pnfs_status pnfs_file_device_io_unit(
     io->length = offset_end - offset;
     if (offset + io->length > pattern->offset_end)
         io->length = pattern->offset_end - offset;
+    return status;
+}
+
+
+/* CB_NOTIFY_DEVICEID */
+enum pnfs_status pnfs_file_device_notify(
+    IN struct pnfs_file_device_list *devices,
+    IN const struct notify_deviceid4 *change)
+{
+    struct list_entry *entry;
+    enum pnfs_status status = PNFSERR_NO_DEVICE;
+
+    dprintf(FDLVL, "--> pnfs_file_device_notify(%u, %0llX:%0llX)\n",
+        change->type, change->deviceid);
+
+    if (change->layouttype != PNFS_LAYOUTTYPE_FILE) {
+        status = PNFSERR_NOT_SUPPORTED;
+        goto out;
+    }
+
+    EnterCriticalSection(&devices->lock);
+
+    entry = list_search(&devices->head, change->deviceid, deviceid_compare);
+    if (entry) {
+        dprintf(FDLVL, "found file device %p\n", device_entry(entry));
+
+        if (change->type == NOTIFY_DEVICEID4_CHANGE) {
+            /* if (change->immediate) ... */
+            dprintf(FDLVL, "CHANGE (%u)\n", change->immediate);
+        } else if (change->type == NOTIFY_DEVICEID4_DELETE) {
+            /* This notification MUST NOT be sent if the client
+             * has a layout that refers to the device ID. */
+            dprintf(FDLVL, "DELETE\n");
+        }
+        status = PNFS_SUCCESS;
+    }
+
+    LeaveCriticalSection(&devices->lock);
+out:
+    dprintf(FDLVL, "<-- pnfs_file_device_notify() returning %s\n",
+        pnfs_error_string(status));
     return status;
 }
