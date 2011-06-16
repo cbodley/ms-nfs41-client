@@ -39,10 +39,22 @@ typedef struct __nfs41_superblock {
     nfstime4 time_delta;
     uint64_t maxread;
     uint64_t maxwrite;
-    uint32_t layout_types;
-    bool_t cansettime;
-    uint32_t aclsupport;
     struct list_entry entry; /* position in nfs41_server.superblocks */
+
+    /* constant filesystem attributes */
+    unsigned int layout_types : 3;
+    unsigned int aclsupport : 3;
+    unsigned int cansettime : 1;
+    unsigned int link_support : 1;
+    unsigned int symlink_support : 1;
+    unsigned int case_preserving : 1;
+    unsigned int case_insensitive : 1;
+
+    /* variable filesystem attributes */
+    uint64_t space_avail;
+    uint64_t space_free;
+    uint64_t space_total;
+    time_t cache_expiration; /* applies to space_ attributes */
 
     SRWLOCK lock;
 } nfs41_superblock;
@@ -374,6 +386,9 @@ int nfs41_superblock_for_fh(
     IN const nfs41_fsid *fsid,
     IN const nfs41_fh *parent OPTIONAL,
     OUT nfs41_path_fh *file);
+
+void nfs41_superblock_space_changed(
+    IN nfs41_superblock *superblock);
 
 void nfs41_superblock_list_init(
     IN nfs41_superblock_list *superblocks);

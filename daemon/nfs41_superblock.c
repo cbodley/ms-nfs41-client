@@ -82,8 +82,10 @@ static int get_superblock_attrs(
     nfs41_file_info info;
 
     attr_request.arr[0] = FATTR4_WORD0_SUPPORTED_ATTRS |
-        FATTR4_WORD0_CANSETTIME | FATTR4_WORD0_MAXREAD |
-        (uint32_t)(FATTR4_WORD0_MAXWRITE) | FATTR4_WORD0_ACLSUPPORT;
+        FATTR4_WORD0_LINK_SUPPORT | FATTR4_WORD0_SYMLINK_SUPPORT |
+        FATTR4_WORD0_ACLSUPPORT | FATTR4_WORD0_CANSETTIME |
+        FATTR4_WORD0_CASE_INSENSITIVE | FATTR4_WORD0_CASE_PRESERVING |
+        FATTR4_WORD0_MAXREAD | (uint32_t)(FATTR4_WORD0_MAXWRITE);
     attr_request.arr[1] = FATTR4_WORD1_FS_LAYOUT_TYPE |
         FATTR4_WORD1_TIME_DELTA;
     attr_request.count = 2;
@@ -112,6 +114,11 @@ static int get_superblock_attrs(
         superblock->maxwrite = session->fore_chan_attrs.ca_maxrequestsize;
 
     superblock->layout_types = info.fs_layout_types;
+    superblock->aclsupport = info.aclsupport;
+    superblock->link_support = info.link_support;
+    superblock->symlink_support = info.symlink_support;
+    superblock->case_preserving = info.case_preserving;
+    superblock->case_insensitive = info.case_insensitive;
 
     if (bitmap_isset(&info.attrmask, 0, FATTR4_WORD0_CANSETTIME))
         superblock->cansettime = info.cansettime;
@@ -122,15 +129,18 @@ static int get_superblock_attrs(
     if (!bitmap_isset(&info.attrmask, 1, FATTR4_WORD1_TIME_DELTA))
         superblock->time_delta.seconds = 1;
 
-    superblock->aclsupport = info.aclsupport;
     dprintf(SBLVL, "attributes for fsid(%llu,%llu): "
         "maxread=%llu, maxwrite=%llu, layout_types: 0x%X, "
-        "cansettime=%u, time_delta={%llu,%u}, aclsupport=%d\n",
+        "cansettime=%u, time_delta={%llu,%u}, aclsupport=%u, "
+        "link_support=%u, symlink_support=%u, case_preserving=%u, "
+        "case_insensitive=%u\n",
         superblock->fsid.major, superblock->fsid.minor,
         superblock->maxread, superblock->maxwrite,
         superblock->layout_types, superblock->cansettime,
         superblock->time_delta.seconds, superblock->time_delta.nseconds,
-        superblock->aclsupport);
+        superblock->aclsupport, superblock->link_support,
+        superblock->symlink_support, superblock->case_preserving,
+        superblock->case_insensitive);
 out:
     return status;
 }
@@ -235,4 +245,13 @@ out:
     dprintf(SBLVL, "<-- nfs41_superblock_for_fh() returning %p, status %d\n",
         file->fh.superblock, status);
     return status;
+}
+
+void nfs41_superblock_space_changed(
+    IN nfs41_superblock *superblock)
+{
+    /* invalidate cached volume size attributes */
+    AcquireSRWLockExclusive(&superblock->lock);
+    superblock->cache_expiration = 0;
+    ReleaseSRWLockExclusive(&superblock->lock);
 }

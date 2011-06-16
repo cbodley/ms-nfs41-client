@@ -24,6 +24,7 @@
 #include <Windows.h>
 #include <strsafe.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "nfs41_ops.h"
 #include "from_kernel.h"
@@ -39,6 +40,8 @@
 #define BYTES_PER_UNIT      (SECTORS_PER_UNIT * BYTES_PER_SECTOR)
 
 #define TO_UNITS(bytes) (bytes / BYTES_PER_UNIT)
+
+#define VOLUME_CACHE_EXPIRATION 20
 
 
 /* NFS41_VOLUME_QUERY */
@@ -63,21 +66,46 @@ static int get_volume_size_info(
     OUT OPTIONAL PLONGLONG avail_out)
 {
     nfs41_file_info info = { 0 };
-    bitmap4 attr_request = { 2, { 0, FATTR4_WORD1_SPACE_AVAIL |
-        FATTR4_WORD1_SPACE_FREE | FATTR4_WORD1_SPACE_TOTAL } };
-    int status;
+    nfs41_superblock *superblock = state->file.fh.superblock;
+    int status = ERROR_NOT_FOUND;
 
-    /* query the space_ attributes of the root filesystem */
-    status = nfs41_getattr(state->session, &state->file, &attr_request, &info);
-    if (status) {
-        eprintf("nfs41_getattr() failed with %s\n",
-            nfs_error_string(status));
-        status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
-        goto out;
+    AcquireSRWLockShared(&superblock->lock);
+    /* check superblock for cached attributes */
+    if (time(NULL) <= superblock->cache_expiration) {
+        info.space_total = superblock->space_total;
+        info.space_avail = superblock->space_avail;
+        info.space_free = superblock->space_free;
+        status = NO_ERROR;
+
+        dprintf(2, "%s cached: %llu user, %llu free of %llu total\n",
+            query, info.space_avail, info.space_free, info.space_total);
     }
+    ReleaseSRWLockShared(&superblock->lock);
 
-    dprintf(2, "%s: %llu user, %llu free of %llu total\n", query,
-        info.space_avail, info.space_free, info.space_total);
+    if (status) {
+        bitmap4 attr_request = { 2, { 0, FATTR4_WORD1_SPACE_AVAIL |
+            FATTR4_WORD1_SPACE_FREE | FATTR4_WORD1_SPACE_TOTAL } };
+
+        /* query the space_ attributes of the filesystem */
+        status = nfs41_getattr(state->session, &state->file,
+            &attr_request, &info);
+        if (status) {
+            eprintf("nfs41_getattr() failed with %s\n",
+                nfs_error_string(status));
+            status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
+            goto out;
+        }
+
+        AcquireSRWLockExclusive(&superblock->lock);
+        superblock->space_total = info.space_total;
+        superblock->space_avail = info.space_avail;
+        superblock->space_free = info.space_free;
+        superblock->cache_expiration = time(NULL) + VOLUME_CACHE_EXPIRATION;
+        ReleaseSRWLockExclusive(&superblock->lock);
+
+        dprintf(2, "%s: %llu user, %llu free of %llu total\n",
+            query, info.space_avail, info.space_free, info.space_total);
+    }
 
     if (total_out) *total_out = TO_UNITS(info.space_total);
     if (user_out) *user_out = TO_UNITS(info.space_avail);
@@ -90,32 +118,20 @@ static int handle_volume_attributes(
     IN volume_upcall_args *args,
     IN nfs41_open_state *state)
 {
-    /* query the case_ attributes of the root filesystem */
-    nfs41_file_info info = { 0 };
-    bitmap4 attr_request = { 1, { FATTR4_WORD0_CASE_INSENSITIVE |
-        FATTR4_WORD0_CASE_PRESERVING | FATTR4_WORD0_SYMLINK_SUPPORT |
-        FATTR4_WORD0_LINK_SUPPORT } };
     PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
+    const nfs41_superblock *superblock = state->file.fh.superblock;
     int status = NO_ERROR;
 
-    status = nfs41_getattr(state->session, &state->file, &attr_request, &info);
-    if (status) {
-        eprintf("nfs41_getattr() failed with %s\n",
-            nfs_error_string(status));
-        status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
-        goto out;
-    }
-
     attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
-    if (info.link_support)
+    if (superblock->link_support)
         attr->FileSystemAttributes |= FILE_SUPPORTS_HARD_LINKS;
-    if (info.symlink_support)
+    if (superblock->symlink_support)
         attr->FileSystemAttributes |= FILE_SUPPORTS_REPARSE_POINTS;
-    if (info.case_preserving)
+    if (superblock->case_preserving)
         attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
-    if (!info.case_insensitive)
+    if (!superblock->case_insensitive)
         attr->FileSystemAttributes |= FILE_CASE_SENSITIVE_SEARCH;
-    if (state->file.fh.superblock->aclsupport)
+    if (superblock->aclsupport)
         attr->FileSystemAttributes |= FILE_PERSISTENT_ACLS;
 
     attr->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
@@ -126,9 +142,9 @@ static int handle_volume_attributes(
 
     dprintf(2, "FileFsAttributeInformation: case_preserving %u, "
         "case_insensitive %u, max component %u\n",
-        info.case_preserving, info.case_insensitive,
+        superblock->case_preserving, superblock->case_insensitive,
         attr->MaximumComponentNameLength);
-out:
+
     return status;
 }
 

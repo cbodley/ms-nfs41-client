@@ -426,6 +426,9 @@ int nfs41_open(
             &open_res.resok4.deleg_stateid);
     }
 #endif
+
+    if (create == OPEN4_CREATE)
+        nfs41_superblock_space_changed(state->file.fh.superblock);
 out:
     return status;
 }
@@ -607,6 +610,8 @@ int nfs41_create(
         file->path->path, &file->name, &file->fh,
         &file_info, &create_res.cinfo);
     ReleaseSRWLockShared(&file->path->lock);
+
+    nfs41_superblock_space_changed(file->fh.superblock);
 out:
     return status;
 }
@@ -749,6 +754,7 @@ int nfs41_write(
         eprintf("WRITE succeeded with count=0; returning %s\n",
             nfs_error_string(status));
     }
+    nfs41_superblock_space_changed(file->fh.superblock);
 out:
     return status;
 }
@@ -875,6 +881,7 @@ int nfs41_commit(
         nfs41_attr_cache_update(session_name_cache(session),
             file->fh.fileid, &info);
     }
+    nfs41_superblock_space_changed(file->fh.superblock);
 out:
     return status;
 }
@@ -1170,6 +1177,8 @@ int nfs41_remove(
     nfs41_name_cache_remove(session_name_cache(session),
         parent->path->path, target, &remove_res.cinfo);
     ReleaseSRWLockShared(&parent->path->lock);
+
+    nfs41_superblock_space_changed(parent->fh.superblock);
 out:
     return status;
 }
@@ -1322,6 +1331,9 @@ int nfs41_setattr(
     memcpy(&info->attrmask, &setattr_res.attrsset, sizeof(bitmap4));
     nfs41_attr_cache_update(session_name_cache(session),
         file->fh.fileid, info);
+
+    if (setattr_res.attrsset.arr[0] & FATTR4_WORD0_SIZE)
+        nfs41_superblock_space_changed(file->fh.superblock);
 out:
     return status;
 }
@@ -1430,6 +1442,8 @@ int nfs41_link(
         dst_dir->path->path, target, &link_out->fh,
         &info[1], &link_res.cinfo);
     ReleaseSRWLockShared(&dst_dir->path->lock);
+
+    nfs41_superblock_space_changed(dst_dir->fh.superblock);
 out:
     return status;
 }
