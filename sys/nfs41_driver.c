@@ -1423,7 +1423,6 @@ nfs41_downcall (
             print_error("[downcall] Nobody is waiting for this request!!!\n");
             ExReleaseFastMutex(&cur->lock);
             nfs41_RemoveEntry(downcallLock, downcall, cur);
-            SeDeleteClientSecurity(cur->psec_ctx);
             RxFreePool(cur);
             status = STATUS_UNSUCCESSFUL;
             goto out_free;
