@@ -96,9 +96,6 @@ typedef struct __setattr_upcall_args {
     unsigned char *buf;
     uint32_t buf_len;
     int set_class;
-    ULONG open_owner_id;
-    ULONG access_mask;
-    ULONG access_mode; 
 } setattr_upcall_args;
 
 typedef struct __setexattr_upcall_args {

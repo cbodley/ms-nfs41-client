@@ -52,19 +52,11 @@ static int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     }
     status = safe_read(&buffer, &length, args->buf, args->buf_len);
     if (status) goto out_free;
-    status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
-    if (status) goto out_free;
-    status = safe_read(&buffer, &length, &args->access_mask, sizeof(ULONG));
-    if (status) goto out_free;
-    status = safe_read(&buffer, &length, &args->access_mode, sizeof(ULONG));
-    if (status) goto out_free;
     args->root = upcall->root_ref;
     args->state = upcall->state_ref;
 
     dprintf(1, "parsing NFS41_FILE_SET: filename='%s' info_class=%d "
-        "buf_len=%d\nopen_owner_id=%d access_mask=%x access_mode=%x\n", 
-        args->path, args->set_class, args->buf_len, args->open_owner_id,
-        args->access_mask, args->access_mode);
+        "buf_len=%d\n", args->path, args->set_class, args->buf_len);
 out:
     return status;
 out_free:
@@ -468,29 +460,6 @@ static int handle_setattr(nfs41_upcall *upcall)
     int status;
 
     switch (args->set_class) {
-    case FileAllocationInformation:
-    case FileEndOfFileInformation:
-        if (!state->do_close) {
-            // get a stateid
-            StringCchPrintfA((LPSTR)state->owner.owner, NFS4_OPAQUE_LIMIT,
-                "%u", args->open_owner_id);
-            state->owner.owner_len = (uint32_t)strlen(
-                (const char*)state->owner.owner);
-            map_access_2_allowdeny(args->access_mask, args->access_mode,
-                &state->share_access, &state->share_deny);
-            status = nfs41_open(state->session, state->share_access,
-                state->share_deny, OPEN4_NOCREATE, 0, 0, TRUE, state, NULL);
-            if (status) {
-                dprintf(1, "nfs41_open() failed with %s\n", nfs_error_string(status));
-                status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
-                goto out;
-            } else
-                client_state_add(state);
-            state->do_close = 1;
-        }
-    }
-
-    switch (args->set_class) {
     case FileBasicInformation:
         status = handle_nfs41_setattr(args);
         break;
@@ -513,7 +482,7 @@ static int handle_setattr(nfs41_upcall *upcall)
         status = ERROR_NOT_SUPPORTED;
         break;
     }
-out:
+
     free(args->buf);
     return status;
 }

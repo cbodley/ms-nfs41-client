@@ -250,6 +250,40 @@ static int map_disposition_2_nfsopen(ULONG disposition, int in_status, bool_t pe
     return status;
 }
 
+static void map_access_2_allowdeny(ULONG access_mask, ULONG access_mode,
+                                   uint32_t *allow, uint32_t *deny)
+{
+    if ((access_mask & FILE_WRITE_DATA) &&
+            ((access_mask & FILE_READ_DATA) ||
+            (access_mask & FILE_EXECUTE)))
+        *allow = OPEN4_SHARE_ACCESS_BOTH;
+    else if ((access_mask & FILE_READ_DATA) ||
+            (access_mask & FILE_EXECUTE))
+        *allow = OPEN4_SHARE_ACCESS_READ;
+    else if (access_mask & FILE_WRITE_DATA ||
+            (access_mask & FILE_APPEND_DATA) ||
+            (access_mask & FILE_WRITE_ATTRIBUTES))
+        *allow = OPEN4_SHARE_ACCESS_WRITE;
+#define FIX_ALLOW_DENY_WIN2NFS_CONVERSION
+#ifdef FIX_ALLOW_DENY_WIN2NFS_CONVERSION
+    if ((access_mode & FILE_SHARE_READ) &&
+            (access_mode & FILE_SHARE_WRITE))
+        *deny = OPEN4_SHARE_DENY_NONE;
+    else if (access_mode & FILE_SHARE_READ)
+        *deny = OPEN4_SHARE_DENY_WRITE;
+    else if (access_mode & FILE_SHARE_WRITE)
+        *deny = OPEN4_SHARE_DENY_READ;
+    else
+        *deny = OPEN4_SHARE_DENY_BOTH;
+#else
+    // AGLO: 11/13/2009.
+    // readonly file that is being opened for reading with a
+    // share read mode given above logic translates into deny
+    // write and linux server does not allow it.
+    *deny = OPEN4_SHARE_DENY_NONE;
+#endif
+}
+
 static int check_execute_access(nfs41_open_state *state)
 {
     uint32_t supported, access;

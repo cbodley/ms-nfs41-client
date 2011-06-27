@@ -139,12 +139,6 @@ int create_silly_rename(
     IN const nfs41_fh *fh,
     OUT nfs41_component *silly);
 
-void map_access_2_allowdeny(
-    IN ULONG access_mask,
-    IN ULONG access_mode,
-    OUT uint32_t *allow, 
-    OUT uint32_t *deny);
-
 bool_t multi_addr_find(
     IN const multi_addr4 *addrs,
     IN const netaddr4 *addr,

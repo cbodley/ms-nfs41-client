@@ -179,9 +179,6 @@ typedef struct _updowncall_entry {
             PVOID buf;
             ULONG buf_len;
             FILE_INFORMATION_CLASS InfoClass;
-            ULONG open_owner_id;
-            ULONG access_mask;
-            ULONG access_mode;
         } SetFile;
         struct {
             DWORD mode;
@@ -900,19 +897,12 @@ NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry,
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, entry->u.SetFile.buf, entry->u.SetFile.buf_len);
     tmp += entry->u.SetFile.buf_len;
-    RtlCopyMemory(tmp, &entry->u.SetFile.open_owner_id, sizeof(ULONG));
-    tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, &entry->u.SetFile.access_mask, sizeof(ULONG));
-    tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, &entry->u.SetFile.access_mode, sizeof(ULONG));
 
     *len = header_len;
 
-    DbgP("marshal_nfs41_fileset: filename='%wZ' class=%d open_owner_id=0x%x "
-         "access_mask=0x%x access_mode=0x%x\n", entry->u.SetFile.filename, 
-         entry->u.SetFile.InfoClass, entry->u.SetFile.open_owner_id, 
-         entry->u.SetFile.access_mask, entry->u.SetFile.access_mode);
-    print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf, 
+    DbgP("marshal_nfs41_fileset: filename='%wZ' class=%d\n",
+        entry->u.SetFile.filename, entry->u.SetFile.InfoClass);
+    print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf,
         entry->u.SetFile.buf_len);
 out:
     DbgEx();
@@ -4012,12 +4002,24 @@ NTSTATUS nfs41_SetFileInformation (
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     FILE_RENAME_INFORMATION rinfo;
-    PFILE_OBJECT fo = RxContext->CurrentIrpSp->FileObject;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
     print_setfile_args(RxContext);
+    /* http://msdn.microsoft.com/en-us/library/ff469355(v=PROT.10).aspx
+     * http://msdn.microsoft.com/en-us/library/ff469424(v=PROT.10).aspx
+     * If Open.GrantedAccess does not contain FILE_WRITE_DATA, the operation 
+     * MUST be failed with STATUS_ACCESS_DENIED.
+     */
+    if (InfoClass == FileAllocationInformation || 
+            InfoClass == FileEndOfFileInformation) {
+        if (!(SrvOpen->DesiredAccess & FILE_WRITE_DATA)) {
+            status = STATUS_ACCESS_DENIED;
+            goto out;
+        }
+    }
+
     switch (InfoClass) {
     case FileRenameInformation:
     {
@@ -4096,19 +4098,7 @@ NTSTATUS nfs41_SetFileInformation (
         goto out;
     entry->u.SetFile.filename = FileName;
     entry->u.SetFile.InfoClass = InfoClass;
-    switch(InfoClass) {
-    case FileAllocationInformation:
-    case FileEndOfFileInformation:
-        entry->u.SetFile.open_owner_id = get_next_open_owner();
-        if (fo->ReadAccess)
-            entry->u.SetFile.access_mask = FILE_READ_DATA;
-        if (fo->WriteAccess)
-            entry->u.SetFile.access_mask |= FILE_WRITE_DATA;
-        if (fo->SharedRead)
-            entry->u.SetFile.access_mode = FILE_SHARE_READ;
-        if (fo->SharedWrite)
-            entry->u.SetFile.access_mode |= FILE_SHARE_WRITE;
-    }
+
     if (RxContext->Info.FileInformationClass == FileDispositionInformation && 
         InfoClass == FileRenameInformation) {
         entry->u.SetFile.buf = &rinfo;
