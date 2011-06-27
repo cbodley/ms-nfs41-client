@@ -543,7 +543,7 @@ static void map_acemask(ACCESS_MASK mask, int file_type, uint32_t *nfs4_mask)
     print_nfs_access_mask(0, *nfs4_mask);
 }
 
-static int map_nfs4ace_who(PSID sid, PSID owner_sid, char *who_out, char *domain)
+static int map_nfs4ace_who(PSID sid, PSID owner_sid, PSID group_sid, char *who_out, char *domain)
 {
     int status = ERROR_INTERNAL_ERROR;
     DWORD size = 0, tmp_size = 0;
@@ -560,21 +560,29 @@ static int map_nfs4ace_who(PSID sid, PSID owner_sid, char *who_out, char *domain
      * but for set_owner attribute we want to map owner into a user name
      * same applies to group
      */
+    status = 0;
     if (owner_sid) {
         if (EqualSid(sid, owner_sid)) {
             dprintf(1, "map_nfs4ace_who: this is owner's sid\n");
             memcpy(who_out, ACE4_OWNER, strlen(ACE4_OWNER)+1); 
             return ERROR_SUCCESS;
         }
-        status = is_well_known_sid(sid, who_out);
-        if (status) {
-            if (!strncmp(who_out, ACE4_NOBODY, strlen(ACE4_NOBODY))) {
-                size = strlen(ACE4_NOBODY);
-                goto add_domain;
-            }
-            else
-                return ERROR_SUCCESS;
+    }
+    if (group_sid) {
+        if (EqualSid(sid, group_sid)) {
+            dprintf(1, "map_nfs4ace_who: this is group's sid\n");
+            memcpy(who_out, ACE4_GROUP, strlen(ACE4_GROUP)+1); 
+            return ERROR_SUCCESS;
         }
+    }
+    status = is_well_known_sid(sid, who_out);
+    if (status) {
+        if (!strncmp(who_out, ACE4_NOBODY, strlen(ACE4_NOBODY))) {
+            size = strlen(ACE4_NOBODY);
+            goto add_domain;
+        }
+        else
+            return ERROR_SUCCESS;
     }
 
     status = LookupAccountSid(NULL, sid, who, &size, tmp_buf, 
@@ -617,7 +625,7 @@ out_free_who:
     status = GetLastError();
     goto out;
 }
-static int map_dacl_2_nfs4acl(PACL acl, PSID sid, nfsacl41 *nfs4_acl, 
+static int map_dacl_2_nfs4acl(PACL acl, PSID sid, PSID gsid, nfsacl41 *nfs4_acl, 
                                 int file_type, char *domain)
 {
     int status;
@@ -679,7 +687,7 @@ static int map_dacl_2_nfs4acl(PACL acl, PSID sid, nfsacl41 *nfs4_acl,
                         &nfs4_acl->aces[i].acemask);
 
             tmp_pointer += sizeof(ACCESS_MASK) + sizeof(ACE_HEADER);
-            status = map_nfs4ace_who(tmp_pointer, sid, nfs4_acl->aces[i].who, 
+            status = map_nfs4ace_who(tmp_pointer, sid, gsid, nfs4_acl->aces[i].who, 
                                      domain);
             if (status)
                 goto out_free;
@@ -701,8 +709,8 @@ static int handle_setacl(nfs41_upcall *upcall)
     nfs41_file_info info;
     stateid_arg stateid;
     nfsacl41 nfs4_acl;
-    PSID sid = NULL;
-    BOOL sid_default;
+    PSID sid = NULL, gsid = NULL;
+    BOOL sid_default, gsid_default;
 
     ZeroMemory(&info, sizeof(info));
 
@@ -714,7 +722,7 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
-        status = map_nfs4ace_who(sid, NULL, (char *)info.owner, 
+        status = map_nfs4ace_who(sid, NULL, NULL, (char *)info.owner, 
                                  state->session->client->domain_name);
         if (status)
             goto out;
@@ -732,7 +740,7 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
-        status = map_nfs4ace_who(sid, NULL, (char *)info.owner_group, 
+        status = map_nfs4ace_who(sid, NULL, NULL, (char *)info.owner_group, 
                                  state->session->client->domain_name);
         if (status)
             goto out;
@@ -759,7 +767,13 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
-        status = map_dacl_2_nfs4acl(acl, sid, &nfs4_acl, state->type, 
+        status = GetSecurityDescriptorGroup(args->sec_desc, &gsid, &gsid_default);
+        if (!status) {
+            status = GetLastError();
+            eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
+            goto out;
+        }
+        status = map_dacl_2_nfs4acl(acl, sid, gsid, &nfs4_acl, state->type, 
                                     state->session->client->domain_name);
         if (status)
             goto out;
