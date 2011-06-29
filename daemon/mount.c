@@ -124,7 +124,8 @@ out:
 
 static void cancel_mount(IN nfs41_upcall *upcall)
 {
-    nfs41_root_deref(upcall->root_ref);
+    if (upcall->root_ref != INVALID_HANDLE_VALUE)
+        nfs41_root_deref(upcall->root_ref);
 }
 
 const nfs41_upcall_op nfs41_op_mount = {
