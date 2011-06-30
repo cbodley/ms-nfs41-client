@@ -1682,15 +1682,19 @@ int nfs41_secinfo(
     if (status)
         goto out;
 
-    compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
-    putfh_args.file = file;
-    putfh_args.in_recovery = 0;
+    if (file == NULL) 
+        compound_add_op(&compound, OP_PUTROOTFH, NULL, &putfh_res);
+    else {
+        compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
+        putfh_args.file = file;
+        putfh_args.in_recovery = 0;
+    }
 
     compound_add_op(&compound, OP_SECINFO, &secinfo_args, &secinfo_res);
     secinfo_args.name = name;
     secinfo_res.secinfo = secinfo;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 
@@ -1701,6 +1705,7 @@ out:
 
 int nfs41_secinfo_noname(
     IN nfs41_session *session,
+    IN nfs41_path_fh *file,
     OUT nfs41_secinfo_info *secinfo)
 {
     int status;
@@ -1709,6 +1714,7 @@ int nfs41_secinfo_noname(
     nfs_resop4 resops[3];
     nfs41_sequence_args sequence_args;
     nfs41_sequence_res sequence_res;
+    nfs41_putfh_args putfh_args;
     nfs41_putfh_res putfh_res;
     nfs41_secinfo_noname_args noname_args;
     nfs41_secinfo_noname_res noname_res;
@@ -1720,13 +1726,19 @@ int nfs41_secinfo_noname(
     if (status)
         goto out;
 
-    compound_add_op(&compound, OP_PUTROOTFH, NULL, &putfh_res);
+    if (file == NULL) 
+        compound_add_op(&compound, OP_PUTROOTFH, NULL, &putfh_res);
+    else {
+        compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
+        putfh_args.file = file;
+        putfh_args.in_recovery = 0;
+    }
 
     compound_add_op(&compound, OP_SECINFO_NO_NAME, &noname_args, &noname_res);
     noname_args.type = SECINFO_STYLE4_CURRENT_FH;
     noname_res.secinfo = secinfo;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, FALSE);
     if (status)
         goto out;
 

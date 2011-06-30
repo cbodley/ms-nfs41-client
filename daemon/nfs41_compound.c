@@ -30,6 +30,8 @@
 #include "nfs41_callback.h"
 #include "name_cache.h"
 #include "daemon_debug.h"
+#include "rpc/rpc.h"
+#include "rpc/auth_sspi.h"
 
 #define BUF_SIZE 1024
 
@@ -295,15 +297,63 @@ static bool_t recover_stateid(nfs_argop4 *argop, nfs41_session *session)
     return retry;
 }
 
+static int create_new_rpc_auth(nfs41_session *session, uint32_t op,
+                               nfs41_secinfo_info *secinfo)
+{
+    AUTH *auth = NULL;
+    int status = ERROR_NETWORK_UNREACHABLE, i;
+    uint32_t sec_flavor;
+
+    for (i = 0; i < MAX_SECINFOS; i++) { 
+        if (!secinfo[i].sec_flavor && !secinfo[i].type)
+            goto out;
+        if (secinfo[i].sec_flavor == RPCSEC_GSS) {
+            auth = authsspi_create_default(session->client->rpc->rpc, 
+                        session->client->rpc->server_name, secinfo[i].type);
+            if (auth == NULL) {
+                eprintf("handle_wrongsecinfo_noname: authsspi_create_default for "
+                        "gsstype %s failed\n", gssauth_string(secinfo[i].type));
+                continue;
+            }
+            sec_flavor = secinfo[i].type;
+        } else {
+            char machname[MAXHOSTNAMELEN + 1];
+            gid_t gids[1];
+            if (gethostname(machname, sizeof(machname)) == -1) {
+                eprintf("nfs41_rpc_clnt_create: gethostname failed\n");
+                continue;
+            }
+            machname[sizeof(machname) - 1] = '\0';
+            auth = authsys_create(machname, session->client->rpc->uid, 
+                        session->client->rpc->gid, 0, gids);
+            if (auth == NULL) {
+                eprintf("handle_wrongsecinfo_noname: authsys_create failed\n");
+                continue;
+            }
+            sec_flavor = AUTH_SYS;
+        }
+        AcquireSRWLockExclusive(&session->client->rpc->lock);
+        session->client->rpc->sec_flavor = sec_flavor;
+        session->client->rpc->rpc->cl_auth = auth;
+        ReleaseSRWLockExclusive(&session->client->rpc->lock);
+        status = 0;
+        break;
+    }
+out:
+    return status;
+}
+
 int compound_encode_send_decode(
     nfs41_session *session,
     nfs41_compound *compound,
     bool_t try_recovery)
 {
-    int status, retry_count = 0, delayby = 0;
+    int status, retry_count = 0, delayby = 0, secinfo_status;
     nfs41_sequence_args *args =
         (nfs41_sequence_args *)compound->args.argarray[0].arg;
     bool_t client_state_lost = FALSE;
+    uint32_t saved_sec_flavor;
+    AUTH *saved_auth;
 
 retry:
     /* send compound */
@@ -370,6 +420,7 @@ retry:
         if (status) {
             eprintf("nfs41_exchange_id() failed with %d\n", status);
             status = ERROR_BAD_NET_RESP;
+
             goto out;
         }
         if (compound->args.argarray[0].op == OP_CREATE_SESSION) {
@@ -492,6 +543,124 @@ restart_recovery:
             }
         }
         break;
+    case NFS4ERR_WRONGSEC:
+        {
+            nfs41_secinfo_info secinfo[MAX_SECINFOS];
+            uint32_t op = compound->args.argarray[compound->res.resarray_count-1].op;
+            switch(op) {
+            case OP_PUTFH:
+            case OP_RESTOREFH:
+            case OP_LINK:
+            case OP_RENAME:
+            case OP_PUTROOTFH:
+            case OP_LOOKUP:
+            case OP_OPEN:
+            case OP_SECINFO_NO_NAME:
+            case OP_SECINFO:
+                if (compound->args.argarray[0].op == OP_SEQUENCE) {
+                    nfs41_sequence_args *seq = (nfs41_sequence_args*)
+                        compound->args.argarray[0].arg;
+                    nfs41_session_free_slot(session, seq->sa_slotid);
+                }
+                /* from: 2.6.3.1.1.5.  Put Filehandle Operation + SECINFO/SECINFO_NO_NAME
+                 * The NFSv4.1 server MUST NOT return NFS4ERR_WRONGSEC to a put
+                 * filehandle operation that is immediately followed by SECINFO or
+                 * SECINFO_NO_NAME.  The NFSv4.1 server MUST NOT return NFS4ERR_WRONGSEC
+                 * from SECINFO or SECINFO_NO_NAME.
+                 */
+                if (compound->args.argarray[0].op == OP_SEQUENCE &&
+                        (compound->args.argarray[1].op == OP_PUTFH ||
+                        compound->args.argarray[1].op == OP_PUTROOTFH) &&
+                        (compound->args.argarray[2].op == OP_SECINFO_NO_NAME ||
+                        compound->args.argarray[2].op == OP_SECINFO)) {
+                    dprintf(1, "SECINFO: BROKEN SERVER\n");
+                    goto out;
+                }
+                if (!try_recovery)
+                    goto out;
+                if (!recovery_start_or_wait(session->client))
+                    goto do_retry;
+                ZeroMemory(secinfo, sizeof(nfs41_secinfo_info)*MAX_SECINFOS);
+                saved_sec_flavor = session->client->rpc->sec_flavor;
+                saved_auth = session->client->rpc->rpc->cl_auth;
+                if (op == OP_LOOKUP || op == OP_OPEN) {
+                    const nfs41_component *name;
+                    nfs41_path_fh *file = NULL, tmp;
+                    if (compound->args.argarray[compound->res.resarray_count-2].op == OP_PUTFH) {
+                        nfs41_putfh_args *putfh = (nfs41_putfh_args*)
+                            compound->args.argarray[compound->res.resarray_count-2].arg;
+                        file = putfh->file;
+                    } else if (compound->args.argarray[compound->res.resarray_count-2].op == OP_GETATTR &&
+                               compound->args.argarray[compound->res.resarray_count-3].op == OP_GETFH) {
+                        nfs41_getfh_res *getfh = (nfs41_getfh_res *)
+                            compound->res.resarray[compound->res.resarray_count-3].res;
+                        ZeroMemory(&tmp, sizeof(nfs41_path_fh));
+                        memcpy(&tmp.fh, getfh->fh, sizeof(nfs41_fh));
+                        file = &tmp;
+                    }
+                    else {
+                        recovery_finish(session->client);
+                        goto out;
+                    }
+
+                    if (op == OP_LOOKUP) {
+                        nfs41_lookup_args *largs = (nfs41_lookup_args *)
+                            compound->args.argarray[compound->res.resarray_count-1].arg;
+                        name = largs->name;
+                    } else if (op == OP_OPEN) {
+                        nfs41_op_open_args *oargs = (nfs41_op_open_args *)
+                            compound->args.argarray[compound->res.resarray_count-1].arg;
+                        name = oargs->claim.u.null.filename;
+                    }
+                    secinfo_status = nfs41_secinfo(session, file, name, secinfo);
+                    if (secinfo_status) {
+                        eprintf("nfs41_secinfo failed with %d\n", secinfo_status);
+                        recovery_finish(session->client);
+                        if (secinfo_status == NFS4ERR_BADSESSION) {
+                            if (compound->args.argarray[0].op == OP_SEQUENCE) {
+                                nfs41_sequence_args *seq = 
+                                    (nfs41_sequence_args *)compound->args.argarray[0].arg;
+                                nfs41_session_free_slot(session, seq->sa_slotid);
+                            }
+                            goto do_retry;
+                        }
+                        goto out_free_slot;
+                    }
+                }
+                else {
+                    nfs41_path_fh *file = NULL;
+                    if (op == OP_PUTFH) {
+                        nfs41_putfh_args *putfh = (nfs41_putfh_args*)
+                            compound->args.argarray[compound->res.resarray_count-1].arg;
+                        file = putfh->file;
+                    } 
+                    secinfo_status = nfs41_secinfo_noname(session, file, secinfo);
+                    if (secinfo_status) {
+                        eprintf("nfs41_secinfo_noname failed with %d\n", secinfo_status);
+                        recovery_finish(session->client);
+                        if (compound->args.argarray[0].op == OP_SEQUENCE) {
+                            nfs41_sequence_args *seq = 
+                                (nfs41_sequence_args *)compound->args.argarray[0].arg;
+                            nfs41_session_free_slot(session, seq->sa_slotid);
+                        }
+                        goto out_free_slot;
+                    }
+                }
+                secinfo_status = create_new_rpc_auth(session, op, secinfo);
+                if (!secinfo_status) {
+                    auth_destroy(saved_auth);
+                    recovery_finish(session->client);
+                    // Need to retry only 
+                    goto do_retry;
+                } else {
+                    AcquireSRWLockExclusive(&session->client->rpc->lock);
+                    session->client->rpc->rpc->cl_auth = saved_auth;
+                    ReleaseSRWLockExclusive(&session->client->rpc->lock);
+                    recovery_finish(session->client);
+                }                
+                break;
+            }
+        }
     }
 out_free_slot:
     if (compound->args.argarray[0].op == OP_SEQUENCE) {

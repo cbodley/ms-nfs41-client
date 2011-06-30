@@ -1143,6 +1143,7 @@ int nfs41_secinfo(
 
 int nfs41_secinfo_noname(
     IN nfs41_session *session,
+    IN nfs41_path_fh *file,
     OUT nfs41_secinfo_info *secinfo);
 
 enum nfsstat4 pnfs_rpc_layoutget(
