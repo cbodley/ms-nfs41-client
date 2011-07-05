@@ -1299,14 +1299,17 @@ int nfs41_setattr(
 {
     int status;
     nfs41_compound compound;
-    nfs_argop4 argops[3];
-    nfs_resop4 resops[3];
+    nfs_argop4 argops[4];
+    nfs_resop4 resops[4];
     nfs41_sequence_args sequence_args;
     nfs41_sequence_res sequence_res;
     nfs41_putfh_args putfh_args;
     nfs41_putfh_res putfh_res;
     nfs41_setattr_args setattr_args;
     nfs41_setattr_res setattr_res;
+    nfs41_getattr_args getattr_args;
+    nfs41_getattr_res getattr_res;
+    bitmap4 attr_request;
 
     compound_init(&compound, argops, resops, "setattr");
 
@@ -1323,6 +1326,12 @@ int nfs41_setattr(
     setattr_args.stateid = stateid;
     setattr_args.info = info;
 
+    init_getattr_request(&attr_request);
+    compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
+    getattr_args.attr_request = &attr_request;
+    getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
+    getattr_res.info = info;
+
     status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
         goto out;
@@ -1330,7 +1339,7 @@ int nfs41_setattr(
     if (compound_error(status = compound.res.status))
         goto out;
 
-    memcpy(&info->attrmask, &setattr_res.attrsset, sizeof(bitmap4));
+    memcpy(&info->attrmask, &attr_request, sizeof(bitmap4));
     nfs41_attr_cache_update(session_name_cache(session),
         file->fh.fileid, info);
 
