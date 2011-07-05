@@ -137,6 +137,13 @@ typedef struct __stateid4 {
     unsigned char   other[NFS4_STATEID_OTHER];
 } stateid4;
 
+typedef struct __open_delegation4 {
+    stateid4 stateid;
+    nfsace4 permissions;
+    enum open_delegation_type4 type;
+    bool_t recalled;
+} open_delegation4;
+
 typedef struct __fattr4 {
     bitmap4         attrmask;
     uint32_t        attr_vals_len;

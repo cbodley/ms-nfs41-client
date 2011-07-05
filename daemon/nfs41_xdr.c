@@ -1899,33 +1899,45 @@ static bool_t encode_openflag4(
     return result;
 }
 
+static bool_t encode_claim_deleg_cur(
+    XDR *xdr,
+    stateid4 *stateid,
+    nfs41_component *name)
+{
+    if (!xdr_stateid4(xdr, stateid))
+        return FALSE;
+    return encode_component(xdr, name);
+}
+
 static bool_t encode_open_claim4(
     XDR *xdr,
     open_claim4 *oc)
 {
-    bool_t result = TRUE;
-
     if (!xdr_u_int32_t(xdr, &oc->claim))
         return FALSE;
 
     switch (oc->claim)
     {
     case CLAIM_NULL:
-        result = encode_component(xdr, oc->u.null.filename);
-        break;
+        return encode_component(xdr, oc->u.null.filename);
     case CLAIM_PREVIOUS:
-        result = xdr_u_int32_t(xdr, &oc->u.prev.delegate_type);
-        break;
+        return xdr_u_int32_t(xdr, &oc->u.prev.delegate_type);
     case CLAIM_FH:
-        /* use current file handle */
-        break;
+        return TRUE; /* use current file handle */
+    case CLAIM_DELEGATE_CUR:
+        return encode_claim_deleg_cur(xdr,
+            oc->u.deleg_cur.delegate_stateid, oc->u.deleg_cur.name);
+    case CLAIM_DELEG_CUR_FH:
+        return xdr_stateid4(xdr, oc->u.deleg_cur_fh.delegate_stateid);
+    case CLAIM_DELEGATE_PREV:
+        return encode_component(xdr, oc->u.deleg_prev.filename);
+    case CLAIM_DELEG_PREV_FH:
+        return TRUE; /* use current file handle */
     default:
         eprintf("encode_open_claim4: unsupported claim %d.\n",
             oc->claim);
-        result = FALSE;
-        break;
+        return FALSE;
     }
-    return result;
 }
 
 static bool_t encode_op_open(
@@ -1952,7 +1964,7 @@ static bool_t encode_op_open(
     if (!encode_openflag4(xdr, &args->openhow))
         return FALSE;
 
-    return encode_open_claim4(xdr, &args->claim);
+    return encode_open_claim4(xdr, args->claim);
 }
 
 static bool_t decode_open_none_delegation4(
@@ -1977,18 +1989,17 @@ static bool_t decode_open_none_delegation4(
 
 static bool_t decode_open_read_delegation4(
     XDR *xdr,
-    nfs41_op_open_res_ok *res)
+    open_delegation4 *delegation)
 {
     bool_t tmp_bool;
-    nfsace4 tmp_nfsace;
 
-    if (!xdr_stateid4(xdr, &res->deleg_stateid))
+    if (!xdr_stateid4(xdr, &delegation->stateid))
         return FALSE;
 
     if (!xdr_bool(xdr, &tmp_bool))
         return FALSE;
 
-    return xdr_nfsace4(xdr, &tmp_nfsace);
+    return xdr_nfsace4(xdr, &delegation->permissions);
 }
 
 static bool_t decode_modified_limit4(
@@ -2034,12 +2045,11 @@ static bool_t decode_space_limit4(
 
 static bool_t decode_open_write_delegation4(
     XDR *xdr,
-    nfs41_op_open_res_ok *res)
+    open_delegation4 *delegation)
 {
     bool_t tmp_bool;
-    nfsace4 tmp_nfsace;
 
-    if (!xdr_stateid4(xdr, &res->deleg_stateid))
+    if (!xdr_stateid4(xdr, &delegation->stateid))
         return FALSE;
 
     if (!xdr_bool(xdr, &tmp_bool))
@@ -2048,7 +2058,7 @@ static bool_t decode_open_write_delegation4(
     if (!decode_space_limit4(xdr))
         return FALSE;
 
-    return xdr_nfsace4(xdr, &tmp_nfsace);
+    return xdr_nfsace4(xdr, &delegation->permissions);
 }
 
 static bool_t decode_open_res_ok(
@@ -2069,10 +2079,10 @@ static bool_t decode_open_res_ok(
     if (!xdr_bitmap4(xdr, &res->attrset))
         return FALSE;
 
-    if (!xdr_u_int32_t(xdr, &res->delegation_type))
+    if (!xdr_enum(xdr, (enum_t*)&res->delegation->type))
         return FALSE;
 
-    switch (res->delegation_type)
+    switch (res->delegation->type)
     {
     case OPEN_DELEGATE_NONE:
         break;
@@ -2080,14 +2090,14 @@ static bool_t decode_open_res_ok(
         result = decode_open_none_delegation4(xdr, res);
         break;
     case OPEN_DELEGATE_READ:
-        result = decode_open_read_delegation4(xdr, res);
+        result = decode_open_read_delegation4(xdr, res->delegation);
         break;
     case OPEN_DELEGATE_WRITE:
-        result = decode_open_write_delegation4(xdr, res);
+        result = decode_open_write_delegation4(xdr, res->delegation);
         break;
     default:
         eprintf("decode_open_res_ok: delegation type %d not "
-            "supported.\n", res->delegation_type);
+            "supported.\n", res->delegation->type);
         result = FALSE;
         break;
     }

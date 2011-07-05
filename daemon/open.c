@@ -139,6 +139,38 @@ void client_state_remove(
     LeaveCriticalSection(&client->state.lock);
 }
 
+int nfs41_open(
+    IN OUT nfs41_open_state *state,
+    IN uint32_t create,
+    IN uint32_t createhow,
+    IN uint32_t mode,
+    IN bool_t try_recovery,
+    OUT OPTIONAL nfs41_file_info *info)
+{
+    open_claim4 claim;
+    open_delegation4 delegation = { 0 };
+    int status;
+
+    claim.claim = CLAIM_NULL;
+    claim.u.null.filename = &state->file.name;
+
+    status = nfs41_rpc_open(state->session, &state->parent, &state->file,
+        &state->owner, &claim, state->share_access, state->share_deny,
+        create, createhow, mode, TRUE, &state->stateid, &delegation, info);
+    if (status)
+        goto out;
+
+    if (delegation.type == OPEN_DELEGATE_READ ||
+        delegation.type == OPEN_DELEGATE_WRITE)
+        nfs41_delegreturn(state->session, &state->file, &delegation.stateid);
+
+    /* register the client's open state on success */
+    client_state_add(state);
+    state->do_close = 1;
+out:
+    return status;
+}
+
 
 /* NFS41_OPEN */
 static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
@@ -477,17 +509,11 @@ static int handle_open(nfs41_upcall *upcall)
             args->std_info.Directory = 1;
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
-            status = nfs41_open(state->session, state->share_access,
-                state->share_deny, create, createhowmode, args->mode, 
-                TRUE, state, &info);
-
+            status = nfs41_open(state, create, createhowmode,
+                args->mode, TRUE, &info);
             if (status == NFS4_OK) {
-                /* add to the client's list of state for recovery */
-                client_state_add(state);
-
                 nfs_to_basic_info(&info, &args->basic_info);
                 nfs_to_standard_info(&info, &args->std_info);
-                state->do_close = 1;
                 args->mode = info.mode;
             }
         }

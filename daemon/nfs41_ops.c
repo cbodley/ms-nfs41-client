@@ -302,15 +302,20 @@ out:
     return status;
 }
 
-int nfs41_open(
+int nfs41_rpc_open(
     IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
+    IN open_claim4 *claim,
     IN uint32_t allow,
     IN uint32_t deny,
     IN uint32_t create,
     IN uint32_t how_mode,
     IN uint32_t mode,
     IN bool_t try_recovery,
-    IN OUT nfs41_open_state *state,
+    OUT stateid4 *stateid,
+    OUT open_delegation4 *delegation,
     OUT OPTIONAL nfs41_file_info *info)
 {
     int status;
@@ -319,8 +324,8 @@ int nfs41_open(
     nfs_resop4 resops[8];
     nfs41_sequence_args sequence_args;
     nfs41_sequence_res sequence_res;
-    nfs41_putfh_args putfh_args;
-    nfs41_putfh_res putfh_res;
+    nfs41_putfh_args putfh_args[2];
+    nfs41_putfh_res putfh_res[2];
     nfs41_op_open_args open_args;
     nfs41_op_open_res open_res;
     nfs41_getfh_res getfh_res;
@@ -330,7 +335,28 @@ int nfs41_open(
     nfs41_savefh_res savefh_res;
     nfs41_restorefh_res restorefh_res;
     nfs41_file_info tmp_info, dir_info;
-    unsigned char createverf[NFS4_VERIFIER_SIZE];
+    bool_t current_fh_is_dir;
+
+    /* depending on the claim type, OPEN expects CURRENT_FH set
+     * to either the parent directory, or to the file itself */
+    switch (claim->claim) {
+    case CLAIM_NULL:
+    case CLAIM_DELEGATE_CUR:
+    case CLAIM_DELEGATE_PREV:
+        /* CURRENT_FH: directory */
+        current_fh_is_dir = TRUE;
+        /* SEQUENCE; PUTFH(dir); SAVEFH; OPEN;
+         * GETFH(file); GETATTR(file); RESTOREFH(dir); GETATTR */
+        break;
+    case CLAIM_PREVIOUS:
+    case CLAIM_FH:
+    case CLAIM_DELEG_CUR_FH:
+    case CLAIM_DELEG_PREV_FH:
+        /* CURRENT_FH: file being opened */
+        current_fh_is_dir = FALSE;
+        /* SEQUENCE; PUTFH(file); OPEN; GETATTR(file); PUTFH(dir); GETATTR */
+        break;
+    }
 
     if (info == NULL)
         info = &tmp_info;
@@ -345,11 +371,19 @@ int nfs41_open(
     if (status)
         goto out;
 
-    compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
-    putfh_args.file = &state->parent;
-    putfh_args.in_recovery = 0;
+    if (current_fh_is_dir) {
+        /* CURRENT_FH: directory */
+        compound_add_op(&compound, OP_PUTFH, &putfh_args[0], &putfh_res[0]);
+        putfh_args[0].file = parent;
+        putfh_args[0].in_recovery = 0;
 
-    compound_add_op(&compound, OP_SAVEFH, NULL, &savefh_res);
+        compound_add_op(&compound, OP_SAVEFH, NULL, &savefh_res);
+    } else {
+        /* CURRENT_FH: file being opened */
+        compound_add_op(&compound, OP_PUTFH, &putfh_args[0], &putfh_res[0]);
+        putfh_args[0].file = file;
+        putfh_args[0].in_recovery = 0;
+    }
 
     compound_add_op(&compound, OP_OPEN, &open_args, &open_res);
     open_args.seqid = 0;
@@ -359,7 +393,7 @@ int nfs41_open(
     open_args.share_access = allow;
 #endif
     open_args.share_deny = deny; 
-    open_args.owner = &state->owner;
+    open_args.owner = owner;
     open_args.openhow.opentype = create;
     open_args.openhow.how.mode = how_mode;
     open_args.openhow.how.createattrs.info.attrmask.count = 2;
@@ -369,23 +403,30 @@ int nfs41_open(
     open_args.openhow.how.createattrs.info.size = 0;
     if (how_mode == EXCLUSIVE4_1) {
         DWORD tid = GetCurrentThreadId();
-        open_args.openhow.how.createverf = createverf;
         time((time_t*)open_args.openhow.how.createverf);
         memcpy(open_args.openhow.how.createverf+4, &tid, sizeof(tid)); 
     }
-    open_args.claim.claim = CLAIM_NULL;
-    open_args.claim.u.null.filename = &state->file.name;
-    open_res.resok4.stateid = &state->stateid;
+    open_args.claim = claim;
+    open_res.resok4.stateid = stateid;
+    open_res.resok4.delegation = delegation;
 
-    compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
-    getfh_res.fh = &state->file.fh;
+    if (current_fh_is_dir) {
+        compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
+        getfh_res.fh = &file->fh;
+    }
 
     compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
     getattr_args.attr_request = &attr_request;
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
     getattr_res.info = info;
 
-    compound_add_op(&compound, OP_RESTOREFH, NULL, &restorefh_res);
+    if (current_fh_is_dir) {
+        compound_add_op(&compound, OP_RESTOREFH, NULL, &restorefh_res);
+    } else {
+        compound_add_op(&compound, OP_PUTFH, &putfh_args[1], &putfh_res[1]);
+        putfh_args[1].file = parent;
+        putfh_args[1].in_recovery = 0;
+    }
 
     compound_add_op(&compound, OP_GETATTR, &getattr_args, &pgetattr_res);
     getattr_args.attr_request = &attr_request;
@@ -400,110 +441,9 @@ int nfs41_open(
         goto out;
 
     /* fill in the file handle's fileid and superblock */
-    state->file.fh.fileid = info->fileid;
-    status = nfs41_superblock_for_fh(session,
-        &info->fsid, &state->parent.fh, &state->file);
+    file->fh.fileid = info->fileid;
+    status = nfs41_superblock_for_fh(session, &info->fsid, &parent->fh, file);
     if (status)
-        goto out;
-
-    /* update the attributes of the parent directory */
-    memcpy(&dir_info.attrmask, &pgetattr_res.obj_attributes.attrmask,
-        sizeof(bitmap4));
-    nfs41_attr_cache_update(session_name_cache(session),
-        state->parent.fh.fileid, &dir_info);
-
-    /* add the file handle and attributes to the name cache */
-    memcpy(&info->attrmask, &getattr_res.obj_attributes.attrmask,
-        sizeof(bitmap4));
-    AcquireSRWLockShared(&state->path.lock);
-    nfs41_name_cache_insert(session_name_cache(session),
-        state->path.path, &state->file.name, &state->file.fh,
-        info, &open_res.resok4.cinfo);
-    ReleaseSRWLockShared(&state->path.lock);
-
-#define RETURN_DELEG_ON_OPEN
-#ifdef RETURN_DELEG_ON_OPEN
-    /* if the server gave us a delegation, return it immediately */
-    if (open_res.resok4.delegation_type == OPEN_DELEGATE_READ ||
-        open_res.resok4.delegation_type == OPEN_DELEGATE_WRITE) {
-        nfs41_delegreturn(session, &state->file,
-            &open_res.resok4.deleg_stateid);
-    }
-#endif
-
-    if (create == OPEN4_CREATE)
-        nfs41_superblock_space_changed(state->file.fh.superblock);
-out:
-    return status;
-}
-
-int nfs41_open_reclaim(
-    IN nfs41_session *session,
-    IN nfs41_path_fh *parent,
-    IN nfs41_path_fh *file,
-    IN state_owner4 *owner,
-    IN uint32_t allow,
-    IN uint32_t deny,
-    OUT stateid4 *stateid)
-{
-    int status;
-    nfs41_compound compound;
-    nfs_argop4 argops[6];
-    nfs_resop4 resops[6];
-    nfs41_sequence_args sequence_args;
-    nfs41_sequence_res sequence_res;
-    nfs41_putfh_args putfh_args[2];
-    nfs41_putfh_res putfh_res[2];
-    nfs41_op_open_args open_args;
-    nfs41_op_open_res open_res;
-    bitmap4 attr_request;
-    nfs41_getattr_args getattr_args;
-    nfs41_getattr_res getattr_res, pgetattr_res;
-    nfs41_file_info info, dir_info;
-
-    init_getattr_request(&attr_request);
-
-    compound_init(&compound, argops, resops, "open reclaim");
-
-    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
-    status = nfs41_session_sequence(&sequence_args, session, 1);
-    if (status)
-        goto out;
-
-    compound_add_op(&compound, OP_PUTFH, &putfh_args[0], &putfh_res[0]);
-    putfh_args[0].file = file;
-    putfh_args[0].in_recovery = 0;
-
-    compound_add_op(&compound, OP_OPEN, &open_args, &open_res);
-    open_args.seqid = 0;
-    open_args.share_access = allow | OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
-    open_args.share_deny = deny; 
-    open_args.owner = owner;
-    open_args.openhow.opentype = OPEN4_NOCREATE;
-    open_args.claim.claim = CLAIM_PREVIOUS;
-    open_args.claim.u.prev.delegate_type = OPEN_DELEGATE_NONE;
-    open_res.resok4.stateid = stateid;
-
-    compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
-    getattr_args.attr_request = &attr_request;
-    getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    getattr_res.info = &info;
-
-    compound_add_op(&compound, OP_PUTFH, &putfh_args[1], &putfh_res[1]);
-    putfh_args[1].file = parent;
-    putfh_args[1].in_recovery = 0;
-
-    compound_add_op(&compound, OP_GETATTR, &getattr_args, &pgetattr_res);
-    getattr_args.attr_request = &attr_request;
-    pgetattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    pgetattr_res.info = &dir_info;
-
-    /* don't attempt to recover from BADSESSION errors */
-    status = compound_encode_send_decode(session, &compound, FALSE);
-    if (status)
-        goto out;
-
-    if (compound_error(status = compound.res.status))
         goto out;
 
     /* update the attributes of the parent directory */
@@ -512,11 +452,17 @@ int nfs41_open_reclaim(
     nfs41_attr_cache_update(session_name_cache(session),
         parent->fh.fileid, &dir_info);
 
-    /* update the attributes of the file */
-    memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
+    /* add the file handle and attributes to the name cache */
+    memcpy(&info->attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));
-    nfs41_attr_cache_update(session_name_cache(session),
-        file->fh.fileid, &info);
+    AcquireSRWLockShared(&file->path->lock);
+    nfs41_name_cache_insert(session_name_cache(session),
+        file->path->path, &file->name, &file->fh,
+        info, &open_res.resok4.cinfo);
+    ReleaseSRWLockShared(&file->path->lock);
+
+    if (create == OPEN4_CREATE)
+        nfs41_superblock_space_changed(file->fh.superblock);
 out:
     return status;
 }

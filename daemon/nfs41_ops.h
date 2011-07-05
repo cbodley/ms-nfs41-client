@@ -546,7 +546,7 @@ enum createmode4 {
 typedef struct __createhow4 {
     uint32_t            mode;
     createattrs4        createattrs;
-    unsigned char       *createverf;
+    unsigned char       createverf[NFS4_VERIFIER_SIZE];
 } createhow4;
 
 enum opentype4 {
@@ -620,8 +620,21 @@ typedef struct __open_claim4 {
         } null;
     /* case CLAIM_PREVIOUS: */
         struct __open_claim_prev {
-            uint32_t delegate_type;
+            uint32_t        delegate_type;
         } prev;
+    /* case CLAIM_DELEGATE_CUR: */
+        struct __open_claim_deleg_cur {
+            stateid4        *delegate_stateid;
+            nfs41_component *name;
+        } deleg_cur;
+    /* case CLAIM_DELEG_CUR_FH: */
+        struct __open_claim_deleg_cur_fh {
+            stateid4        *delegate_stateid;
+        } deleg_cur_fh;
+    /* case CLAIM_DELEGATE_PREV: */
+        struct __open_claim_deleg_prev {
+            const nfs41_component *filename;
+        } deleg_prev;
     } u;
 } open_claim4;
 
@@ -631,7 +644,7 @@ typedef struct __nfs41_op_open_args {
     uint32_t                share_deny;
     state_owner4            *owner;
     openflag4               openhow;
-    open_claim4             claim;
+    open_claim4             *claim;
 } nfs41_op_open_args;
 
 enum {
@@ -646,8 +659,7 @@ typedef struct __nfs41_op_open_res_ok {
     change_info4            cinfo;
     uint32_t                rflags;
     bitmap4                 attrset;
-    uint32_t                delegation_type;
-    stateid4                deleg_stateid;
+    open_delegation4        *delegation;
     uint32_t                why_no_deleg;
     uint32_t                why_none_flag;
 } nfs41_op_open_res_ok;
@@ -985,25 +997,21 @@ int nfs41_lookup(
     OUT OPTIONAL nfs41_file_info *info_out,
     OUT nfs41_session **session_out);
 
-int nfs41_open(
+int nfs41_rpc_open(
     IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
+    IN open_claim4 *claim,
     IN uint32_t allow,
     IN uint32_t deny,
     IN uint32_t create,
     IN uint32_t how_mode,
     IN uint32_t mode,
     IN bool_t try_recovery,
-    IN OUT nfs41_open_state *state,
+    OUT stateid4 *stateid,
+    OUT open_delegation4 *delegation,
     OUT OPTIONAL nfs41_file_info *info);
-
-int nfs41_open_reclaim(
-    IN nfs41_session *session,
-    IN nfs41_path_fh *parent,
-    IN nfs41_path_fh *file,
-    IN state_owner4 *owner,
-    IN uint32_t allow,
-    IN uint32_t deny,
-    OUT stateid4 *stateid);
 
 int nfs41_create(
     IN nfs41_session *session,

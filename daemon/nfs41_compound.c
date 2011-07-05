@@ -131,14 +131,20 @@ static int recover_open(
     IN nfs41_session *session,
     IN nfs41_open_state *open)
 {
+    open_claim4 claim;
+    open_delegation4 delegation;
     stateid_arg stateid;
     struct list_entry *entry;
     nfs41_lock_state *lock;
     int status;
 
     /* reclaim the open stateid */
-    status = nfs41_open_reclaim(session, &open->parent, &open->file,
-        &open->owner, open->share_access, open->share_deny, &stateid.stateid);
+    claim.claim = CLAIM_PREVIOUS;
+    claim.u.prev.delegate_type = OPEN_DELEGATE_NONE;
+
+    status = nfs41_rpc_open(session, &open->parent, &open->file,
+        &open->owner, &claim, open->share_access, open->share_deny,
+        OPEN4_NOCREATE, 0, 0, FALSE, &stateid.stateid, &delegation, NULL);
 
     if (status == NFS4_OK) {
         /* update the open stateid on success */
@@ -146,8 +152,7 @@ static int recover_open(
 
     } else if (status == NFS4ERR_NO_GRACE) {
         dprintf(1, "not in grace period, retrying a normal open\n");
-        status = nfs41_open(session, open->share_access,
-            open->share_deny, OPEN4_NOCREATE, 0, 0, FALSE, open, NULL);
+        status = nfs41_open(open, OPEN4_NOCREATE, 0, 0, FALSE, NULL);
 
         /* update the stateid arg with the new open->stateid */
         memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));
@@ -610,7 +615,7 @@ restart_recovery:
                     } else if (op == OP_OPEN) {
                         nfs41_op_open_args *oargs = (nfs41_op_open_args *)
                             compound->args.argarray[compound->res.resarray_count-1].arg;
-                        name = oargs->claim.u.null.filename;
+                        name = oargs->claim->u.null.filename;
                     }
                     secinfo_status = nfs41_secinfo(session, file, name, secinfo);
                     if (secinfo_status) {
