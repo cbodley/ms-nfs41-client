@@ -4956,7 +4956,6 @@ NTSTATUS nfs41_init_ops()
     nfs41_ops.MRxSetQuotaInfo         = nfs41_SetQuotaInformation;
     nfs41_ops.MRxQueryFileInfo        = nfs41_QueryFileInformation;
     nfs41_ops.MRxSetFileInfo          = nfs41_SetFileInformation;
-    nfs41_ops.MRxSetFileInfoAtCleanup = nfs41_SetFileInformationAtCleanup ;
     //
     // Buffering state change
     //
