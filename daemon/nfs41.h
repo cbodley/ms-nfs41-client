@@ -82,9 +82,11 @@ typedef struct __nfs41_server {
 
 typedef struct __nfs41_delegation_state {
     open_delegation4 state;
-    nfs41_fh fh;
+    nfs41_abs_path path;
+    nfs41_path_fh file;
     struct list_entry client_entry; /* entry in nfs41_client.delegations */
     LONG ref_count;
+    SRWLOCK lock;
 } nfs41_delegation_state;
 
 typedef struct __nfs41_lock_state {
@@ -119,6 +121,8 @@ typedef struct __nfs41_open_state {
 
     struct {
         nfs41_delegation_state *state;
+        bool_t reclaim;
+        CONDITION_VARIABLE cond;
     } delegation;
 
     struct { /* list of open lock state for recovery */

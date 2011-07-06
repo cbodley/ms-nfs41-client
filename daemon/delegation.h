@@ -54,4 +54,16 @@ int nfs41_delegate_open(
     OUT nfs41_delegation_state **deleg_out,
     OUT nfs41_file_info *info);
 
+int nfs41_delegation_to_open(
+    IN nfs41_open_state *open,
+    IN bool_t try_recovery);
+
+
+/* asynchronous delegation recall */
+int nfs41_delegation_recall(
+    IN nfs41_client *client,
+    IN nfs41_fh *fh,
+    IN const stateid4 *stateid,
+    IN bool_t truncate);
+
 #endif /* DELEGATION_H */

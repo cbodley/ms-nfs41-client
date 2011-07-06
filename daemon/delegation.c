@@ -46,8 +46,11 @@ static int delegation_create(
     }
 
     memcpy(&state->state, delegation, sizeof(open_delegation4));
-    fh_copy(&state->fh, &file->fh);
+    abs_path_copy(&state->path, file->path);
+    path_fh_init(&state->file, &state->path);
+    fh_copy(&state->file.fh, &file->fh);
     list_init(&state->client_entry);
+    InitializeSRWLock(&state->lock);
     state->ref_count = 1;
     *deleg_out = state;
 out:
@@ -58,16 +61,95 @@ void nfs41_delegation_ref(
     IN nfs41_delegation_state *state)
 {
     const LONG count = InterlockedIncrement(&state->ref_count);
-    dprintf(DGLVL, "nfs41_delegation_ref() count %d\n", count);
+    dprintf(DGLVL, "nfs41_delegation_ref(%s) count %d\n",
+        state->path.path, count);
 }
 
 void nfs41_delegation_deref(
     IN nfs41_delegation_state *state)
 {
     const LONG count = InterlockedDecrement(&state->ref_count);
-    dprintf(DGLVL, "nfs41_delegation_deref() count %d\n", count);
+    dprintf(DGLVL, "nfs41_delegation_deref(%s) count %d\n",
+        state->path.path, count);
     if (count == 0)
         free(state);
+}
+
+
+/* delegation return */
+#define open_entry(pos) list_container(pos, nfs41_open_state, client_entry)
+
+static int open_deleg_cmp(const struct list_entry *entry, const void *value)
+{
+    nfs41_open_state *open = open_entry(entry);
+    int result = -1;
+
+    /* open must match the delegation and have no open stateid */
+    AcquireSRWLockShared(&open->lock);
+    if (open->delegation.state != value) goto out;
+    if (open->do_close) goto out;
+    result = 0;
+out:
+    ReleaseSRWLockShared(&open->lock);
+    return result;
+}
+
+/* find the first open that needs recovery */
+static nfs41_open_state* deleg_open_find(
+    IN struct client_state *state,
+    IN const nfs41_delegation_state *deleg)
+{
+    struct list_entry *entry;
+    nfs41_open_state *open = NULL;
+
+    EnterCriticalSection(&state->lock);
+    entry = list_search(&state->opens, deleg, open_deleg_cmp);
+    if (entry) {
+        open = open_entry(entry);
+        nfs41_open_state_ref(open); /* return a reference */
+    }
+    LeaveCriticalSection(&state->lock);
+    return open;
+}
+
+#pragma warning (disable : 4706) /* assignment within conditional expression */
+
+static void delegation_return(
+    IN nfs41_client *client,
+    IN nfs41_delegation_state *deleg,
+    IN bool_t truncate)
+{
+    struct list_entry *entry;
+    nfs41_open_state *open;
+
+    /* recover opens associated with the delegation */
+    while (open = deleg_open_find(&client->state, deleg)) {
+        nfs41_delegation_to_open(open, TRUE);
+        nfs41_open_state_deref(open);
+    }
+
+    /* TODO: flush data and metadata before returning delegation */
+
+    nfs41_delegreturn(client->session, &deleg->file, &deleg->state.stateid);
+
+    /* remove from the client's list */
+    EnterCriticalSection(&client->state.lock);
+    list_remove(&deleg->client_entry);
+
+    list_for_each(entry, &client->state.opens) {
+        open = open_entry(entry);
+        AcquireSRWLockExclusive(&open->lock);
+        if (open->delegation.state == deleg) {
+            /* drop the delegation reference */
+            nfs41_delegation_deref(open->delegation.state);
+            open->delegation.state = NULL;
+        }
+        ReleaseSRWLockExclusive(&open->lock);
+    }
+    LeaveCriticalSection(&client->state.lock);
+
+    /* release the client's reference */
+    nfs41_delegation_deref(deleg);
 }
 
 
@@ -112,7 +194,7 @@ out_return: /* return the delegation on failure */
 
 static int deleg_fh_cmp(const struct list_entry *entry, const void *value)
 {
-    const nfs41_fh *lhs = &deleg_entry(entry)->fh;
+    const nfs41_fh *lhs = &deleg_entry(entry)->file.fh;
     const nfs41_fh *rhs = (const nfs41_fh*)value;
     if (lhs->superblock != rhs->superblock) return -1;
     if (lhs->fileid != rhs->fileid) return -1;
@@ -197,6 +279,157 @@ int nfs41_delegate_open(
 out:
     return status;
 
+out_deleg:
+    nfs41_delegation_deref(deleg);
+    goto out;
+}
+
+int nfs41_delegation_to_open(
+    IN nfs41_open_state *open,
+    IN bool_t try_recovery)
+{
+    open_delegation4 ignore;
+    open_claim4 claim;
+    stateid4 deleg_stateid, open_stateid = { 0 };
+    int status = NFS4_OK;
+
+    AcquireSRWLockExclusive(&open->lock);
+    if (open->delegation.state == NULL) /* no delegation to reclaim */
+        goto out_unlock;
+
+    if (open->do_close) /* already have an open stateid */
+        goto out_unlock;
+
+    /* if another thread is reclaiming the open stateid,
+     * wait for it to finish before returning success */
+    if (open->delegation.reclaim) {
+        do {
+            SleepConditionVariableSRW(&open->delegation.cond, &open->lock,
+                INFINITE, 0);
+        } while (open->delegation.reclaim);
+        goto out_unlock;
+    }
+    open->delegation.reclaim = 1;
+
+    AcquireSRWLockShared(&open->delegation.state->lock);
+    memcpy(&deleg_stateid, &open->delegation.state->state.stateid,
+        sizeof(stateid4));
+    ReleaseSRWLockShared(&open->delegation.state->lock);
+
+    ReleaseSRWLockExclusive(&open->lock);
+
+    /* send OPEN with CLAIM_DELEGATE_CUR */
+    claim.claim = CLAIM_DELEGATE_CUR;
+    claim.u.deleg_cur.delegate_stateid = &deleg_stateid;
+    claim.u.deleg_cur.name = &open->file.name;
+
+    status = nfs41_rpc_open(open->session, &open->parent, &open->file,
+        &open->owner, &claim, open->share_access, open->share_deny,
+        OPEN4_NOCREATE, 0, 0, try_recovery, &open_stateid, &ignore, NULL);
+    if (status)
+        eprintf("nfs41_delegation_to_open(%p) failed with %s\n",
+            open, nfs_error_string(status));
+
+    AcquireSRWLockExclusive(&open->lock);
+    /* save the new open stateid */
+    memcpy(&open->stateid, &open_stateid, sizeof(stateid4));
+    open->delegation.reclaim = 0;
+    open->do_close = 1;
+
+    /* signal anyone waiting on the open stateid */
+    WakeAllConditionVariable(&open->delegation.cond);
+out_unlock:
+    ReleaseSRWLockExclusive(&open->lock);
+    return status;
+}
+
+
+/* asynchronous delegation recall */
+struct recall_thread_args {
+    nfs41_client            *client;
+    nfs41_delegation_state  *delegation;
+    bool_t                  truncate;
+};
+
+static unsigned int WINAPI delegation_recall_thread(void *args)
+{
+    struct recall_thread_args *recall = (struct recall_thread_args*)args;
+
+    delegation_return(recall->client, recall->delegation, recall->truncate);
+
+    /* clean up thread arguments */
+    nfs41_delegation_deref(recall->delegation);
+    nfs41_root_deref(recall->client->root);
+    free(recall);
+    return 0;
+}
+
+static int deleg_stateid_cmp(const struct list_entry *entry, const void *value)
+{
+    const stateid4 *lhs = &deleg_entry(entry)->state.stateid;
+    const stateid4 *rhs = (const stateid4*)value;
+    return memcmp(lhs->other, rhs->other, NFS4_STATEID_OTHER);
+}
+
+int nfs41_delegation_recall(
+    IN nfs41_client *client,
+    IN nfs41_fh *fh,
+    IN const stateid4 *stateid,
+    IN bool_t truncate)
+{
+    nfs41_delegation_state *deleg;
+    struct recall_thread_args *args;
+    int status;
+
+    dprintf(2, "--> nfs41_delegation_recall()\n");
+
+    /* search for the delegation by stateid instead of filehandle;
+     * deleg_fh_cmp() relies on a proper superblock and fileid,
+     * which we don't get with CB_RECALL */
+    status = delegation_find(client, stateid, deleg_stateid_cmp, &deleg);
+    if (status)
+        goto out;
+
+    /* start the delegation recall, or fail if it's already started */
+    AcquireSRWLockShared(&deleg->lock);
+    if (deleg->state.recalled == 0)
+        deleg->state.recalled = 1;
+    else
+        status = NFS4ERR_BADHANDLE;
+    ReleaseSRWLockShared(&deleg->lock);
+    if (status)
+        goto out_deleg;
+
+    /* TODO: return NFS4_OK if the delegation is already being returned */
+
+    /* allocate thread arguments */
+    args = calloc(1, sizeof(struct recall_thread_args));
+    if (args == NULL) {
+        status = NFS4ERR_SERVERFAULT;
+        eprintf("nfs41_delegation_recall() failed to allocate arguments\n");
+        goto out_deleg;
+    }
+
+    /* hold a reference on the root */
+    nfs41_root_ref(client->root);
+    args->client = client;
+    args->delegation = deleg;
+    args->truncate = truncate;
+
+    /* the callback thread can't make rpc calls, so spawn a separate thread */
+    if (_beginthreadex(NULL, 0, delegation_recall_thread, args, 0, NULL) == 0) {
+        status = NFS4ERR_SERVERFAULT;
+        eprintf("nfs41_delegation_recall() failed to start thread\n");
+        goto out_args;
+    }
+out:
+    dprintf(DGLVL, "<-- nfs41_delegation_recall() returning %s\n",
+        nfs_error_string(status));
+    return status;
+
+out_args:
+    free(args);
+    nfs41_root_deref(client->root);
 out_deleg:
     nfs41_delegation_deref(deleg);
     goto out;

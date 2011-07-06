@@ -24,6 +24,7 @@
 #include <strsafe.h>
 
 #include "nfs41_ops.h"
+#include "delegation.h"
 #include "nfs41_callback.h"
 #include "daemon_debug.h"
 
@@ -177,71 +178,14 @@ out:
 }
 
 /* OP_CB_RECALL */
-typedef struct _nfs41_cb_recall {
-    nfs41_rpc_clnt *rpc_clnt;
-    struct cb_recall_args *args;
-} nfs41_cb_recall;
-
-static unsigned int WINAPI _handle_cb_recall(void *args)
-{
-    nfs41_cb_recall *cb_args = (nfs41_cb_recall *)args;
-    nfs41_path_fh path_fh;
-
-    dprintf(1, "_handle_cb_recall: start\n");
-    print_hexbuf(3, (unsigned char *)"_handle_cb_recall: fh ", 
-        cb_args->args->fh.fh, cb_args->args->fh.len);
-    print_hexbuf(3, (unsigned char *)"_handle_cb_recall: stateid ", 
-        cb_args->args->stateid.other, NFS4_STATEID_OTHER);
-    ZeroMemory(&path_fh, sizeof(nfs41_path_fh));
-    memcpy(&path_fh.fh, &cb_args->args->fh, sizeof(nfs41_fh));
-    path_fh.fh.superblock = NULL;
-    path_fh.path = NULL;
-    path_fh.name.len = 0;
-    dprintf(1, "_handle_cb_recall: sending nfs41_delegreturn\n");
-    nfs41_delegreturn(cb_args->rpc_clnt->client->session, &path_fh, 
-        &cb_args->args->stateid);
-    nfs41_root_deref(cb_args->rpc_clnt->client->root);
-    free(cb_args->args);
-    free(cb_args);
-    dprintf(1, "_handle_cb_recall: end\n");
-    return 1;
-}
-
 static enum_t handle_cb_recall(
     IN nfs41_rpc_clnt *rpc_clnt,
     IN struct cb_recall_args *args,
     OUT struct cb_recall_res *res)
 {
-    nfs41_cb_recall *cb_args;
-    uintptr_t status;
-    res->status = NFS4_OK;
-
-    dprintf(CBSLVL, "OP_CB_RECALL\n");
-    cb_args = calloc(1, sizeof(nfs41_cb_recall));
-    if (cb_args == NULL) {
-        res->status = NFS4ERR_SERVERFAULT;
-        goto out;
-    }
-    cb_args->rpc_clnt = rpc_clnt;
-    cb_args->args = calloc(1, sizeof(struct cb_recall_args));
-    if (cb_args->args == NULL) {
-        free(cb_args);
-        res->status = NFS4ERR_SERVERFAULT;
-        goto out;
-    }
-    memcpy(cb_args->args, args, sizeof(struct cb_recall_args));
-    status = _beginthreadex(NULL, 0, _handle_cb_recall, cb_args, 0, NULL);
-    if (status == -1L || !status) {
-        eprintf("_beginthreadex failed to start for _handle_cb_recall %d", 
-            status);
-        free(cb_args->args);
-        free(cb_args);
-        res->status = NFS4ERR_SERVERFAULT;
-        goto out;
-    }
-    nfs41_root_ref(rpc_clnt->client->root);
-
-out:
+    /* return the delegation asynchronously */
+    res->status = nfs41_delegation_recall(rpc_clnt->client,
+        &args->fh, &args->stateid, args->truncate);
     return res->status;
 }
 
