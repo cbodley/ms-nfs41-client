@@ -456,7 +456,6 @@ out:
 static int handle_setattr(nfs41_upcall *upcall)
 {
     setattr_upcall_args *args = &upcall->args.setattr;
-    nfs41_open_state *state = upcall->state_ref;
     int status;
 
     switch (args->set_class) {

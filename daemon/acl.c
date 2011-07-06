@@ -192,7 +192,7 @@ static int convert_nfs4acl_2_dacl(nfsacl41 *acl, int file_type,
         goto out;
     }
     for (i = 0; i < acl->count; i++) {
-        convert_nfs4name_2_user_domain((LPSTR)acl->aces[i].who, &domain);
+        convert_nfs4name_2_user_domain(acl->aces[i].who, &domain);
         dprintf(1, "handle_getacl: for user=%s domain=%s\n", 
                 acl->aces[i].who, domain?domain:"<null>");
         status = check_4_special_identifiers(acl->aces[i].who, &sids[i], 
@@ -202,7 +202,7 @@ static int convert_nfs4acl_2_dacl(nfsacl41 *acl, int file_type,
             goto out;
         }
         if (!flag) {
-            status = map_name_2_sid(&sid_len, &sids[i], (LPSTR)acl->aces[i].who);
+            status = map_name_2_sid(&sid_len, &sids[i], acl->aces[i].who);
             if (status) {
                 free_sids(sids, i);
                 goto out;
@@ -310,11 +310,11 @@ static int handle_getacl(nfs41_upcall *upcall)
       */
     if (args->query & OWNER_SECURITY_INFORMATION) {
         // parse user@domain. currently ignoring domain part XX
-        convert_nfs4name_2_user_domain((LPSTR)info.owner, &domain);
+        convert_nfs4name_2_user_domain(info.owner, &domain);
         dprintf(1, "handle_getacl: OWNER_SECURITY_INFORMATION: for user=%s "
                 "domain=%s\n", info.owner, domain?domain:"<null>");
         sid_len = 0;
-        status = map_name_2_sid(&sid_len, &osid, (LPSTR)info.owner);
+        status = map_name_2_sid(&sid_len, &osid, info.owner);
         if (status)
             goto out;
         status = SetSecurityDescriptorOwner(&sec_desc, osid, TRUE);
@@ -326,11 +326,11 @@ static int handle_getacl(nfs41_upcall *upcall)
         }
     }
     if (args->query & GROUP_SECURITY_INFORMATION) {
-        convert_nfs4name_2_user_domain((LPSTR)info.owner_group, &domain);
+        convert_nfs4name_2_user_domain(info.owner_group, &domain);
         dprintf(1, "handle_getacl: GROUP_SECURITY_INFORMATION: for %s "
                 "domain=%s\n", info.owner_group, domain?domain:"<null>");
         sid_len = 0;
-        status = map_name_2_sid(&sid_len, &gsid, (LPSTR)info.owner_group);
+        status = map_name_2_sid(&sid_len, &gsid, info.owner_group);
         if (status)
             goto out;
         status = SetSecurityDescriptorGroup(&sec_desc, gsid, TRUE);
@@ -578,7 +578,7 @@ static int map_nfs4ace_who(PSID sid, PSID owner_sid, PSID group_sid, char *who_o
     status = is_well_known_sid(sid, who_out);
     if (status) {
         if (!strncmp(who_out, ACE4_NOBODY, strlen(ACE4_NOBODY))) {
-            size = strlen(ACE4_NOBODY);
+            size = (DWORD)strlen(ACE4_NOBODY);
             goto add_domain;
         }
         else
@@ -708,7 +708,7 @@ static int handle_setacl(nfs41_upcall *upcall)
     nfs41_open_state *state = upcall->state_ref;
     nfs41_file_info info;
     stateid_arg stateid;
-    nfsacl41 nfs4_acl;
+    nfsacl41 nfs4_acl = { 0 };
     PSID sid = NULL, gsid = NULL;
     BOOL sid_default, gsid_default;
 
@@ -722,12 +722,12 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
-        status = map_nfs4ace_who(sid, NULL, NULL, (char *)info.owner, 
+        status = map_nfs4ace_who(sid, NULL, NULL, info.owner,
                                  state->session->client->domain_name);
         if (status)
             goto out;
         else {
-            info.owner_len = strlen((const char *)info.owner);
+            info.owner_len = (uint32_t)strlen(info.owner);
             info.attrmask.arr[1] |= FATTR4_WORD1_OWNER;
             info.attrmask.count = 2;
         }
@@ -740,12 +740,12 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
-        status = map_nfs4ace_who(sid, NULL, NULL, (char *)info.owner_group, 
+        status = map_nfs4ace_who(sid, NULL, NULL, info.owner_group,
                                  state->session->client->domain_name);
         if (status)
             goto out;
         else {
-            info.owner_group_len = strlen((const char *)info.owner_group);
+            info.owner_group_len = (uint32_t)strlen(info.owner_group);
             info.attrmask.arr[1] |= FATTR4_WORD1_OWNER_GROUP;
             info.attrmask.count = 2;
         }

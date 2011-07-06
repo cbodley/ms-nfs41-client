@@ -229,7 +229,10 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
     /* available only when built in debug mode under visual studio -cbodley */
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+#pragma warning (push)
+#pragma warning (disable : 4306) /* conversion from 'int' to '_HFILE' of greater size */
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+#pragma warning (pop)
     dprintf(1, "debug mode. dumping memory leaks to stderr on exit.\n");
 #endif
 
