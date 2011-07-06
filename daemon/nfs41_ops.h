@@ -141,6 +141,24 @@ typedef struct __nfs41_exchange_id_res {
     char                    server_scope[NFS4_OPAQUE_LIMIT];
 } nfs41_exchange_id_res;
 
+typedef struct __nfs41_callback_sec_parms {
+    uint32_t type;
+    union {
+        /* case AUTH_SYS */
+        struct __authsys_parms {
+            uint32_t        stamp;
+            char            *machinename;
+        } auth_sys;
+        /* case RPCSEC_GSS */
+        struct __rpcsec_gss_parms {
+            uint32_t        gss_srv_type;
+            char            *srv_gssctx_handle;
+            uint32_t         srv_gssctx_hdle_len;
+            char            *clnt_gssctx_handle;
+            uint32_t        clnt_gssctx_hdle_len;
+        } rpcsec_gss;
+    } u;
+} nfs41_callback_secparms;
 
 /* OP_CREATE_SESSION */
 typedef struct __nfs41_create_session_args {
@@ -150,6 +168,7 @@ typedef struct __nfs41_create_session_args {
     nfs41_channel_attrs     csa_fore_chan_attrs;
     nfs41_channel_attrs     csa_back_chan_attrs;
     uint32_t                csa_cb_program;
+    nfs41_callback_secparms csa_cb_secparams[2];
 } nfs41_create_session_args;
 
 typedef struct __nfs41_create_session_res {

@@ -29,7 +29,7 @@
 #include "nfs41_xdr.h"
 #include "util.h"
 #include "daemon_debug.h"
-
+#include "rpc/rpc.h"
 
 static bool_t encode_file_attrs(
     fattr4 *attrs,
@@ -775,13 +775,26 @@ static bool_t xdr_channel_attrs4(
 
 static bool_t encode_backchannel_sec_parms(
     XDR *xdr,
-    nfs41_create_session_args *args)
+    nfs41_callback_secparms *args)
 {
-    uint32_t one = 1, auth_none = 0;
+    uint32_t zero = 0;
 
-    /* encore an array with only { AUTH_NONE } */
-    return xdr_u_int32_t(xdr, &one)
-        && xdr_u_int32_t(xdr, &auth_none);
+    if (!xdr_u_int32_t(xdr, &args->type))
+        return FALSE;
+
+    switch (args->type)  {
+    case AUTH_NONE: return TRUE;
+    case AUTH_SYS:
+        if (!xdr_u_int32_t(xdr, &args->u.auth_sys.stamp))
+            return FALSE;
+        if (!xdr_string(xdr, &args->u.auth_sys.machinename, NI_MAXHOST))
+            return FALSE;
+        return xdr_u_int32_t(xdr, &zero) && xdr_u_int32_t(xdr, &zero) && 
+                xdr_u_int32_t(xdr, &zero);
+    case RPCSEC_GSS:
+    default:
+        return FALSE;
+    }
 }
 
 static bool_t encode_op_create_session(
@@ -789,6 +802,8 @@ static bool_t encode_op_create_session(
     nfs_argop4 *argop)
 {
     nfs41_create_session_args *args = (nfs41_create_session_args*)argop->arg;
+    nfs41_callback_secparms *cb_secparams = args->csa_cb_secparams;
+    uint32_t cb_count = 2;
 
     if (unexpected_op(argop->op, OP_CREATE_SESSION))
         return FALSE;
@@ -817,7 +832,8 @@ static bool_t encode_op_create_session(
     if (!xdr_u_int32_t(xdr, &args->csa_cb_program))
         return FALSE;
 
-    return encode_backchannel_sec_parms(xdr, args);
+    return xdr_array(xdr, (char **)&cb_secparams, &cb_count,
+        3, sizeof(nfs41_callback_secparms), (xdrproc_t) encode_backchannel_sec_parms);
 }
 
 static bool_t decode_op_create_session(

@@ -122,6 +122,10 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session, bool_t try_
     ReleaseSRWLockShared(&clnt->exid_lock);
     req.csa_flags = session->flags;
     req.csa_cb_program = NFS41_RPC_CBPROGRAM;
+    req.csa_cb_secparams[0].type = 0; /* AUTH_NONE */
+    req.csa_cb_secparams[1].type = 1; /* AUTH_SYS */
+    req.csa_cb_secparams[1].u.auth_sys.machinename = clnt->rpc->server_name;
+    req.csa_cb_secparams[1].u.auth_sys.stamp = time(NULL);
 
     // ca_maxrequests should be gotten from the rpc layer
     set_fore_channel_attrs(clnt->rpc,
