@@ -69,9 +69,10 @@ struct attr_cache_entry {
     uint32_t                time_modify_ns;
     uint32_t                numlinks;
     uint32_t                mode;
-    unsigned short          ref_count;
-    unsigned char           type;
-    unsigned char           invalidated;
+    unsigned                ref_count : 26;
+    unsigned                type : 4;
+    unsigned                invalidated : 1;
+    unsigned                delegated : 1;
 };
 #define ATTR_ENTRY_SIZE sizeof(struct attr_cache_entry)
 
@@ -245,7 +246,8 @@ out_err_free:
 
 static void attr_cache_update(
     IN struct attr_cache_entry *entry,
-    IN const nfs41_file_info *info)
+    IN const nfs41_file_info *info,
+    IN enum open_delegation_type4 delegation)
 {
     /* update the attributes present in mask */
     if (info->attrmask.count >= 1) {
@@ -277,6 +279,9 @@ static void attr_cache_update(
             entry->time_modify_ns = info->time_modify.nseconds;
         }
     }
+
+    if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE)
+        entry->delegated = TRUE;
 }
 
 static void copy_attrs(
@@ -430,15 +435,18 @@ static void name_cache_entry_refresh(
     /* update the expiration timer */
     entry->expiration = time(NULL) + cache->expiration;
     /* move the entry to the front of cache->exp_entries */
-    list_remove(&entry->exp_entry);
-    list_add_head(&cache->exp_entries, &entry->exp_entry);
+    if (!list_empty(&entry->exp_entry)) {
+        list_remove(&entry->exp_entry);
+        list_add_head(&cache->exp_entries, &entry->exp_entry);
+    }
 }
 
 static int name_cache_entry_update(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *entry,
     IN OPTIONAL const nfs41_fh *fh,
-    IN OPTIONAL const nfs41_file_info *info)
+    IN OPTIONAL const nfs41_file_info *info,
+    IN enum open_delegation_type4 delegation)
 {
     int status = NO_ERROR;
 
@@ -453,8 +461,17 @@ static int name_cache_entry_update(
             status = attr_cache_find_or_create(&cache->attributes,
                 info->fileid, &entry->attributes);
 
-        if (status == NO_ERROR)
-            attr_cache_update(entry->attributes, info);
+        if (status == NO_ERROR) {
+            attr_cache_update(entry->attributes, info, delegation);
+
+            /* hold a reference as long as we have the delegation */
+            if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE)
+                attr_cache_entry_ref(&cache->attributes, entry->attributes);
+
+            /* keep the entry from expiring */
+            if (entry->attributes->delegated)
+                list_remove(&entry->exp_entry);
+        }
     } else if (entry->attributes) {
         /* positive -> negative entry, deref the attributes */
         attr_cache_entry_deref(&cache->attributes, entry->attributes);
@@ -495,7 +512,7 @@ static void name_cache_entry_invalidate(
     dprintf(NCLVL1, "name_cache_entry_invalidate('%s')\n", entry->component);
 
     if (entry->attributes) {
-        /* flag attributes so that entry_has_expired() will return true
+        /* flag attributes so that entry_invis() will return true
          * if another entry attempts to use them */
         entry->attributes->invalidated = 1;
     }
@@ -530,7 +547,7 @@ static int entry_invis(
     OUT OPTIONAL bool_t *is_negative)
 {
     /* name entry timer expired? */
-    if (time(NULL) > entry->expiration) {
+    if (!list_empty(&entry->exp_entry) && time(NULL) > entry->expiration) {
         dprintf(NCLVL2, "name_entry_expired('%s')\n", entry->component);
         return 1;
     }
@@ -814,7 +831,7 @@ int nfs41_attr_cache_update(
         goto out_unlock;
     }
 
-    attr_cache_update(entry, info);
+    attr_cache_update(entry, info, OPEN_DELEGATE_NONE);
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
@@ -829,7 +846,8 @@ int nfs41_name_cache_insert(
     IN const nfs41_component *name,
     IN OPTIONAL const nfs41_fh *fh,
     IN OPTIONAL const nfs41_file_info *info,
-    IN OPTIONAL const change_info4 *cinfo)
+    IN OPTIONAL const change_info4 *cinfo,
+    IN enum open_delegation_type4 delegation)
 {
     struct name_cache_entry *grandparent, *parent, *target;
     int status;
@@ -851,34 +869,95 @@ int nfs41_name_cache_insert(
             const nfs41_component name = { "ROOT", 4 };
             status = name_cache_entry_create(cache, &name, &cache->root);
             if (status)
-                goto out_unlock;
+                goto out_err_deleg;
         }
 
-        status = name_cache_entry_update(cache, cache->root, fh, info);
-        goto out_unlock;
+        status = name_cache_entry_update(cache,
+            cache->root, fh, info, delegation);
+        goto out_err_deleg;
     }
 
     status = name_cache_lookup(cache, 0, path, name->name,
         NULL, &grandparent, &parent, NULL);
     if (status)
-        goto out_unlock;
+        goto out_err_deleg;
 
     if (cinfo && name_cache_entry_changed(cache, parent, cinfo)) {
         name_cache_entry_invalidate(cache, parent);
-        goto out_unlock;
+        goto out_err_deleg;
     }
 
     status = name_cache_find_or_create(cache, parent, name, &target);
     if (status)
-        goto out_unlock;
+        goto out_err_deleg;
 
-    status = name_cache_entry_update(cache, target, fh, info);
+    status = name_cache_entry_update(cache, target, fh, info, delegation);
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
 
     dprintf(NCLVL1, "<-- nfs41_name_cache_insert() returning %d\n",
         status);
+    return status;
+
+out_err_deleg:
+    if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE) {
+        /* we still need a reference to the attributes for the delegation */
+        struct attr_cache_entry *attributes;
+        if (attr_cache_find_or_create(&cache->attributes,
+            info->fileid, &attributes) == NO_ERROR)
+            attr_cache_update(attributes, info, delegation);
+    }
+    goto out_unlock;
+}
+
+int nfs41_name_cache_delegreturn(
+    IN struct nfs41_name_cache *cache,
+    IN uint64_t fileid,
+    IN const char *path,
+    IN const nfs41_component *name)
+{
+    struct name_cache_entry *parent, *target;
+    struct attr_cache_entry *attributes;
+    int status;
+
+    dprintf(NCLVL1, "--> nfs41_name_cache_delegreturn(%llu, '%s')\n",
+        fileid, path);
+
+    AcquireSRWLockExclusive(&cache->lock);
+
+    if (!name_cache_enabled(cache)) {
+        status = ERROR_NOT_SUPPORTED;
+        goto out_unlock;
+    }
+
+    status = name_cache_lookup(cache, 0, path,
+        name->name + name->len, NULL, &parent, &target, NULL);
+    if (status == NO_ERROR) {
+        /* put the name cache entry back on the exp_entries list */
+        list_add_head(&cache->exp_entries, &target->exp_entry);
+        name_cache_entry_refresh(cache, target);
+
+        attributes = target->attributes;
+    } else {
+        /* should still have an attr cache entry */
+        attributes = attr_cache_search(&cache->attributes, fileid);
+    }
+
+    if (attributes == NULL) {
+        status = ERROR_FILE_NOT_FOUND;
+        goto out_unlock;
+    }
+
+    /* release the reference from name_cache_entry_update() */
+    attributes->delegated = FALSE;
+    attr_cache_entry_deref(&cache->attributes, attributes);
+    status = NO_ERROR;
+
+out_unlock:
+    ReleaseSRWLockExclusive(&cache->lock);
+
+    dprintf(NCLVL1, "<-- nfs41_name_cache_delegreturn() returning %d\n", status);
     return status;
 }
 
@@ -917,7 +996,7 @@ int nfs41_name_cache_remove(
         target->attributes->numlinks--;
 
     /* make this a negative entry and unlink children */
-    name_cache_entry_update(cache, target, NULL, NULL);
+    name_cache_entry_update(cache, target, NULL, NULL, OPEN_DELEGATE_NONE);
     name_cache_unlink_children_recursive(cache, target);
 
 out_unlock:
@@ -1005,7 +1084,7 @@ int nfs41_name_cache_rename(
         if (status)
             goto out_unlock;
     }
-    name_cache_entry_update(cache, src, NULL, NULL);
+    name_cache_entry_update(cache, src, NULL, NULL, OPEN_DELEGATE_NONE);
     name_cache_unlink_children_recursive(cache, src);
 
 out_unlock:

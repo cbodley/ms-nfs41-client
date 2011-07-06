@@ -223,8 +223,8 @@ static int server_lookup(
         /* add the file handle and attributes to the name cache */
         memcpy(&res->getrootattr.info->attrmask,
             &res->getrootattr.obj_attributes.attrmask, sizeof(bitmap4));
-        nfs41_name_cache_insert(session_name_cache(session),
-            path, &name, &dir->fh, res->getrootattr.info, NULL);
+        nfs41_name_cache_insert(session_name_cache(session), path, &name,
+            &dir->fh, res->getrootattr.info, NULL, OPEN_DELEGATE_NONE);
     }
     file = dir;
 
@@ -245,8 +245,8 @@ static int server_lookup(
             if (parent_out) *parent_out = file;
         } else if (res->lookup[i].status == NFS4ERR_NOENT) {
             /* insert a negative lookup entry */
-            nfs41_name_cache_insert(session_name_cache(session),
-                path, args->lookup[i].name, NULL, NULL, NULL);
+            nfs41_name_cache_insert(session_name_cache(session), path,
+                args->lookup[i].name, NULL, NULL, NULL, OPEN_DELEGATE_NONE);
         }
         status = res->lookup[i].status;     if (status) break;
 
@@ -274,7 +274,7 @@ static int server_lookup(
             &res->getattr[i].obj_attributes.attrmask, sizeof(bitmap4));
         nfs41_name_cache_insert(session_name_cache(session),
             path, args->lookup[i].name, &res->file[i].fh,
-            res->getattr[i].info, NULL);
+            res->getattr[i].info, NULL, OPEN_DELEGATE_NONE);
 
         if (i == count-1) {
             if (target_out)

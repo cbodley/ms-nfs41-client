@@ -75,7 +75,14 @@ int nfs41_name_cache_insert(
     IN const nfs41_component *name,
     IN OPTIONAL const nfs41_fh *fh,
     IN OPTIONAL const nfs41_file_info *info,
-    IN OPTIONAL const change_info4 *cinfo);
+    IN OPTIONAL const change_info4 *cinfo,
+    IN enum open_delegation_type4 delegation);
+
+int nfs41_name_cache_delegreturn(
+    IN struct nfs41_name_cache *cache,
+    IN uint64_t fileid,
+    IN const char *path,
+    IN const nfs41_component *name);
 
 int nfs41_name_cache_remove(
     IN struct nfs41_name_cache *cache,

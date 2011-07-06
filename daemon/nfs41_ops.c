@@ -458,7 +458,7 @@ int nfs41_rpc_open(
     AcquireSRWLockShared(&file->path->lock);
     nfs41_name_cache_insert(session_name_cache(session),
         file->path->path, &file->name, &file->fh,
-        info, &open_res.resok4.cinfo);
+        info, &open_res.resok4.cinfo, delegation->type);
     ReleaseSRWLockShared(&file->path->lock);
 
     if (create == OPEN4_CREATE)
@@ -558,7 +558,7 @@ int nfs41_create(
     AcquireSRWLockShared(&file->path->lock);
     nfs41_name_cache_insert(session_name_cache(session),
         file->path->path, &file->name, &file->fh,
-        &file_info, &create_res.cinfo);
+        &file_info, &create_res.cinfo, OPEN_DELEGATE_NONE);
     ReleaseSRWLockShared(&file->path->lock);
 
     nfs41_superblock_space_changed(file->fh.superblock);
@@ -1401,7 +1401,7 @@ int nfs41_link(
     AcquireSRWLockShared(&dst_dir->path->lock);
     nfs41_name_cache_insert(session_name_cache(session),
         dst_dir->path->path, target, &link_out->fh,
-        &info[1], &link_res.cinfo);
+        &info[1], &link_res.cinfo, OPEN_DELEGATE_NONE);
     ReleaseSRWLockShared(&dst_dir->path->lock);
 
     nfs41_superblock_space_changed(dst_dir->fh.superblock);
@@ -1562,7 +1562,13 @@ int nfs41_delegreturn(
     if (status)
         goto out;
 
-    compound_error(status = compound.res.status);
+    if (compound_error(status = compound.res.status))
+        goto out;
+
+    AcquireSRWLockShared(&file->path->lock);
+    nfs41_name_cache_delegreturn(session_name_cache(session),
+        file->fh.fileid, file->path->path, &file->name);
+    ReleaseSRWLockShared(&file->path->lock);
 out:
     return status;
 }
