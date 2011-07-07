@@ -50,7 +50,9 @@ static int delegation_create(
     path_fh_init(&state->file, &state->path);
     fh_copy(&state->file.fh, &file->fh);
     list_init(&state->client_entry);
+    state->status = DELEGATION_GRANTED;
     InitializeSRWLock(&state->lock);
+    InitializeConditionVariable(&state->cond);
     state->ref_count = 1;
     *deleg_out = state;
 out:
@@ -147,6 +149,12 @@ static void delegation_return(
         ReleaseSRWLockExclusive(&open->lock);
     }
     LeaveCriticalSection(&client->state.lock);
+
+    /* signal threads waiting on delegreturn */
+    AcquireSRWLockExclusive(&deleg->lock);
+    deleg->status = DELEGATION_RETURNED;
+    WakeAllConditionVariable(&deleg->cond);
+    ReleaseSRWLockExclusive(&deleg->lock);
 
     /* release the client's reference */
     nfs41_delegation_deref(deleg);
@@ -267,10 +275,28 @@ int nfs41_delegate_open(
     if (status)
         goto out;
 
-    if (!delegation_compatible(deleg->state.type, create, access, deny)) {
+    AcquireSRWLockExclusive(&deleg->lock);
+    if (deleg->status != DELEGATION_GRANTED) {
+        /* the delegation is being returned, wait for it to finish */
+        while (deleg->status != DELEGATION_RETURNED)
+            SleepConditionVariableSRW(&deleg->cond, &deleg->lock, INFINITE, 0);
         status = NFS4ERR_BADHANDLE;
-        goto out_deleg;
     }
+    else if (!delegation_compatible(deleg->state.type, create, access, deny)) {
+#ifdef DELEGATION_RETURN_ON_CONFLICT
+        /* this open will conflict, start the delegation return */
+        deleg->status = DELEGATION_RETURNING;
+        status = NFS4ERR_DELEG_REVOKED;
+#else
+        status = NFS4ERR_BADHANDLE;
+#endif
+    }
+    ReleaseSRWLockExclusive(&deleg->lock);
+
+    if (status == NFS4ERR_DELEG_REVOKED)
+        goto out_return;
+    if (status)
+        goto out_deleg;
 
     /* TODO: check access against deleg->state.permissions or send ACCESS */
 
@@ -278,6 +304,9 @@ int nfs41_delegate_open(
     status = NFS4_OK;
 out:
     return status;
+
+out_return:
+    delegation_return(client, deleg, create == OPEN4_CREATE);
 
 out_deleg:
     nfs41_delegation_deref(deleg);
@@ -344,6 +373,51 @@ out_unlock:
 }
 
 
+/* synchronous delegation return */
+#ifdef DELEGATION_RETURN_ON_CONFLICT
+int nfs41_delegation_return(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN enum open_delegation_type4 access,
+    IN bool_t truncate)
+{
+    nfs41_client *client = session->client;
+    nfs41_delegation_state *deleg;
+    int status;
+
+    /* find a delegation for this file */
+    status = delegation_find(client, &file->fh, deleg_fh_cmp, &deleg);
+    if (status)
+        goto out;
+
+    AcquireSRWLockExclusive(&deleg->lock);
+    if (deleg->status == DELEGATION_GRANTED) {
+        /* return unless delegation is write and access is read */
+        if (deleg->state.type != OPEN_DELEGATE_WRITE
+            || access != OPEN_DELEGATE_READ) {
+            deleg->status = DELEGATION_RETURNING;
+            status = NFS4ERR_DELEG_REVOKED;
+        }
+    } else {
+        /* the delegation is being returned, wait for it to finish */
+        while (deleg->status != DELEGATION_RETURNING)
+            SleepConditionVariableSRW(&deleg->cond, &deleg->lock, INFINITE, 0);
+        status = NFS4ERR_BADHANDLE;
+    }
+    ReleaseSRWLockExclusive(&deleg->lock);
+
+    if (status == NFS4ERR_DELEG_REVOKED) {
+        delegation_return(client, deleg, truncate);
+        status = NFS4_OK;
+    }
+
+    nfs41_delegation_deref(deleg);
+out:
+    return status;
+}
+#endif
+
+
 /* asynchronous delegation recall */
 struct recall_thread_args {
     nfs41_client            *client;
@@ -390,17 +464,23 @@ int nfs41_delegation_recall(
     if (status)
         goto out;
 
-    /* start the delegation recall, or fail if it's already started */
-    AcquireSRWLockShared(&deleg->lock);
-    if (deleg->state.recalled == 0)
-        deleg->state.recalled = 1;
-    else
+    AcquireSRWLockExclusive(&deleg->lock);
+    if (deleg->state.recalled) {
+        /* return BADHANDLE if we've already responded to CB_RECALL */
         status = NFS4ERR_BADHANDLE;
-    ReleaseSRWLockShared(&deleg->lock);
-    if (status)
-        goto out_deleg;
+    } else {
+        deleg->state.recalled = 1;
 
-    /* TODO: return NFS4_OK if the delegation is already being returned */
+        if (deleg->status == DELEGATION_GRANTED) {
+            /* start the delegation return */
+            deleg->status = DELEGATION_RETURNING;
+            status = NFS4ERR_DELEG_REVOKED;
+        } /* else return NFS4_OK */
+    }
+    ReleaseSRWLockExclusive(&deleg->lock);
+
+    if (status != NFS4ERR_DELEG_REVOKED)
+        goto out_deleg;
 
     /* allocate thread arguments */
     args = calloc(1, sizeof(struct recall_thread_args));
@@ -422,6 +502,7 @@ int nfs41_delegation_recall(
         eprintf("nfs41_delegation_recall() failed to start thread\n");
         goto out_args;
     }
+    status = NFS4_OK;
 out:
     dprintf(DGLVL, "<-- nfs41_delegation_recall() returning %s\n",
         nfs_error_string(status));

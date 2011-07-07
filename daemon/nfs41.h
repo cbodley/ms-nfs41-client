@@ -80,13 +80,22 @@ typedef struct __nfs41_server {
     LONG ref_count;
 } nfs41_server;
 
+enum delegation_status {
+    DELEGATION_GRANTED,
+    DELEGATION_RETURNING,
+    DELEGATION_RETURNED,
+};
+
 typedef struct __nfs41_delegation_state {
     open_delegation4 state;
     nfs41_abs_path path;
     nfs41_path_fh file;
     struct list_entry client_entry; /* entry in nfs41_client.delegations */
     LONG ref_count;
+
+    enum delegation_status status;
     SRWLOCK lock;
+    CONDITION_VARIABLE cond;
 } nfs41_delegation_state;
 
 typedef struct __nfs41_lock_state {

@@ -27,6 +27,10 @@
 #include "nfs41.h"
 
 
+/* option to avoid conflicts by returning the delegation */
+#define DELEGATION_RETURN_ON_CONFLICT
+
+
 /* reference counting and cleanup */
 void nfs41_delegation_ref(
     IN nfs41_delegation_state *state);
@@ -57,6 +61,25 @@ int nfs41_delegate_open(
 int nfs41_delegation_to_open(
     IN nfs41_open_state *open,
     IN bool_t try_recovery);
+
+
+/* synchronous delegation return */
+#ifdef DELEGATION_RETURN_ON_CONFLICT
+int nfs41_delegation_return(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN enum open_delegation_type4 access,
+    IN bool_t truncate);
+#else
+static int nfs41_delegation_return(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN enum open_delegation_type4 access,
+    IN bool_t truncate)
+{
+    return NFS4_OK;
+}
+#endif
 
 
 /* asynchronous delegation recall */

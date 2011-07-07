@@ -27,6 +27,7 @@
 
 #include "from_kernel.h"
 #include "nfs41_ops.h"
+#include "delegation.h"
 #include "name_cache.h"
 #include "upcall.h"
 #include "util.h"
@@ -93,8 +94,6 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     nfs41_file_info info;
     int status = NO_ERROR;
 
-    nfs41_open_stateid_arg(state, &stateid);
-
     ZeroMemory(&info, sizeof(info));
 
     /* hidden */
@@ -145,6 +144,12 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     if (!info.attrmask.count)
         goto out;
 
+    /* break read delegations before SETATTR */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_READ, FALSE);
+
+    nfs41_open_stateid_arg(state, &stateid);
+
     status = nfs41_setattr(state->session, &state->file, &stateid, &info);
     if (status) {
         dprintf(1, "nfs41_setattr() failed with error %s.\n",
@@ -159,6 +164,10 @@ static int handle_nfs41_remove(setattr_upcall_args *args)
 {
     nfs41_open_state *state = args->state;
     int status;
+
+    /* break any delegations and truncate before REMOVE */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_WRITE, TRUE);
 
     status = nfs41_remove(state->session, &state->parent,
         &state->file.name);
@@ -216,7 +225,7 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
     nfs41_session *dst_session;
     PFILE_RENAME_INFO rename = (PFILE_RENAME_INFO)args->buf;
     nfs41_abs_path dst_path;
-    nfs41_path_fh dst_dir;
+    nfs41_path_fh dst_dir, dst;
     nfs41_component dst_name, *src_name;
     uint32_t depth = 0;
     int status;
@@ -236,6 +245,10 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
 
         create_silly_rename(&dst_path, &state->file.fh, &dst_name);
         dprintf(1, "silly rename: %s -> %s\n", src_name->name, dst_name.name);
+
+        /* break any delegations and truncate before silly rename */
+        nfs41_delegation_return(state->session, &state->file,
+            OPEN_DELEGATE_WRITE, TRUE);
 
         status = nfs41_rename(state->session,
             &state->parent, src_name,
@@ -264,7 +277,7 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
 
     /* the destination path is absolute, so start from the root session */
     status = nfs41_lookup(args->root, nfs41_root_session(args->root),
-        &dst_path, &dst_dir, NULL, NULL, &dst_session);
+        &dst_path, &dst_dir, &dst, NULL, &dst_session);
 
     while (status == ERROR_REPARSE) {
         if (++depth > NFS41_MAX_SYMLINK_DEPTH) {
@@ -294,6 +307,9 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
             status = ERROR_FILE_EXISTS;
             goto out;
         }
+        /* break any delegations and truncate the destination file */
+        nfs41_delegation_return(dst_session, &dst,
+            OPEN_DELEGATE_WRITE, TRUE);
     } else if (status != ERROR_FILE_NOT_FOUND) {
         dprintf(1, "nfs41_lookup('%s') failed to find destination "
             "directory with %d\n", dst_path.path, status);
@@ -317,6 +333,10 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
         status = ERROR_FILE_EXISTS;
         goto out;
     }
+
+    /* break any delegations on the source file */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_WRITE, FALSE);
 
     status = nfs41_rename(state->session,
         &state->parent, src_name,
@@ -343,6 +363,10 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
     nfs41_open_state *state = args->state;
     int status;
 
+    /* break read delegations before SETATTR */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_READ, FALSE);
+
     nfs41_open_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
@@ -366,7 +390,7 @@ static int handle_nfs41_link(setattr_upcall_args *args)
     PFILE_LINK_INFORMATION link = (PFILE_LINK_INFORMATION)args->buf;
     nfs41_session *dst_session;
     nfs41_abs_path dst_path;
-    nfs41_path_fh dst_dir;
+    nfs41_path_fh dst_dir, dst;
     nfs41_component dst_name;
     uint32_t depth = 0;
     int status;
@@ -386,7 +410,7 @@ static int handle_nfs41_link(setattr_upcall_args *args)
 
     /* the destination path is absolute, so start from the root session */
     status = nfs41_lookup(args->root, nfs41_root_session(args->root),
-        &dst_path, &dst_dir, NULL, NULL, &dst_session);
+        &dst_path, &dst_dir, &dst, NULL, &dst_session);
 
     while (status == ERROR_REPARSE) {
         if (++depth > NFS41_MAX_SYMLINK_DEPTH) {
@@ -431,6 +455,10 @@ static int handle_nfs41_link(setattr_upcall_args *args)
     }
 
     if (status == NO_ERROR) {
+        /* break any delegations and truncate the destination file */
+        nfs41_delegation_return(dst_session, &dst,
+            OPEN_DELEGATE_WRITE, TRUE);
+
         /* LINK will return NFS4ERR_EXIST if the target file exists,
          * so we have to remove it ourselves */
         status = nfs41_remove(state->session, &dst_dir, &dst_name);
@@ -441,6 +469,10 @@ static int handle_nfs41_link(setattr_upcall_args *args)
             goto out;
         }
     }
+
+    /* break read delegations on the source file */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_READ, FALSE);
 
     status = nfs41_link(state->session, &state->file,
         &dst_dir, &dst_name, NULL);
@@ -508,6 +540,10 @@ static int handle_setexattr(nfs41_upcall *upcall)
     nfs41_open_state *state = upcall->state_ref;
     stateid_arg stateid;
     nfs41_file_info info;
+
+    /* break read delegations before SETATTR */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_READ, FALSE);
 
     nfs41_open_stateid_arg(state, &stateid);
 

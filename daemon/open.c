@@ -133,7 +133,7 @@ void nfs41_open_stateid_arg(
     if (state->delegation.state) {
         nfs41_delegation_state *deleg = state->delegation.state;
         AcquireSRWLockShared(&deleg->lock);
-        if (!deleg->state.recalled) {
+        if (deleg->status == DELEGATION_GRANTED) {
             arg->type = STATEID_DELEG_FILE;
             memcpy(&arg->stateid, &deleg->state.stateid, sizeof(stateid4));
         }
@@ -668,6 +668,9 @@ static void cancel_open(IN nfs41_upcall *upcall)
 
     } else if (args->created) {
         const nfs41_component *name = &state->file.name;
+        /* break any delegations and truncate before REMOVE */
+        nfs41_delegation_return(state->session, &state->file,
+            OPEN_DELEGATE_WRITE, TRUE);
         status = nfs41_remove(state->session, &state->parent, name);
         if (status)
             dprintf(1, "cancel_open: nfs41_remove() failed with %s\n",
@@ -721,6 +724,10 @@ static int handle_close(nfs41_upcall *upcall)
             dprintf(1, "removing a renamed file %s\n", name->name);
             create_silly_rename(&state->path, &state->file.fh, name);
         }
+
+        /* break any delegations and truncate before REMOVE */
+        nfs41_delegation_return(state->session, &state->file,
+            OPEN_DELEGATE_WRITE, TRUE);
 
         dprintf(1, "calling nfs41_remove for %s\n", name->name);
         rm_status = nfs41_remove(state->session, &state->parent, name);

@@ -24,8 +24,8 @@
 #include <strsafe.h>
 #include <sddl.h>
 
-#include "nfs41.h"
 #include "nfs41_ops.h"
+#include "delegation.h"
 #include "daemon_debug.h"
 #include "util.h"
 #include "upcall.h"
@@ -784,6 +784,10 @@ static int handle_setacl(nfs41_upcall *upcall)
                 info.attrmask.count = 1;
         }
     }
+
+    /* break read delegations before SETATTR */
+    nfs41_delegation_return(state->session, &state->file,
+        OPEN_DELEGATE_READ, FALSE);
 
     nfs41_open_stateid_arg(state, &stateid);
     status = nfs41_setattr(state->session, &state->file, &stateid, &info);
