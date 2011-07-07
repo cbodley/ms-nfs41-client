@@ -785,7 +785,7 @@ static int handle_setacl(nfs41_upcall *upcall)
         }
     }
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    nfs41_open_stateid_arg(state, &stateid);
     status = nfs41_setattr(state->session, &state->file, &stateid, &info);
     if (status) {
         dprintf(1, "handle_setacl: nfs41_setattr() failed with error %s.\n",

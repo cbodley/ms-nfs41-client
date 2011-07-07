@@ -466,9 +466,4 @@ int nfs41_open(
     IN bool_t try_recovery,
     OUT OPTIONAL nfs41_file_info *info);
 
-/* lock.c */
-void nfs41_lock_stateid_arg(
-    IN nfs41_open_state *state,
-    OUT struct __stateid_arg *arg);
-
 #endif /* __NFS41__ */

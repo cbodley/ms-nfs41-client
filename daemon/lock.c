@@ -25,6 +25,7 @@
 #include <stdio.h>
 
 #include "daemon_debug.h"
+#include "delegation.h"
 #include "nfs41_ops.h"
 #include "upcall.h"
 #include "util.h"
@@ -33,19 +34,26 @@
 #define LKLVL 2 /* dprintf level for lock logging */
 
 
-void nfs41_lock_stateid_arg(
+static void lock_stateid_arg(
     IN nfs41_open_state *state,
     OUT stateid_arg *arg)
 {
+    arg->open = state;
+
+    /* open_to_lock_owner4 requires an open stateid; if we
+     * have a delegation, convert it to an open stateid */
+    nfs41_delegation_to_open(state, TRUE);
+
     AcquireSRWLockShared(&state->lock);
     if (state->locks.stateid.seqid) {
-        /* use lock stateid where available */
         memcpy(&arg->stateid, &state->locks.stateid, sizeof(stateid4));
         arg->type = STATEID_LOCK;
-        arg->open = state;
+    } else if (state->do_close) {
+        memcpy(&arg->stateid, &state->stateid, sizeof(stateid4));
+        arg->type = STATEID_OPEN;
     } else {
-        /* fall back on open stateid */
-        nfs41_open_stateid_arg(state, arg);
+        memset(&arg->stateid, 0, sizeof(stateid4));
+        arg->type = STATEID_SPECIAL;
     }
     ReleaseSRWLockShared(&state->lock);
 }
@@ -153,7 +161,7 @@ static int handle_lock(nfs41_upcall *upcall)
     const uint32_t type = get_lock_type(args->exclusive, args->blocking);
     int status;
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    lock_stateid_arg(state, &stateid);
 
     /* 18.10.3. Operation 12: LOCK - Create Lock
      * "To lock the file from a specific offset through the end-of-file
@@ -190,7 +198,7 @@ static void cancel_lock(IN nfs41_upcall *upcall)
     if (upcall->status)
         goto out;
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    lock_stateid_arg(state, &stateid);
 
     status = nfs41_unlock(state->session, &state->file,
         args->offset, args->length, &stateid);
@@ -236,7 +244,7 @@ static int handle_unlock(nfs41_upcall *upcall)
     uint64_t length;
     int status = NO_ERROR;
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    lock_stateid_arg(state, &stateid);
     if (stateid.type != STATEID_LOCK) {
         eprintf("attempt to unlock a file with no lock state\n");
         status = ERROR_NOT_LOCKED;

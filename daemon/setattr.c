@@ -93,7 +93,7 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     nfs41_file_info info;
     int status = NO_ERROR;
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    nfs41_open_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
 
@@ -343,7 +343,7 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
     nfs41_open_state *state = args->state;
     int status;
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    nfs41_open_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
     info.size = size->QuadPart;
@@ -509,7 +509,7 @@ static int handle_setexattr(nfs41_upcall *upcall)
     stateid_arg stateid;
     nfs41_file_info info;
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    nfs41_open_stateid_arg(state, &stateid);
 
     ZeroMemory(&info, sizeof(info));
 

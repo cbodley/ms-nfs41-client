@@ -111,15 +111,57 @@ void nfs41_open_state_deref(
         open_state_free(state);
 }
 
+/* 8.2.5. Stateid Use for I/O Operations
+ * o  If the client holds a delegation for the file in question, the
+ *    delegation stateid SHOULD be used.
+ * o  Otherwise, if the entity corresponding to the lock-owner (e.g., a
+ *    process) sending the I/O has a byte-range lock stateid for the
+ *    associated open file, then the byte-range lock stateid for that
+ *    lock-owner and open file SHOULD be used.
+ * o  If there is no byte-range lock stateid, then the OPEN stateid for
+ *    the open file in question SHOULD be used.
+ * o  Finally, if none of the above apply, then a special stateid SHOULD
+ *    be used. */
 void nfs41_open_stateid_arg(
     IN nfs41_open_state *state,
     OUT stateid_arg *arg)
 {
-    AcquireSRWLockShared(&state->lock);
-    memcpy(&arg->stateid, &state->stateid, sizeof(stateid4));
-    ReleaseSRWLockShared(&state->lock);
-    arg->type = STATEID_OPEN;
     arg->open = state;
+
+    AcquireSRWLockShared(&state->lock);
+
+    if (state->delegation.state) {
+        nfs41_delegation_state *deleg = state->delegation.state;
+        AcquireSRWLockShared(&deleg->lock);
+        if (!deleg->state.recalled) {
+            arg->type = STATEID_DELEG_FILE;
+            memcpy(&arg->stateid, &deleg->state.stateid, sizeof(stateid4));
+        }
+        ReleaseSRWLockShared(&deleg->lock);
+
+        if (arg->type == STATEID_DELEG_FILE)
+            goto out;
+
+        dprintf(2, "delegation recalled, waiting for open stateid..\n");
+
+        /* wait for nfs41_delegation_to_open() to recover open stateid */
+        while (!state->do_close)
+            SleepConditionVariableSRW(&state->delegation.cond, &state->lock,
+                INFINITE, CONDITION_VARIABLE_LOCKMODE_SHARED);
+    }
+
+    if (state->locks.stateid.seqid) {
+        memcpy(&arg->stateid, &state->locks.stateid, sizeof(stateid4));
+        arg->type = STATEID_LOCK;
+    } else if (state->do_close) {
+        memcpy(&arg->stateid, &state->stateid, sizeof(stateid4));
+        arg->type = STATEID_OPEN;
+    } else {
+        memset(&arg->stateid, 0, sizeof(stateid4));
+        arg->type = STATEID_SPECIAL;
+    }
+out:
+    ReleaseSRWLockShared(&state->lock);
 }
 
 /* client list of associated open state */
@@ -615,7 +657,9 @@ static void cancel_open(IN nfs41_upcall *upcall)
 
     if (state->do_close) {
         stateid_arg stateid;
-        nfs41_open_stateid_arg(state, &stateid);
+        stateid.open = state;
+        stateid.type = STATEID_OPEN;
+        memcpy(&stateid.stateid, &state->stateid, sizeof(stateid4));
 
         status = nfs41_close(state->session, &state->file, &stateid);
         if (status)
@@ -689,7 +733,9 @@ static int handle_close(nfs41_upcall *upcall)
 
     if (state->do_close) {
         stateid_arg stateid;
-        nfs41_open_stateid_arg(state, &stateid);
+        stateid.open = state;
+        stateid.type = STATEID_OPEN;
+        memcpy(&stateid.stateid, &state->stateid, sizeof(stateid4));
 
         status = nfs41_close(state->session, &state->file, &stateid);
         if (status) {

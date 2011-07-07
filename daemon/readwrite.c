@@ -148,7 +148,7 @@ static int handle_read(nfs41_upcall *upcall)
     ULONG pnfs_bytes_read = 0;
     int status = NO_ERROR;
 
-    nfs41_lock_stateid_arg(upcall->state_ref, &stateid);
+    nfs41_open_stateid_arg(upcall->state_ref, &stateid);
 
 #ifdef PNFS_ENABLE_READ
     status = read_from_pnfs(upcall->root_ref, upcall->state_ref, &stateid,
@@ -269,7 +269,7 @@ static int handle_write(nfs41_upcall *upcall)
     ULONG pnfs_bytes_written = 0;
     int status;
 
-    nfs41_lock_stateid_arg(upcall->state_ref, &stateid);
+    nfs41_open_stateid_arg(upcall->state_ref, &stateid);
 
 #ifdef PNFS_ENABLE_WRITE
     status = write_to_pnfs(upcall->root_ref, upcall->state_ref, &stateid,

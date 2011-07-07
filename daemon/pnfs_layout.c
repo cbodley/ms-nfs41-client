@@ -719,7 +719,7 @@ enum pnfs_status pnfs_layout_state_open(
             goto out;
     }
 
-    nfs41_lock_stateid_arg(state, &stateid);
+    nfs41_open_stateid_arg(state, &stateid);
 
     /* make sure the layout can satisfy this request */
     status = file_layout_get(layout, session, &state->file,
