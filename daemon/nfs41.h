@@ -412,6 +412,10 @@ int nfs41_superblock_for_fh(
     IN const nfs41_fh *parent OPTIONAL,
     OUT nfs41_path_fh *file);
 
+void nfs41_superblock_supported_attrs(
+    IN nfs41_superblock *superblock,
+    IN OUT bitmap4 *attrs);
+
 void nfs41_superblock_space_changed(
     IN nfs41_superblock *superblock);
 

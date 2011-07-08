@@ -65,26 +65,6 @@ out_free:
     goto out;
 }
 
-static void remove_unsupported_attrs(
-    IN const bitmap4 *supported_attrs,
-    IN OUT bitmap4 *attrs)
-{
-    uint32_t i, count = 0;
-    dprintf(3, "remove_unsupported_attrs\n");
-    for (i = 0; i < 3; i++) {
-        dprintf(3, "\tmask[%d] = %12u", i, attrs->arr[i]);
-        dprintf(3, " & %12u", supported_attrs->arr[i]);
-
-        attrs->arr[i] &= supported_attrs->arr[i];
-        if (attrs->arr[i])
-            count = i+1;
-
-        dprintf(3, " = %12d\n", attrs->arr[i]);
-    }
-    attrs->count = min(attrs->count, count);
-    dprintf(3, "\tcount   = %d\n", attrs->count);
-}
-
 static int handle_nfs41_setattr(setattr_upcall_args *args)
 {
     PFILE_BASIC_INFO basic_info = (PFILE_BASIC_INFO)args->buf;
@@ -136,10 +116,8 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
         info.attrmask.count = 2;
     }
 
-    /* only ask for attributes that are supported by the filesystem */
-    AcquireSRWLockShared(&superblock->lock);
-    remove_unsupported_attrs(&superblock->supported_attrs, &info.attrmask);
-    ReleaseSRWLockShared(&superblock->lock);
+    /* mask out unsupported attributes */
+    nfs41_superblock_supported_attrs(superblock, &info.attrmask);
 
     if (!info.attrmask.count)
         goto out;

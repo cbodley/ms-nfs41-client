@@ -53,6 +53,7 @@ int nfs41_delegate_open(
     IN nfs41_client *client,
     IN nfs41_path_fh *file,
     IN uint32_t create,
+    IN uint32_t mode,
     IN uint32_t access,
     IN uint32_t deny,
     OUT nfs41_delegation_state **deleg_out,

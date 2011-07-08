@@ -215,10 +215,6 @@ static bool_t delegation_compatible(
     IN uint32_t access,
     IN uint32_t deny)
 {
-    /* TODO: allow write delegation to handle OPEN4_CREATE */
-    if (create == OPEN4_CREATE)
-        return FALSE;
-
     switch (type) {
     case OPEN_DELEGATE_WRITE:
         /* An OPEN_DELEGATE_WRITE delegation allows the client to handle,
@@ -229,6 +225,8 @@ static bool_t delegation_compatible(
         /* An OPEN_DELEGATE_READ delegation allows a client to handle,
          * on its own, requests to open a file for reading that do not
          * deny OPEN4_SHARE_ACCESS_READ access to others. */
+        if (create == OPEN4_CREATE)
+            return FALSE;
         if (access & OPEN4_SHARE_ACCESS_WRITE || deny & OPEN4_SHARE_DENY_READ)
             return FALSE;
         return TRUE;
@@ -258,16 +256,45 @@ static int delegation_find(
     return status;
 }
 
+static int delegation_truncate(
+    IN nfs41_delegation_state *deleg,
+    IN nfs41_client *client,
+    IN stateid_arg *stateid,
+    IN uint32_t mode,
+    IN nfs41_file_info *info)
+{
+    nfs41_superblock *superblock = deleg->file.fh.superblock;
+
+    /* use SETATTR to truncate the file */
+    info->attrmask.arr[0] = FATTR4_WORD0_SIZE;
+    info->attrmask.arr[1] = FATTR4_WORD1_MODE |
+        FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY_SET;
+    info->attrmask.count = 2;
+
+    info->size = 0;
+    info->mode = mode;
+    get_nfs_time(&info->time_create);
+    get_nfs_time(&info->time_modify);
+    info->time_delta = &superblock->time_delta;
+
+    /* mask out unsupported attributes */
+    nfs41_superblock_supported_attrs(superblock, &info->attrmask);
+
+    return nfs41_setattr(client->session, &deleg->file, stateid, info);
+}
+
 int nfs41_delegate_open(
     IN nfs41_client *client,
     IN nfs41_path_fh *file,
     IN uint32_t create,
+    IN uint32_t mode,
     IN uint32_t access,
     IN uint32_t deny,
     OUT nfs41_delegation_state **deleg_out,
     OUT nfs41_file_info *info)
 {
     nfs41_delegation_state *deleg;
+    stateid_arg stateid;
     int status;
 
     /* search for a delegation with this filehandle */
@@ -290,6 +317,11 @@ int nfs41_delegate_open(
 #else
         status = NFS4ERR_BADHANDLE;
 #endif
+    } else if (create == OPEN4_CREATE) {
+        /* copy the stateid for SETATTR */
+        stateid.open = NULL;
+        stateid.type = STATEID_DELEG_FILE;
+        memcpy(&stateid.stateid, &deleg->state.stateid, sizeof(stateid4));
     }
     ReleaseSRWLockExclusive(&deleg->lock);
 
@@ -297,6 +329,13 @@ int nfs41_delegate_open(
         goto out_return;
     if (status)
         goto out_deleg;
+
+    if (create == OPEN4_CREATE) {
+        /* write delegations allow us to simulate OPEN4_CREATE with SETATTR */
+        status = delegation_truncate(deleg, client, &stateid, mode, info);
+        if (status)
+            goto out_deleg;
+    }
 
     /* TODO: check access against deleg->state.permissions or send ACCESS */
 

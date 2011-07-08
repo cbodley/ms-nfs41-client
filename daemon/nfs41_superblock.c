@@ -247,6 +247,22 @@ out:
     return status;
 }
 
+void nfs41_superblock_supported_attrs(
+    IN nfs41_superblock *superblock,
+    IN OUT bitmap4 *attrs)
+{
+    uint32_t i, count = 0;
+
+    AcquireSRWLockShared(&superblock->lock);
+    for (i = 0; i < 3; i++) {
+        attrs->arr[i] &= superblock->supported_attrs.arr[i];
+        if (attrs->arr[i])
+            count = i+1;
+    }
+    attrs->count = min(attrs->count, count);
+    ReleaseSRWLockShared(&superblock->lock);
+}
+
 void nfs41_superblock_space_changed(
     IN nfs41_superblock *superblock)
 {

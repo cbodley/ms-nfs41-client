@@ -233,8 +233,9 @@ static int open_or_delegate(
     int status;
 
     /* check for existing delegation */
-    status = nfs41_delegate_open(state->session->client, &state->file, create,
-        state->share_access, state->share_deny, &state->delegation.state, info);
+    status = nfs41_delegate_open(state->session->client, &state->file,
+        create, mode, state->share_access, state->share_deny,
+        &state->delegation.state, info);
 
     /* get an open stateid if we have no delegation stateid */
     if (status)
