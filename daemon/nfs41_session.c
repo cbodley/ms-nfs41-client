@@ -321,6 +321,7 @@ int nfs41_session_renew(
     int status;
 
     AcquireSRWLockExclusive(&session->client->session_lock);
+    session->cb_session.cb_seqnum = 0;
     status = reinit_slot_table(&session->table);
     if (status) {
         eprintf("init_slot_table failed %d\n", status);
