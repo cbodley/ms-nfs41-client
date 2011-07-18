@@ -471,12 +471,4 @@ void nfs41_open_stateid_arg(
     IN nfs41_open_state *state,
     OUT struct __stateid_arg *arg);
 
-int nfs41_open(
-    IN OUT nfs41_open_state *state,
-    IN uint32_t create,
-    IN uint32_t createhow,
-    IN uint32_t mode,
-    IN bool_t try_recovery,
-    OUT OPTIONAL nfs41_file_info *info);
-
 #endif /* __NFS41__ */

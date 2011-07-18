@@ -391,7 +391,7 @@ int nfs41_delegation_to_open(
     claim.u.deleg_cur.delegate_stateid = &deleg_stateid;
     claim.u.deleg_cur.name = &open->file.name;
 
-    status = nfs41_rpc_open(open->session, &open->parent, &open->file,
+    status = nfs41_open(open->session, &open->parent, &open->file,
         &open->owner, &claim, open->share_access, open->share_deny,
         OPEN4_NOCREATE, 0, 0, try_recovery, &open_stateid, &ignore, NULL);
     if (status)

@@ -185,13 +185,13 @@ static void client_state_remove(
     LeaveCriticalSection(&client->state.lock);
 }
 
-int nfs41_open(
+static int do_open(
     IN OUT nfs41_open_state *state,
     IN uint32_t create,
     IN uint32_t createhow,
     IN uint32_t mode,
     IN bool_t try_recovery,
-    OUT OPTIONAL nfs41_file_info *info)
+    OUT nfs41_file_info *info)
 {
     open_claim4 claim;
     stateid4 open_stateid;
@@ -202,7 +202,7 @@ int nfs41_open(
     claim.claim = CLAIM_NULL;
     claim.u.null.filename = &state->file.name;
 
-    status = nfs41_rpc_open(state->session, &state->parent, &state->file,
+    status = nfs41_open(state->session, &state->parent, &state->file,
         &state->owner, &claim, state->share_access, state->share_deny,
         create, createhow, mode, TRUE, &open_stateid, &delegation, info);
     if (status)
@@ -239,7 +239,7 @@ static int open_or_delegate(
 
     /* get an open stateid if we have no delegation stateid */
     if (status)
-        status = nfs41_open(state, create, createhow, mode, try_recovery, info);
+        status = do_open(state, create, createhow, mode, try_recovery, info);
 
     /* register the client's open state on success */
     if (status == NFS4_OK)

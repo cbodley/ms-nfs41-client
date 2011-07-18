@@ -997,7 +997,7 @@ int nfs41_lookup(
     OUT OPTIONAL nfs41_file_info *info_out,
     OUT nfs41_session **session_out);
 
-int nfs41_rpc_open(
+int nfs41_open(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
     IN nfs41_path_fh *file,

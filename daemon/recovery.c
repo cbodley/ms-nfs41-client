@@ -78,25 +78,27 @@ static int recover_open(
     claim.claim = CLAIM_PREVIOUS;
     claim.u.prev.delegate_type = OPEN_DELEGATE_NONE;
 
-    status = nfs41_rpc_open(session, &open->parent, &open->file,
+    status = nfs41_open(session, &open->parent, &open->file,
         &open->owner, &claim, open->share_access, open->share_deny,
         OPEN4_NOCREATE, 0, 0, FALSE, &stateid.stateid, &delegation, NULL);
 
-    if (status == NFS4_OK) {
-        /* update the open stateid on success */
-        memcpy(&open->stateid, &stateid.stateid, sizeof(stateid4));
-
-    } else if (status == NFS4ERR_NO_GRACE) {
+    if (status == NFS4ERR_NO_GRACE) {
         dprintf(1, "not in grace period, retrying a normal open\n");
-        status = nfs41_open(open, OPEN4_NOCREATE, 0, 0, FALSE, NULL);
 
-        /* update the stateid arg with the new open->stateid */
-        memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));
+        claim.claim = CLAIM_NULL;
+        claim.u.null.filename = &open->file.name;
+
+        status = nfs41_open(session, &open->parent, &open->file,
+            &open->owner, &claim, open->share_access, open->share_deny,
+            OPEN4_NOCREATE, 0, 0, FALSE, &stateid.stateid, &delegation, NULL);
     }
     if (status)
         goto out;
 
     AcquireSRWLockExclusive(&open->lock);
+
+    /* update the open stateid on success */
+    memcpy(&open->stateid, &stateid.stateid, sizeof(stateid4));
 
     open->layout = NULL;
     stateid.type = STATEID_OPEN;
