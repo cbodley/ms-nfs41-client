@@ -69,9 +69,7 @@ static int recover_open(
 {
     open_claim4 claim;
     open_delegation4 delegation;
-    stateid_arg stateid;
-    struct list_entry *entry;
-    nfs41_lock_state *lock;
+    stateid4 stateid;
     int status;
 
     /* reclaim the open stateid */
@@ -80,27 +78,42 @@ static int recover_open(
 
     status = nfs41_open(session, &open->parent, &open->file,
         &open->owner, &claim, open->share_access, open->share_deny,
-        OPEN4_NOCREATE, 0, 0, FALSE, &stateid.stateid, &delegation, NULL);
+        OPEN4_NOCREATE, 0, 0, FALSE, &stateid, &delegation, NULL);
 
     if (status == NFS4ERR_NO_GRACE) {
-        dprintf(1, "not in grace period, retrying a normal open\n");
-
+        /* attempt out-of-grace recovery with CLAIM_NULL */
         claim.claim = CLAIM_NULL;
         claim.u.null.filename = &open->file.name;
 
         status = nfs41_open(session, &open->parent, &open->file,
             &open->owner, &claim, open->share_access, open->share_deny,
-            OPEN4_NOCREATE, 0, 0, FALSE, &stateid.stateid, &delegation, NULL);
+            OPEN4_NOCREATE, 0, 0, FALSE, &stateid, &delegation, NULL);
     }
     if (status)
         goto out;
 
+    /* update the open stateid on success */
+    AcquireSRWLockExclusive(&open->lock);
+    memcpy(&open->stateid, &stateid, sizeof(stateid4));
+    open->layout = NULL;
+    ReleaseSRWLockExclusive(&open->lock);
+out:
+    return status;
+}
+
+static int recover_locks(
+    IN nfs41_session *session,
+    IN nfs41_open_state *open)
+{
+    stateid_arg stateid;
+    struct list_entry *entry;
+    nfs41_lock_state *lock;
+    int status = NFS4_OK;
+
     AcquireSRWLockExclusive(&open->lock);
 
-    /* update the open stateid on success */
-    memcpy(&open->stateid, &stateid.stateid, sizeof(stateid4));
-
-    open->layout = NULL;
+    /* initialize the open stateid for the first lock request */
+    memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));
     stateid.type = STATEID_OPEN;
     stateid.open = open;
 
@@ -110,7 +123,7 @@ static int recover_open(
         status = nfs41_lock(session, &open->file, &open->owner,
             lock->type, lock->offset, lock->length, TRUE, FALSE, &stateid);
         if (status == NFS4ERR_NO_GRACE) {
-            dprintf(1, "not in grace period, retrying a normal lock\n");
+            /* attempt out-of-grace recovery with a normal LOCK */
             status = nfs41_lock(session, &open->file, &open->owner,
                 lock->type, lock->offset, lock->length, FALSE, FALSE, &stateid);
         }
@@ -127,7 +140,6 @@ static int recover_open(
     }
 
     ReleaseSRWLockExclusive(&open->lock);
-out:
     return status;
 }
 
@@ -147,6 +159,8 @@ int nfs41_recover_client_state(
     list_for_each(entry, &state->opens) {
         open = list_container(entry, nfs41_open_state, client_entry);
         status = recover_open(session, open);
+        if (status == NFS4_OK)
+            status = recover_locks(session, open);
         if (status == NFS4ERR_BADSESSION)
             break;
     }
@@ -165,13 +179,60 @@ int nfs41_recover_client_state(
     return status;
 }
 
+static bool_t recover_stateid_open(
+    IN nfs_argop4 *argop,
+    IN stateid_arg *stateid)
+{
+    bool_t retry = FALSE;
+
+    if (stateid->open) {
+        stateid4 *source = &stateid->open->stateid;
+
+        /* if the source stateid is different, update and retry */
+        AcquireSRWLockShared(&stateid->open->lock);
+        if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
+            memcpy(&stateid->stateid, source, sizeof(stateid4));
+            retry = TRUE;
+        }
+        ReleaseSRWLockShared(&stateid->open->lock);
+    }
+    return retry;
+}
+
+static bool_t recover_stateid_lock(
+    IN nfs_argop4 *argop,
+    IN stateid_arg *stateid)
+{
+    bool_t retry = FALSE;
+
+    if (stateid->open) {
+        stateid4 *source = &stateid->open->locks.stateid;
+
+        /* if the source stateid is different, update and retry */
+        AcquireSRWLockShared(&stateid->open->lock);
+        if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
+            if (argop->op == OP_LOCK && source->seqid == 0) {
+                /* resend LOCK with an open stateid */
+                nfs41_lock_args *lock = (nfs41_lock_args*)argop->arg;
+                lock->locker.new_lock_owner = 1;
+                lock->locker.u.open_owner.open_stateid = stateid;
+                lock->locker.u.open_owner.lock_owner = &stateid->open->owner;
+                source = &stateid->open->stateid;
+            }
+
+            memcpy(&stateid->stateid, source, sizeof(stateid4));
+            retry = TRUE;
+        }
+        ReleaseSRWLockShared(&stateid->open->lock);
+    }
+    return retry;
+}
+
 bool_t nfs41_recover_stateid(
     IN nfs41_session *session,
     IN nfs_argop4 *argop)
 {
     stateid_arg *stateid = NULL;
-    stateid4 *source = NULL;
-    bool_t retry = FALSE;
 
     if (argop->op == OP_CLOSE) {
         nfs41_op_close_args *close = (nfs41_op_close_args*)argop->arg;
@@ -198,46 +259,27 @@ bool_t nfs41_recover_stateid(
         pnfs_layoutget_args *lget = (pnfs_layoutget_args*)argop->arg;
         stateid = lget->stateid;
     }
+    if (stateid == NULL)
+        return FALSE;
 
-    if (stateid) {
-        switch (stateid->type) {
-        case STATEID_OPEN:
-        case STATEID_LOCK:
-            /* if there's recovery in progress, wait for it to finish */
-            EnterCriticalSection(&session->client->recovery.lock);
-            while (session->client->recovery.in_recovery)
-                SleepConditionVariableCS(&session->client->recovery.cond,
-                    &session->client->recovery.lock, INFINITE);
-            LeaveCriticalSection(&session->client->recovery.lock);
+    /* if there's recovery in progress, wait for it to finish */
+    EnterCriticalSection(&session->client->recovery.lock);
+    while (session->client->recovery.in_recovery)
+        SleepConditionVariableCS(&session->client->recovery.cond,
+            &session->client->recovery.lock, INFINITE);
+    LeaveCriticalSection(&session->client->recovery.lock);
 
-            if (stateid->type == STATEID_OPEN)
-                source = &stateid->open->stateid;
-            else
-                source = &stateid->open->locks.stateid;
+    switch (stateid->type) {
+    case STATEID_OPEN:
+        return recover_stateid_open(argop, stateid);
 
-            /* if the source stateid is different, update and retry */
-            AcquireSRWLockShared(&stateid->open->lock);
-            if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
-                /* if it was a lock stateid that was cleared, resend it with an open stateid */
-                if (argop->op == OP_LOCK && stateid->type == STATEID_LOCK && source->seqid == 0) {
-                    nfs41_lock_args *lock = (nfs41_lock_args*)argop->arg;
-                    lock->locker.new_lock_owner = 1;
-                    lock->locker.u.open_owner.open_stateid = stateid;
-                    lock->locker.u.open_owner.lock_owner = &stateid->open->owner;
-                    source = &stateid->open->stateid;
-                }
+    case STATEID_LOCK:
+        return recover_stateid_lock(argop, stateid);
 
-                memcpy(&stateid->stateid, source, sizeof(stateid4));
-                retry = TRUE;
-            }
-            ReleaseSRWLockShared(&stateid->open->lock);
-            break;
-
-        default:
-            eprintf("%s can't recover stateid type %u\n",
-                nfs_opnum_to_string(argop->op), stateid->type);
-            break;
-        }
+    default:
+        eprintf("%s can't recover stateid type %u\n",
+            nfs_opnum_to_string(argop->op), stateid->type);
+        break;
     }
-    return retry;
+    return FALSE;
 }
