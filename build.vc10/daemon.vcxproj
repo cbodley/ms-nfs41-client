@@ -219,6 +219,7 @@
     <ClCompile Include="..\daemon\pnfs_layout.c" />
     <ClCompile Include="..\daemon\readdir.c" />
     <ClCompile Include="..\daemon\readwrite.c" />
+    <ClCompile Include="..\daemon\recovery.c" />
     <ClCompile Include="..\daemon\service.c" />
     <ClCompile Include="..\daemon\setattr.c" />
     <ClCompile Include="..\daemon\symlink.c" />
@@ -241,6 +242,7 @@
     <ClInclude Include="..\daemon\nfs41_types.h" />
     <ClInclude Include="..\daemon\nfs41_xdr.h" />
     <ClInclude Include="..\daemon\pnfs.h" />
+    <ClInclude Include="..\daemon\recovery.h" />
     <ClInclude Include="..\daemon\service.h" />
     <ClInclude Include="..\daemon\tree.h" />
     <ClInclude Include="..\daemon\upcall.h" />
