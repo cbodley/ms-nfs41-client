@@ -1767,15 +1767,19 @@ static bool_t decode_file_attrs(
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_OWNER) {
             char *ptr = &info->owner[0];
-            if (!xdr_bytes(xdr, &ptr, &info->owner_len, 
+            uint32_t owner_len;
+            if (!xdr_bytes(xdr, &ptr, &owner_len, 
                             NFS4_OPAQUE_LIMIT))
                 return FALSE;
+            info->owner[owner_len] = '\0';
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_OWNER_GROUP) {
             char *ptr = &info->owner_group[0];
-            if (!xdr_bytes(xdr, &ptr, &info->owner_group_len, 
+            uint32_t owner_group_len;
+            if (!xdr_bytes(xdr, &ptr, &owner_group_len, 
                             NFS4_OPAQUE_LIMIT))
                 return FALSE;
+            info->owner_group[owner_group_len] = '\0';
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_SPACE_AVAIL) {
             if (!xdr_u_hyper(xdr, &info->space_avail))
@@ -2573,14 +2577,16 @@ static bool_t encode_file_attrs(
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_OWNER) {
             char *ptr = &info->owner[0];
-            if (!xdr_bytes(&localxdr, &ptr, &info->owner_len, 
+            uint32_t owner_len = strlen(info->owner);
+            if (!xdr_bytes(&localxdr, &ptr, &owner_len, 
                             NFS4_OPAQUE_LIMIT))
                 return FALSE;
             attrs->attrmask.arr[1] |= FATTR4_WORD1_OWNER;
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_OWNER_GROUP) {
             char *ptr = &info->owner_group[0];
-            if (!xdr_bytes(&localxdr, &ptr, &info->owner_group_len, 
+            uint32_t owner_group_len = strlen(info->owner_group);
+            if (!xdr_bytes(&localxdr, &ptr, &owner_group_len, 
                             NFS4_OPAQUE_LIMIT))
                 return FALSE;
             attrs->attrmask.arr[1] |= FATTR4_WORD1_OWNER_GROUP;

@@ -269,17 +269,19 @@ static int handle_getacl(nfs41_upcall *upcall)
     getacl_upcall_args *args = &upcall->args.getacl;
     nfs41_open_state *state = upcall->state_ref;
     nfs41_file_info info;
-    bitmap4 attr_request;
+    bitmap4 attr_request = { 0 };
     LPSTR domain = NULL;
     SECURITY_DESCRIPTOR sec_desc;
     PACL dacl = NULL;
     PSID *sids = NULL;
     PSID osid = NULL, gsid = NULL;
     DWORD sid_len;
+    char owner[NFS4_OPAQUE_LIMIT], group[NFS4_OPAQUE_LIMIT];
 
     // need to cache owner/group information XX
     ZeroMemory(&info, sizeof(info));
-    init_getattr_request(&attr_request);
+    attr_request.count = 2;
+    attr_request.arr[1] = FATTR4_WORD1_OWNER | FATTR4_WORD1_OWNER_GROUP;
     if (args->query & DACL_SECURITY_INFORMATION) {
         info.acl = calloc(1, sizeof(nfsacl41));
         if (info.acl == NULL) {
@@ -288,6 +290,8 @@ static int handle_getacl(nfs41_upcall *upcall)
         }
         attr_request.arr[0] |= FATTR4_WORD0_ACL;
     }
+    info.owner = owner;
+    info.owner_group = group;
     status = nfs41_getattr(state->session, &state->file, &attr_request, &info);
     if (status) {
         eprintf("handle_getacl: nfs41_cached_getattr() failed with %d\n", 
@@ -727,7 +731,6 @@ static int handle_setacl(nfs41_upcall *upcall)
         if (status)
             goto out;
         else {
-            info.owner_len = (uint32_t)strlen(info.owner);
             info.attrmask.arr[1] |= FATTR4_WORD1_OWNER;
             info.attrmask.count = 2;
         }
@@ -745,7 +748,6 @@ static int handle_setacl(nfs41_upcall *upcall)
         if (status)
             goto out;
         else {
-            info.owner_group_len = (uint32_t)strlen(info.owner_group);
             info.attrmask.arr[1] |= FATTR4_WORD1_OWNER_GROUP;
             info.attrmask.count = 2;
         }
