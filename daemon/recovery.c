@@ -65,7 +65,8 @@ void nfs41_recovery_finish(
 
 static int recover_open(
     IN nfs41_session *session,
-    IN nfs41_open_state *open)
+    IN nfs41_open_state *open,
+    IN OUT bool_t *grace)
 {
     open_claim4 claim;
     open_delegation4 delegation;
@@ -76,11 +77,15 @@ static int recover_open(
     claim.claim = CLAIM_PREVIOUS;
     claim.u.prev.delegate_type = OPEN_DELEGATE_NONE;
 
-    status = nfs41_open(session, &open->parent, &open->file,
-        &open->owner, &claim, open->share_access, open->share_deny,
-        OPEN4_NOCREATE, 0, 0, FALSE, &stateid, &delegation, NULL);
+    if (*grace)
+        status = nfs41_open(session, &open->parent, &open->file,
+            &open->owner, &claim, open->share_access, open->share_deny,
+            OPEN4_NOCREATE, 0, 0, FALSE, &stateid, &delegation, NULL);
+    else
+        status = NFS4ERR_NO_GRACE;
 
     if (status == NFS4ERR_NO_GRACE) {
+        *grace = FALSE;
         /* attempt out-of-grace recovery with CLAIM_NULL */
         claim.claim = CLAIM_NULL;
         claim.u.null.filename = &open->file.name;
@@ -103,7 +108,8 @@ out:
 
 static int recover_locks(
     IN nfs41_session *session,
-    IN nfs41_open_state *open)
+    IN nfs41_open_state *open,
+    IN OUT bool_t *grace)
 {
     stateid_arg stateid;
     struct list_entry *entry;
@@ -120,9 +126,15 @@ static int recover_locks(
     /* recover any locks for this open */
     list_for_each(entry, &open->locks.list) {
         lock = list_container(entry, nfs41_lock_state, open_entry);
-        status = nfs41_lock(session, &open->file, &open->owner,
-            lock->type, lock->offset, lock->length, TRUE, FALSE, &stateid);
+
+        if (*grace)
+            status = nfs41_lock(session, &open->file, &open->owner,
+                lock->type, lock->offset, lock->length, TRUE, FALSE, &stateid);
+        else
+            status = NFS4ERR_NO_GRACE;
+
         if (status == NFS4ERR_NO_GRACE) {
+            *grace = FALSE;
             /* attempt out-of-grace recovery with a normal LOCK */
             status = nfs41_lock(session, &open->file, &open->owner,
                 lock->type, lock->offset, lock->length, FALSE, FALSE, &stateid);
@@ -152,15 +164,16 @@ int nfs41_recover_client_state(
     struct client_state *state = &session->client->state;
     struct list_entry *entry;
     nfs41_open_state *open;
+    bool_t grace = TRUE;
     int status = NFS4_OK;
 
     /* recover each of the client's opens */
     EnterCriticalSection(&state->lock);
     list_for_each(entry, &state->opens) {
         open = list_container(entry, nfs41_open_state, client_entry);
-        status = recover_open(session, open);
+        status = recover_open(session, open, &grace);
         if (status == NFS4_OK)
-            status = recover_locks(session, open);
+            status = recover_locks(session, open, &grace);
         if (status == NFS4ERR_BADSESSION)
             break;
     }
@@ -169,7 +182,7 @@ int nfs41_recover_client_state(
     /* revoke all of the client's layouts */
     pnfs_file_layout_recall(client, &recall);
 
-    if (status != NFS4ERR_BADSESSION) {
+    if (grace && status != NFS4ERR_BADSESSION) {
         /* send reclaim_complete, but don't fail on errors */
         status = nfs41_reclaim_complete(session);
         if (status && status == NFS4ERR_NOTSUPP)
