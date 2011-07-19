@@ -89,6 +89,7 @@ enum delegation_status {
 typedef struct __nfs41_delegation_state {
     open_delegation4 state;
     nfs41_abs_path path;
+    nfs41_path_fh parent;
     nfs41_path_fh file;
     struct list_entry client_entry; /* entry in nfs41_client.delegations */
     LONG ref_count;
@@ -96,6 +97,8 @@ typedef struct __nfs41_delegation_state {
     enum delegation_status status;
     SRWLOCK lock;
     CONDITION_VARIABLE cond;
+
+    bool_t revoked; /* for recovery, accessed under client.state.lock */
 } nfs41_delegation_state;
 
 typedef struct __nfs41_lock_state {

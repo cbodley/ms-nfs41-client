@@ -1154,7 +1154,8 @@ int nfs41_access(
 int nfs41_delegreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid);
+    IN stateid4 *stateid,
+    IN bool_t try_recovery);
 
 enum nfsstat4 nfs41_fs_locations(
     IN nfs41_session *session,

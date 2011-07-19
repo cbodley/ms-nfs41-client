@@ -45,8 +45,10 @@ void nfs41_client_delegation_free(
 /* open delegation */
 int nfs41_delegation_granted(
     IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
     IN nfs41_path_fh *file,
     IN open_delegation4 *delegation,
+    IN bool_t try_recovery,
     OUT nfs41_delegation_state **deleg_out);
 
 int nfs41_delegate_open(

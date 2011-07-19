@@ -1530,7 +1530,8 @@ out:
 int nfs41_delegreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid)
+    IN stateid4 *stateid,
+    IN bool_t try_recovery)
 {
     int status;
     nfs41_compound compound;
@@ -1557,7 +1558,7 @@ int nfs41_delegreturn(
     compound_add_op(&compound, OP_DELEGRETURN, &dr_args, &dr_res);
     dr_args.stateid = stateid;
 
-    status = compound_encode_send_decode(session, &compound, TRUE);
+    status = compound_encode_send_decode(session, &compound, try_recovery);
     if (status)
         goto out;
 

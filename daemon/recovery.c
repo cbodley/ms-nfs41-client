@@ -21,7 +21,10 @@
  * such damages.
  */
 
+#include <time.h>
+
 #include "recovery.h"
+#include "delegation.h"
 #include "nfs41_callback.h"
 #include "nfs41_compound.h"
 #include "nfs41_ops.h"
@@ -63,44 +66,131 @@ void nfs41_recovery_finish(
     LeaveCriticalSection(&client->recovery.lock);
 }
 
+
+/* client state recovery for server reboot or lease expiration */
+static int recover_open_grace(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
+    IN uint32_t access,
+    IN uint32_t deny,
+    IN enum open_delegation_type4 delegate_type,
+    OUT stateid4 *stateid,
+    OUT open_delegation4 *delegation)
+{
+    /* reclaim the open stateid with CLAIM_PREVIOUS */
+    open_claim4 claim;
+    claim.claim = CLAIM_PREVIOUS;
+    claim.u.prev.delegate_type = delegate_type;
+
+    return nfs41_open(session, parent, file, owner,
+        &claim, access, deny, OPEN4_NOCREATE, 0, 0, FALSE,
+        stateid, delegation, NULL);
+}
+
+static int recover_open_no_grace(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN state_owner4 *owner,
+    IN uint32_t access,
+    IN uint32_t deny,
+    IN enum open_delegation_type4 delegate_type,
+    OUT stateid4 *stateid,
+    OUT open_delegation4 *delegation)
+{
+    open_claim4 claim;
+
+    /* TODO: try CLAIM_DELEGATE_PREV / CLAIM_DELEG_PREV_FH first */
+
+    /* attempt out-of-grace recovery with CLAIM_NULL */
+    claim.claim = CLAIM_NULL;
+    claim.u.null.filename = &file->name;
+
+    /* ask nicely for the delegation we had */
+    if (delegate_type == OPEN_DELEGATE_READ)
+        access |= OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+    else if (delegate_type == OPEN_DELEGATE_WRITE)
+        access |= OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+
+    return nfs41_open(session, parent, file, owner,
+        &claim, access, deny, OPEN4_NOCREATE, 0, 0, FALSE,
+        stateid, delegation, NULL);
+}
+
 static int recover_open(
     IN nfs41_session *session,
     IN nfs41_open_state *open,
     IN OUT bool_t *grace)
 {
-    open_claim4 claim;
-    open_delegation4 delegation;
+    open_delegation4 delegation = { 0 };
     stateid4 stateid;
-    int status;
+    enum open_delegation_type4 delegate_type = OPEN_DELEGATE_NONE;
+    int status = NFS4ERR_BADHANDLE;
 
-    /* reclaim the open stateid */
-    claim.claim = CLAIM_PREVIOUS;
-    claim.u.prev.delegate_type = OPEN_DELEGATE_NONE;
+    /* check for an associated delegation */
+    AcquireSRWLockExclusive(&open->lock);
+    if (open->delegation.state) {
+        nfs41_delegation_state *deleg = open->delegation.state;
+        if (deleg->revoked) {
+            /* reclaim the delegation along with the open */
+            AcquireSRWLockShared(&deleg->lock);
+            delegate_type = deleg->state.type;
+            ReleaseSRWLockShared(&deleg->lock);
+        } else if (deleg->state.recalled) {
+            /* we'll need an open stateid regardless */
+        } else if (list_empty(&open->locks.list)) {
+            /* if there are locks, we need an open stateid to
+             * reclaim them; otherwise, the open can be delegated */
+            open->do_close = FALSE;
+            status = NFS4_OK;
+        }
+    }
+    ReleaseSRWLockExclusive(&open->lock);
+
+    if (status == NFS4_OK) /* use existing delegation */
+        goto out;
 
     if (*grace)
-        status = nfs41_open(session, &open->parent, &open->file,
-            &open->owner, &claim, open->share_access, open->share_deny,
-            OPEN4_NOCREATE, 0, 0, FALSE, &stateid, &delegation, NULL);
+        status = recover_open_grace(session, &open->parent, &open->file,
+            &open->owner, open->share_access, open->share_deny,
+            delegate_type, &stateid, &delegation);
     else
         status = NFS4ERR_NO_GRACE;
 
     if (status == NFS4ERR_NO_GRACE) {
         *grace = FALSE;
-        /* attempt out-of-grace recovery with CLAIM_NULL */
-        claim.claim = CLAIM_NULL;
-        claim.u.null.filename = &open->file.name;
-
-        status = nfs41_open(session, &open->parent, &open->file,
-            &open->owner, &claim, open->share_access, open->share_deny,
-            OPEN4_NOCREATE, 0, 0, FALSE, &stateid, &delegation, NULL);
+        status = recover_open_no_grace(session, &open->parent, &open->file,
+            &open->owner, open->share_access, open->share_deny,
+            delegate_type, &stateid, &delegation);
     }
     if (status)
         goto out;
 
-    /* update the open stateid on success */
     AcquireSRWLockExclusive(&open->lock);
+    /* update the open stateid */
     memcpy(&open->stateid, &stateid, sizeof(stateid4));
-    open->layout = NULL;
+    open->do_close = TRUE;
+
+    if (open->delegation.state) {
+        nfs41_delegation_state *deleg = open->delegation.state;
+        if (deleg->revoked) {
+            /* update delegation state */
+            AcquireSRWLockExclusive(&deleg->lock);
+            if (delegation.type != OPEN_DELEGATE_READ &&
+                delegation.type != OPEN_DELEGATE_WRITE) {
+                eprintf("recover_open() got delegation type %u, "
+                    "expected %u\n", delegation.type, deleg->state.type);
+            } else {
+                memcpy(&deleg->state, &delegation, sizeof(open_delegation4));
+                deleg->revoked = FALSE;
+            }
+            ReleaseSRWLockExclusive(&deleg->lock);
+        }
+    } else /* granted a new delegation? */
+        nfs41_delegation_granted(session, &open->parent, &open->file,
+            &delegation, FALSE, &open->delegation.state);
     ReleaseSRWLockExclusive(&open->lock);
 out:
     return status;
@@ -155,6 +245,69 @@ static int recover_locks(
     return status;
 }
 
+/* delegation recovery via OPEN (requires corresponding CLOSE) */
+static int recover_delegation_open(
+    IN nfs41_session *session,
+    IN nfs41_delegation_state *deleg,
+    IN OUT bool_t *grace)
+{
+    state_owner4 owner;
+    open_delegation4 delegation = { 0 };
+    stateid_arg stateid;
+    uint32_t access = OPEN4_SHARE_ACCESS_READ;
+    uint32_t deny = OPEN4_SHARE_DENY_NONE;
+    enum open_delegation_type4 delegate_type = OPEN_DELEGATE_NONE;
+    int status = NFS4_OK;
+
+    /* choose the desired access mode based on delegation type */
+    AcquireSRWLockShared(&deleg->lock);
+    delegate_type = deleg->state.type;
+    if (delegate_type == OPEN_DELEGATE_WRITE)
+        access |= OPEN4_SHARE_ACCESS_WRITE | OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+    else
+        access |= OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+    ReleaseSRWLockShared(&deleg->lock);
+
+    /* construct a temporary open owner by concatenating the time
+     * in seconds with the delegation pointer */
+    time((time_t*)owner.owner);
+    memcpy(owner.owner + sizeof(time_t), deleg, sizeof(deleg));
+    owner.owner_len = sizeof(time_t) + sizeof(deleg);
+
+    if (*grace)
+        status = recover_open_grace(session, &deleg->parent, &deleg->file,
+            &owner, access, deny, delegate_type, &stateid.stateid, &delegation);
+    else
+        status = NFS4ERR_NO_GRACE;
+
+    if (status == NFS4ERR_NO_GRACE) {
+        *grace = FALSE;
+        status = recover_open_no_grace(session, &deleg->parent, &deleg->file,
+            &owner, access, deny, delegate_type, &stateid.stateid, &delegation);
+    }
+    if (status)
+        goto out;
+
+    /* update delegation state */
+    AcquireSRWLockExclusive(&deleg->lock);
+    if (delegation.type != OPEN_DELEGATE_READ &&
+        delegation.type != OPEN_DELEGATE_WRITE) {
+        eprintf("recover_delegation_open() got delegation type %u, "
+            "expected %u\n", delegation.type, deleg->state.type);
+    } else {
+        memcpy(&deleg->state, &delegation, sizeof(open_delegation4));
+        deleg->revoked = FALSE;
+    }
+    ReleaseSRWLockExclusive(&deleg->lock);
+
+    /* send CLOSE to free the open stateid */
+    stateid.open = NULL;
+    stateid.type = STATEID_OPEN;
+    nfs41_close(session, &deleg->file, &stateid);
+out:
+    return status;
+}
+
 int nfs41_recover_client_state(
     IN nfs41_session *session,
     IN nfs41_client *client)
@@ -164,19 +317,43 @@ int nfs41_recover_client_state(
     struct client_state *state = &session->client->state;
     struct list_entry *entry;
     nfs41_open_state *open;
+    nfs41_delegation_state *deleg;
     bool_t grace = TRUE;
     int status = NFS4_OK;
 
-    /* recover each of the client's opens */
     EnterCriticalSection(&state->lock);
+
+    /* flag all delegations as revoked until successful recovery;
+     * recover_open() and recover_delegation_open() will only ask
+     * for delegations when revoked = TRUE */
+    list_for_each(entry, &state->delegations) {
+        deleg = list_container(entry, nfs41_delegation_state, client_entry);
+        deleg->revoked = TRUE;
+    }
+
+    /* recover each of the client's opens and associated delegations */
     list_for_each(entry, &state->opens) {
         open = list_container(entry, nfs41_open_state, client_entry);
         status = recover_open(session, open, &grace);
         if (status == NFS4_OK)
             status = recover_locks(session, open, &grace);
         if (status == NFS4ERR_BADSESSION)
-            break;
+            goto unlock;
     }
+
+    /* recover delegations that weren't associated with any opens */
+    list_for_each(entry, &state->delegations) {
+        deleg = list_container(entry, nfs41_delegation_state, client_entry);
+        if (deleg->revoked) {
+            /* TODO: try WANT_DELEGATION (server support is optional) */
+            status = recover_delegation_open(session, deleg, &grace);
+            if (status == NFS4ERR_BADSESSION)
+                goto unlock;
+        }
+    }
+
+    /* TODO: return any delegations that were reclaimed as 'recalled' */
+unlock:
     LeaveCriticalSection(&state->lock);
 
     /* revoke all of the client's layouts */

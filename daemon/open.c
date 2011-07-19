@@ -209,8 +209,8 @@ static int do_open(
         goto out;
 
     /* allocate delegation state and register it with the client */
-    nfs41_delegation_granted(state->session,
-        &state->file, &delegation, &deleg_state);
+    nfs41_delegation_granted(state->session, &state->parent,
+        &state->file, &delegation, TRUE, &deleg_state);
 
     AcquireSRWLockExclusive(&state->lock);
     /* update the stateid */

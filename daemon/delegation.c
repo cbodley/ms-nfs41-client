@@ -32,6 +32,7 @@
 
 /* allocation and reference counting */
 static int delegation_create(
+    IN const nfs41_path_fh *parent,
     IN const nfs41_path_fh *file,
     IN const open_delegation4 *delegation,
     OUT nfs41_delegation_state **deleg_out)
@@ -46,9 +47,15 @@ static int delegation_create(
     }
 
     memcpy(&state->state, delegation, sizeof(open_delegation4));
+
     abs_path_copy(&state->path, file->path);
     path_fh_init(&state->file, &state->path);
     fh_copy(&state->file.fh, &file->fh);
+    path_fh_init(&state->parent, &state->path);
+    last_component(state->path.path, state->file.name.name,
+        &state->parent.name);
+    fh_copy(&state->parent.fh, &parent->fh);
+
     list_init(&state->client_entry);
     state->status = DELEGATION_GRANTED;
     InitializeSRWLock(&state->lock);
@@ -132,7 +139,8 @@ static void delegation_return(
 
     /* TODO: flush data and metadata before returning delegation */
 
-    nfs41_delegreturn(client->session, &deleg->file, &deleg->state.stateid);
+    nfs41_delegreturn(client->session, &deleg->file,
+        &deleg->state.stateid, TRUE);
 
     /* remove from the client's list */
     EnterCriticalSection(&client->state.lock);
@@ -164,21 +172,25 @@ static void delegation_return(
 /* open delegation */
 int nfs41_delegation_granted(
     IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
     IN nfs41_path_fh *file,
     IN open_delegation4 *delegation,
+    IN bool_t try_recovery,
     OUT nfs41_delegation_state **deleg_out)
 {
     nfs41_client *client = session->client;
     nfs41_delegation_state *state;
     int status = NO_ERROR;
 
-    if (delegation->recalled ||
-        delegation->type == OPEN_DELEGATE_NONE ||
-        delegation->type == OPEN_DELEGATE_NONE_EXT)
+    if (delegation->type != OPEN_DELEGATE_READ &&
+        delegation->type != OPEN_DELEGATE_WRITE)
         goto out;
 
+    if (delegation->recalled)
+        goto out_return;
+
     /* allocate the delegation state */
-    status = delegation_create(file, delegation, &state);
+    status = delegation_create(parent, file, delegation, &state);
     if (status)
         goto out_return;
 
@@ -194,7 +206,7 @@ out:
     return status;
 
 out_return: /* return the delegation on failure */
-    nfs41_delegreturn(session, file, &delegation->stateid);
+    nfs41_delegreturn(session, file, &delegation->stateid, try_recovery);
     goto out;
 }
 
@@ -439,7 +451,7 @@ int nfs41_delegation_return(
         }
     } else {
         /* the delegation is being returned, wait for it to finish */
-        while (deleg->status != DELEGATION_RETURNING)
+        while (deleg->status != DELEGATION_RETURNED)
             SleepConditionVariableSRW(&deleg->cond, &deleg->lock, INFINITE, 0);
         status = NFS4ERR_BADHANDLE;
     }
