@@ -373,6 +373,12 @@ typedef struct __nfs41_create_res {
 } nfs41_create_res;
 
 
+/* OP_DELEGPURGE */
+typedef struct __nfs41_delegpurge_res {
+    uint32_t                status;
+} nfs41_delegpurge_res;
+
+
 /* OP_DELEGRETURN */
 typedef struct __nfs41_delegreturn_args {
     stateid_arg             *stateid;
@@ -1151,6 +1157,9 @@ int nfs41_access(
     IN uint32_t requested,
     OUT uint32_t *supported OPTIONAL,
     OUT uint32_t *access OPTIONAL);
+
+int nfs41_delegpurge(
+    IN nfs41_session *session);
 
 int nfs41_delegreturn(
     IN nfs41_session *session,

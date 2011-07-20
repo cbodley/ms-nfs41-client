@@ -669,7 +669,15 @@ int nfs41_client_delegation_recovery(
         }
 
         if (status == NFS4ERR_BADSESSION)
-            break;
+            goto out;
     }
+
+    /* use DELEGPURGE to indicate that we're done reclaiming delegations */
+    status = nfs41_delegpurge(client->session);
+
+    /* support for DELEGPURGE is optional; ignore any errors but BADSESSION */
+    if (status != NFS4ERR_BADSESSION)
+        status = NFS4_OK;
+out:
     return status;
 }

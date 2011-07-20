@@ -1527,6 +1527,35 @@ out:
     return status;
 }
 
+int nfs41_delegpurge(
+    IN nfs41_session *session)
+{
+    int status;
+    nfs41_compound compound;
+    nfs_argop4 argops[2];
+    nfs_resop4 resops[2];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_delegpurge_res dp_res;
+
+    compound_init(&compound, argops, resops, "delegpurge");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 0);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_DELEGPURGE, NULL, &dp_res);
+
+    status = compound_encode_send_decode(session, &compound, TRUE);
+    if (status)
+        goto out;
+
+    compound_error(status = compound.res.status);
+out:
+    return status;
+}
+
 int nfs41_delegreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,

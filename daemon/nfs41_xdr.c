@@ -1633,6 +1633,36 @@ static bool_t decode_op_locku(
 
 
 /*
+ * OP_DELEGPURGE
+ */
+static bool_t encode_op_delegpurge(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    uint64_t zero = 0;
+
+    if (unexpected_op(argop->op, OP_DELEGPURGE))
+        return FALSE;
+
+    /* The client SHOULD set the client field to zero,
+     * and the server MUST ignore the clientid field. */
+    return xdr_u_int64_t(xdr, &zero);
+}
+
+static bool_t decode_op_delegpurge(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_delegpurge_res *res = (nfs41_delegpurge_res*)resop->res;
+
+    if (unexpected_op(resop->op, OP_DELEGPURGE))
+        return FALSE;
+
+    return xdr_u_int32_t(xdr, &res->status);
+}
+
+
+/*
  * OP_DELEGRETURN
  */
 static bool_t encode_op_delegreturn(
@@ -3347,7 +3377,7 @@ static const op_table_entry g_op_table[] = {
     { encode_op_close, decode_op_close }, /* OP_CLOSE = 4 */
     { encode_op_commit, decode_op_commit }, /* OP_COMMIT = 5 */
     { encode_op_create, decode_op_create }, /* OP_CREATE = 6 */
-    { NULL, NULL }, /* OP_DELEGPURGE = 7 */
+    { encode_op_delegpurge, decode_op_delegpurge }, /* OP_DELEGPURGE = 7 */
     { encode_op_delegreturn, decode_op_delegreturn }, /* OP_DELEGRETURN = 8 */
     { encode_op_getattr, decode_op_getattr }, /* OP_GETATTR = 9 */
     { encode_op_getfh, decode_op_getfh }, /* OP_GETFH = 10 */
