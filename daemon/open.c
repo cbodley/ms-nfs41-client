@@ -127,6 +127,7 @@ void nfs41_open_stateid_arg(
     OUT stateid_arg *arg)
 {
     arg->open = state;
+    arg->delegation = NULL;
 
     AcquireSRWLockShared(&state->lock);
 
@@ -659,6 +660,7 @@ static void cancel_open(IN nfs41_upcall *upcall)
     if (state->do_close) {
         stateid_arg stateid;
         stateid.open = state;
+        stateid.delegation = NULL;
         stateid.type = STATEID_OPEN;
         memcpy(&stateid.stateid, &state->stateid, sizeof(stateid4));
 
@@ -742,6 +744,7 @@ static int handle_close(nfs41_upcall *upcall)
     if (state->do_close) {
         stateid_arg stateid;
         stateid.open = state;
+        stateid.delegation = NULL;
         stateid.type = STATEID_OPEN;
         memcpy(&stateid.stateid, &state->stateid, sizeof(stateid4));
 

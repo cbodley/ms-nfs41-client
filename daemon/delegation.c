@@ -128,6 +128,7 @@ static void delegation_return(
     IN nfs41_delegation_state *deleg,
     IN bool_t truncate)
 {
+    stateid_arg stateid;
     struct list_entry *entry;
     nfs41_open_state *open;
 
@@ -139,8 +140,15 @@ static void delegation_return(
 
     /* TODO: flush data and metadata before returning delegation */
 
-    nfs41_delegreturn(client->session, &deleg->file,
-        &deleg->state.stateid, TRUE);
+    /* return the delegation */
+    stateid.type = STATEID_DELEG_FILE;
+    stateid.open = NULL;
+    stateid.delegation = deleg;
+    AcquireSRWLockShared(&deleg->lock);
+    memcpy(&stateid.stateid, &deleg->state.stateid, sizeof(stateid4));
+    ReleaseSRWLockShared(&deleg->lock);
+
+    nfs41_delegreturn(client->session, &deleg->file, &stateid, TRUE);
 
     /* remove from the client's list */
     EnterCriticalSection(&client->state.lock);
@@ -178,6 +186,7 @@ int nfs41_delegation_granted(
     IN bool_t try_recovery,
     OUT nfs41_delegation_state **deleg_out)
 {
+    stateid_arg stateid;
     nfs41_client *client = session->client;
     nfs41_delegation_state *state;
     int status = NO_ERROR;
@@ -206,7 +215,11 @@ out:
     return status;
 
 out_return: /* return the delegation on failure */
-    nfs41_delegreturn(session, file, &delegation->stateid, try_recovery);
+    memcpy(&stateid.stateid, &delegation->stateid, sizeof(stateid4));
+    stateid.type = STATEID_DELEG_FILE;
+    stateid.open = NULL;
+    stateid.delegation = NULL;
+    nfs41_delegreturn(session, file, &stateid, try_recovery);
     goto out;
 }
 
@@ -332,6 +345,7 @@ int nfs41_delegate_open(
     } else if (create == OPEN4_CREATE) {
         /* copy the stateid for SETATTR */
         stateid.open = NULL;
+        stateid.delegation = deleg;
         stateid.type = STATEID_DELEG_FILE;
         memcpy(&stateid.stateid, &deleg->state.stateid, sizeof(stateid4));
     }
@@ -370,7 +384,8 @@ int nfs41_delegation_to_open(
 {
     open_delegation4 ignore;
     open_claim4 claim;
-    stateid4 deleg_stateid, open_stateid = { 0 };
+    stateid4 open_stateid = { 0 };
+    stateid_arg deleg_stateid;
     int status = NFS4_OK;
 
     AcquireSRWLockExclusive(&open->lock);
@@ -387,12 +402,16 @@ int nfs41_delegation_to_open(
             SleepConditionVariableSRW(&open->delegation.cond, &open->lock,
                 INFINITE, 0);
         } while (open->delegation.reclaim);
-        goto out_unlock;
+        if (open->do_close)
+            goto out_unlock;
     }
     open->delegation.reclaim = 1;
 
     AcquireSRWLockShared(&open->delegation.state->lock);
-    memcpy(&deleg_stateid, &open->delegation.state->state.stateid,
+    deleg_stateid.open = open;
+    deleg_stateid.delegation = NULL;
+    deleg_stateid.type = STATEID_DELEG_FILE;
+    memcpy(&deleg_stateid.stateid, &open->delegation.state->state.stateid,
         sizeof(stateid4));
     ReleaseSRWLockShared(&open->delegation.state->lock);
 
@@ -406,20 +425,26 @@ int nfs41_delegation_to_open(
     status = nfs41_open(open->session, &open->parent, &open->file,
         &open->owner, &claim, open->share_access, open->share_deny,
         OPEN4_NOCREATE, 0, 0, try_recovery, &open_stateid, &ignore, NULL);
-    if (status)
-        eprintf("nfs41_delegation_to_open(%p) failed with %s\n",
-            open, nfs_error_string(status));
 
     AcquireSRWLockExclusive(&open->lock);
-    /* save the new open stateid */
-    memcpy(&open->stateid, &open_stateid, sizeof(stateid4));
+    if (status == NFS4_OK) {
+        /* save the new open stateid */
+        memcpy(&open->stateid, &open_stateid, sizeof(stateid4));
+        open->do_close = 1;
+    } else if (status == NFS4ERR_BAD_STATEID && open->do_close) {
+        /* something triggered client state recovery, and the open stateid
+         * has already been reclaimed; see recover_stateid_delegation() */
+        status = NFS4_OK;
+    }
     open->delegation.reclaim = 0;
-    open->do_close = 1;
 
     /* signal anyone waiting on the open stateid */
     WakeAllConditionVariable(&open->delegation.cond);
 out_unlock:
     ReleaseSRWLockExclusive(&open->lock);
+    if (status)
+        eprintf("nfs41_delegation_to_open(%p) failed with %s\n",
+            open, nfs_error_string(status));
     return status;
 }
 

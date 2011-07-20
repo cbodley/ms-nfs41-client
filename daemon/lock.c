@@ -39,6 +39,7 @@ static void lock_stateid_arg(
     OUT stateid_arg *arg)
 {
     arg->open = state;
+    arg->delegation = NULL;
 
     /* open_to_lock_owner4 requires an open stateid; if we
      * have a delegation, convert it to an open stateid */

@@ -1530,7 +1530,7 @@ out:
 int nfs41_delegreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN bool_t try_recovery)
 {
     int status;

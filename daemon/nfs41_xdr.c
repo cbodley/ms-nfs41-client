@@ -1644,7 +1644,7 @@ static bool_t encode_op_delegreturn(
     if (unexpected_op(argop->op, OP_DELEGRETURN))
         return FALSE;
 
-    return xdr_stateid4(xdr, args->stateid);
+    return xdr_stateid4(xdr, &args->stateid->stateid);
 }
 
 static bool_t decode_op_delegreturn(
@@ -1930,9 +1930,11 @@ static bool_t encode_open_claim4(
         return TRUE; /* use current file handle */
     case CLAIM_DELEGATE_CUR:
         return encode_claim_deleg_cur(xdr,
-            oc->u.deleg_cur.delegate_stateid, oc->u.deleg_cur.name);
+            &oc->u.deleg_cur.delegate_stateid->stateid,
+            oc->u.deleg_cur.name);
     case CLAIM_DELEG_CUR_FH:
-        return xdr_stateid4(xdr, oc->u.deleg_cur_fh.delegate_stateid);
+        return xdr_stateid4(xdr,
+            &oc->u.deleg_cur_fh.delegate_stateid->stateid);
     case CLAIM_DELEGATE_PREV:
         return encode_component(xdr, oc->u.deleg_prev.filename);
     case CLAIM_DELEG_PREV_FH:

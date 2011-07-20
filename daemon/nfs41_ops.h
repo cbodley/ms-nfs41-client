@@ -287,6 +287,7 @@ typedef struct __stateid_arg {
     stateid4                stateid;
     enum stateid_type       type;
     nfs41_open_state        *open;
+    nfs41_delegation_state  *delegation;
 } stateid_arg;
 
 
@@ -374,7 +375,7 @@ typedef struct __nfs41_create_res {
 
 /* OP_DELEGRETURN */
 typedef struct __nfs41_delegreturn_args {
-    stateid4                *stateid;
+    stateid_arg             *stateid;
 } nfs41_delegreturn_args;
 
 typedef struct __nfs41_delegreturn_res {
@@ -624,12 +625,12 @@ typedef struct __open_claim4 {
         } prev;
     /* case CLAIM_DELEGATE_CUR: */
         struct __open_claim_deleg_cur {
-            stateid4        *delegate_stateid;
+            stateid_arg     *delegate_stateid;
             nfs41_component *name;
         } deleg_cur;
     /* case CLAIM_DELEG_CUR_FH: */
         struct __open_claim_deleg_cur_fh {
-            stateid4        *delegate_stateid;
+            stateid_arg     *delegate_stateid;
         } deleg_cur_fh;
     /* case CLAIM_DELEGATE_PREV: */
         struct __open_claim_deleg_prev {
@@ -1154,7 +1155,7 @@ int nfs41_access(
 int nfs41_delegreturn(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN stateid4 *stateid,
+    IN stateid_arg *stateid,
     IN bool_t try_recovery);
 
 enum nfsstat4 nfs41_fs_locations(

@@ -212,6 +212,7 @@ static int recover_locks(
     memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));
     stateid.type = STATEID_OPEN;
     stateid.open = open;
+    stateid.delegation = NULL;
 
     /* recover any locks for this open */
     list_for_each(entry, &open->locks.list) {
@@ -302,6 +303,7 @@ static int recover_delegation_open(
 
     /* send CLOSE to free the open stateid */
     stateid.open = NULL;
+    stateid.delegation = NULL;
     stateid.type = STATEID_OPEN;
     nfs41_close(session, &deleg->file, &stateid);
 out:
@@ -418,13 +420,56 @@ static bool_t recover_stateid_lock(
     return retry;
 }
 
+static bool_t recover_stateid_delegation(
+    IN nfs_argop4 *argop,
+    IN stateid_arg *stateid)
+{
+    bool_t retry = FALSE;
+
+    if (stateid->open) {
+        /* if the source stateid is different, update and retry */
+        AcquireSRWLockShared(&stateid->open->lock);
+        if (argop->op == OP_OPEN && stateid->open->do_close) {
+            /* for nfs41_delegation_to_open(); if we've already reclaimed
+            * an open stateid, just fail this OPEN with BAD_STATEID */
+        } else if (stateid->open->delegation.state) {
+            nfs41_delegation_state *deleg = stateid->open->delegation.state;
+            stateid4 *source = &deleg->state.stateid;
+            AcquireSRWLockShared(&deleg->lock);
+            if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
+                memcpy(&stateid->stateid, source, sizeof(stateid4));
+                retry = TRUE;
+            }
+            ReleaseSRWLockShared(&deleg->lock);
+        }
+        ReleaseSRWLockShared(&stateid->open->lock);
+    } else if (stateid->delegation) {
+        nfs41_delegation_state *deleg = stateid->delegation;
+        stateid4 *source = &deleg->state.stateid;
+        AcquireSRWLockShared(&deleg->lock);
+        if (memcmp(&stateid->stateid, source, sizeof(stateid4))) {
+            memcpy(&stateid->stateid, source, sizeof(stateid4));
+            retry = TRUE;
+        }
+        ReleaseSRWLockShared(&deleg->lock);
+    }
+    return retry;
+}
+
 bool_t nfs41_recover_stateid(
     IN nfs41_session *session,
     IN nfs_argop4 *argop)
 {
     stateid_arg *stateid = NULL;
 
-    if (argop->op == OP_CLOSE) {
+    /* get the stateid_arg from the operation's arguments */
+    if (argop->op == OP_OPEN) {
+        nfs41_op_open_args *open = (nfs41_op_open_args*)argop->arg;
+        if (open->claim->claim == CLAIM_DELEGATE_CUR)
+            stateid = open->claim->u.deleg_cur.delegate_stateid;
+        else if (open->claim->claim == CLAIM_DELEG_CUR_FH)
+            stateid = open->claim->u.deleg_cur_fh.delegate_stateid;
+    } else if (argop->op == OP_CLOSE) {
         nfs41_op_close_args *close = (nfs41_op_close_args*)argop->arg;
         stateid = close->stateid;
     } else if (argop->op == OP_READ) {
@@ -448,6 +493,9 @@ bool_t nfs41_recover_stateid(
     } else if (argop->op == OP_LAYOUTGET) {
         pnfs_layoutget_args *lget = (pnfs_layoutget_args*)argop->arg;
         stateid = lget->stateid;
+    } else if (argop->op == OP_DELEGRETURN) {
+        nfs41_delegreturn_args *dr = (nfs41_delegreturn_args*)argop->arg;
+        stateid = dr->stateid;
     }
     if (stateid == NULL)
         return FALSE;
@@ -465,6 +513,9 @@ bool_t nfs41_recover_stateid(
 
     case STATEID_LOCK:
         return recover_stateid_lock(argop, stateid);
+
+    case STATEID_DELEG_FILE:
+        return recover_stateid_delegation(argop, stateid);
 
     default:
         eprintf("%s can't recover stateid type %u\n",
