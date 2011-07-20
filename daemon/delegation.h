@@ -92,4 +92,10 @@ int nfs41_delegation_recall(
     IN const stateid4 *stateid,
     IN bool_t truncate);
 
+
+/* after client state recovery, return any 'recalled' delegations;
+ * must be called under the client's state lock */
+int nfs41_client_delegation_recovery(
+    IN nfs41_client *client);
+
 #endif /* DELEGATION_H */

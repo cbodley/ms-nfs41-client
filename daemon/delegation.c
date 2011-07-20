@@ -121,41 +121,19 @@ static nfs41_open_state* deleg_open_find(
     return open;
 }
 
-#pragma warning (disable : 4706) /* assignment within conditional expression */
-
-static void delegation_return(
+static void delegation_remove(
     IN nfs41_client *client,
-    IN nfs41_delegation_state *deleg,
-    IN bool_t truncate)
+    IN nfs41_delegation_state *deleg)
 {
-    stateid_arg stateid;
     struct list_entry *entry;
-    nfs41_open_state *open;
-
-    /* recover opens associated with the delegation */
-    while (open = deleg_open_find(&client->state, deleg)) {
-        nfs41_delegation_to_open(open, TRUE);
-        nfs41_open_state_deref(open);
-    }
-
-    /* TODO: flush data and metadata before returning delegation */
-
-    /* return the delegation */
-    stateid.type = STATEID_DELEG_FILE;
-    stateid.open = NULL;
-    stateid.delegation = deleg;
-    AcquireSRWLockShared(&deleg->lock);
-    memcpy(&stateid.stateid, &deleg->state.stateid, sizeof(stateid4));
-    ReleaseSRWLockShared(&deleg->lock);
-
-    nfs41_delegreturn(client->session, &deleg->file, &stateid, TRUE);
 
     /* remove from the client's list */
     EnterCriticalSection(&client->state.lock);
     list_remove(&deleg->client_entry);
 
+    /* remove from each associated open */
     list_for_each(entry, &client->state.opens) {
-        open = open_entry(entry);
+        nfs41_open_state *open = open_entry(entry);
         AcquireSRWLockExclusive(&open->lock);
         if (open->delegation.state == deleg) {
             /* drop the delegation reference */
@@ -174,6 +152,45 @@ static void delegation_return(
 
     /* release the client's reference */
     nfs41_delegation_deref(deleg);
+}
+
+#pragma warning (disable : 4706) /* assignment within conditional expression */
+
+static int delegation_return(
+    IN nfs41_client *client,
+    IN nfs41_delegation_state *deleg,
+    IN bool_t truncate,
+    IN bool_t try_recovery)
+{
+    stateid_arg stateid;
+    int status = NFS4_OK;
+
+    /* recover opens associated with the delegation */
+    nfs41_open_state *open;
+    while (open = deleg_open_find(&client->state, deleg)) {
+        status = nfs41_delegation_to_open(open, try_recovery);
+        nfs41_open_state_deref(open);
+
+        if (status == NFS4ERR_BADSESSION)
+            goto out;
+    }
+
+    /* return the delegation */
+    stateid.type = STATEID_DELEG_FILE;
+    stateid.open = NULL;
+    stateid.delegation = deleg;
+    AcquireSRWLockShared(&deleg->lock);
+    memcpy(&stateid.stateid, &deleg->state.stateid, sizeof(stateid4));
+    ReleaseSRWLockShared(&deleg->lock);
+
+    status = nfs41_delegreturn(client->session,
+        &deleg->file, &stateid, try_recovery);
+    if (status == NFS4ERR_BADSESSION)
+        goto out;
+
+    delegation_remove(client, deleg);
+out:
+    return status;
 }
 
 
@@ -371,7 +388,7 @@ out:
     return status;
 
 out_return:
-    delegation_return(client, deleg, create == OPEN4_CREATE);
+    delegation_return(client, deleg, create == OPEN4_CREATE, TRUE);
 
 out_deleg:
     nfs41_delegation_deref(deleg);
@@ -483,7 +500,7 @@ int nfs41_delegation_return(
     ReleaseSRWLockExclusive(&deleg->lock);
 
     if (status == NFS4ERR_DELEG_REVOKED) {
-        delegation_return(client, deleg, truncate);
+        delegation_return(client, deleg, truncate, TRUE);
         status = NFS4_OK;
     }
 
@@ -505,7 +522,7 @@ static unsigned int WINAPI delegation_recall_thread(void *args)
 {
     struct recall_thread_args *recall = (struct recall_thread_args*)args;
 
-    delegation_return(recall->client, recall->delegation, recall->truncate);
+    delegation_return(recall->client, recall->delegation, recall->truncate, TRUE);
 
     /* clean up thread arguments */
     nfs41_delegation_deref(recall->delegation);
@@ -603,4 +620,56 @@ void nfs41_client_delegation_free(
         nfs41_delegation_deref(deleg_entry(entry));
     }
     LeaveCriticalSection(&client->state.lock);
+}
+
+
+static int delegation_recovery_status(
+    IN nfs41_delegation_state *deleg)
+{
+    int status = NFS4_OK;
+
+    AcquireSRWLockExclusive(&deleg->lock);
+    if (deleg->status == DELEGATION_GRANTED) {
+        if (deleg->revoked) {
+            deleg->status = DELEGATION_RETURNED;
+            status = NFS4ERR_BADHANDLE;
+        } else if (deleg->state.recalled) {
+            deleg->status = DELEGATION_RETURNING;
+            status = NFS4ERR_DELEG_REVOKED;
+        }
+    }
+    ReleaseSRWLockExclusive(&deleg->lock);
+    return status;
+}
+
+int nfs41_client_delegation_recovery(
+    IN nfs41_client *client)
+{
+    struct list_entry *entry, *tmp;
+    nfs41_delegation_state *deleg;
+    int status = NFS4_OK;
+
+    list_for_each_tmp(entry, tmp, &client->state.delegations) {
+        deleg = list_container(entry, nfs41_delegation_state, client_entry);
+
+        status = delegation_recovery_status(deleg);
+        switch (status) {
+        case NFS4ERR_DELEG_REVOKED:
+            /* the delegation was reclaimed, but flagged as recalled;
+             * return it with try_recovery=FALSE */
+            status = delegation_return(client, deleg, FALSE, FALSE);
+            break;
+
+        case NFS4ERR_BADHANDLE:
+            /* reclaim failed, so we have no delegation state on the server;
+             * 'forget' the delegation without trying to return it */
+            delegation_remove(client, deleg);
+            status = NFS4_OK;
+            break;
+        }
+
+        if (status == NFS4ERR_BADSESSION)
+            break;
+    }
+    return status;
 }

@@ -354,7 +354,8 @@ int nfs41_recover_client_state(
         }
     }
 
-    /* TODO: return any delegations that were reclaimed as 'recalled' */
+    /* return any delegations that were reclaimed as 'recalled' */
+    status = nfs41_client_delegation_recovery(client);
 unlock:
     LeaveCriticalSection(&state->lock);
 

@@ -1997,12 +1997,10 @@ static bool_t decode_open_read_delegation4(
     XDR *xdr,
     open_delegation4 *delegation)
 {
-    bool_t tmp_bool;
-
     if (!xdr_stateid4(xdr, &delegation->stateid))
         return FALSE;
 
-    if (!xdr_bool(xdr, &tmp_bool))
+    if (!xdr_bool(xdr, &delegation->recalled))
         return FALSE;
 
     return xdr_nfsace4(xdr, &delegation->permissions);
@@ -2053,12 +2051,10 @@ static bool_t decode_open_write_delegation4(
     XDR *xdr,
     open_delegation4 *delegation)
 {
-    bool_t tmp_bool;
-
     if (!xdr_stateid4(xdr, &delegation->stateid))
         return FALSE;
 
-    if (!xdr_bool(xdr, &tmp_bool))
+    if (!xdr_bool(xdr, &delegation->recalled))
         return FALSE;
 
     if (!decode_space_limit4(xdr))
