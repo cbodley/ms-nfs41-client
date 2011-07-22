@@ -667,8 +667,6 @@ typedef struct __nfs41_op_open_res_ok {
     uint32_t                rflags;
     bitmap4                 attrset;
     open_delegation4        *delegation;
-    uint32_t                why_no_deleg;
-    uint32_t                why_none_flag;
 } nfs41_op_open_res_ok;
 
 typedef struct __nfs41_op_open_res {
@@ -796,6 +794,25 @@ typedef struct __nfs41_setattr_res {
     uint32_t                status;
     bitmap4                 attrsset;
 } nfs41_setattr_res;
+
+
+/* OP_WANT_DELEGATION */
+typedef struct __deleg_claim4 {
+    uint32_t                claim;
+    /* case CLAIM_PREVIOUS: */
+    uint32_t                prev_delegate_type;
+} deleg_claim4;
+
+typedef struct __nfs41_want_delegation_args {
+    uint32_t                want;
+    deleg_claim4            *claim;
+} nfs41_want_delegation_args;
+
+typedef struct __nfs41_want_delegation_res {
+    uint32_t                status;
+    /* case NFS4_OK: */
+    open_delegation4        *delegation;
+} nfs41_want_delegation_res;
 
 
 /* OP_WRITE */
@@ -1157,6 +1174,14 @@ int nfs41_access(
     IN uint32_t requested,
     OUT uint32_t *supported OPTIONAL,
     OUT uint32_t *access OPTIONAL);
+
+enum nfsstat4 nfs41_want_delegation(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN deleg_claim4 *claim,
+    IN uint32_t want,
+    IN bool_t try_recovery,
+    OUT open_delegation4 *delegation);
 
 int nfs41_delegpurge(
     IN nfs41_session *session);

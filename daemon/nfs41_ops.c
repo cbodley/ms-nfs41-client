@@ -1527,6 +1527,50 @@ out:
     return status;
 }
 
+enum nfsstat4 nfs41_want_delegation(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN deleg_claim4 *claim,
+    IN uint32_t want,
+    IN bool_t try_recovery,
+    OUT open_delegation4 *delegation)
+{
+    enum nfsstat4 status;
+    nfs41_compound compound;
+    nfs_argop4 argops[3];
+    nfs_resop4 resops[3];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_putfh_args putfh_args;
+    nfs41_putfh_res putfh_res;
+    nfs41_want_delegation_args wd_args;
+    nfs41_want_delegation_res wd_res;
+
+    compound_init(&compound, argops, resops, "want_delegation");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 0);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
+    putfh_args.file = file;
+    putfh_args.in_recovery = 0;
+
+    compound_add_op(&compound, OP_WANT_DELEGATION, &wd_args, &wd_res);
+    wd_args.claim = claim;
+    wd_args.want = want;
+    wd_res.delegation = delegation;
+
+    status = compound_encode_send_decode(session, &compound, try_recovery);
+    if (status)
+        goto out;
+
+    compound_error(status = compound.res.status);
+out:
+    return status;
+}
+
 int nfs41_delegpurge(
     IN nfs41_session *session)
 {

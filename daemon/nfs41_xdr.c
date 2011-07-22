@@ -2005,22 +2005,22 @@ static bool_t encode_op_open(
 
 static bool_t decode_open_none_delegation4(
     XDR *xdr,
-    nfs41_op_open_res_ok *res)
+    open_delegation4 *delegation)
 {
-    bool_t result = TRUE;
+    enum_t why_no_deleg;
+    bool_t will_signal;
 
-    if (!xdr_u_int32_t(xdr, &res->why_no_deleg))
+    if (!xdr_enum(xdr, (enum_t*)&why_no_deleg))
         return FALSE;
-    switch (res->why_no_deleg)
+
+    switch (why_no_deleg)
     {
     case WND4_CONTENTION:
     case WND4_RESOURCE:
-        result = xdr_u_int32_t(xdr, &res->why_none_flag);
-        break;
+        return xdr_bool(xdr, &will_signal);
     default:
-        break;
+        return TRUE;
     }
-    return result;
 }
 
 static bool_t decode_open_read_delegation4(
@@ -2037,14 +2037,19 @@ static bool_t decode_open_read_delegation4(
 }
 
 static bool_t decode_modified_limit4(
-    XDR *xdr)
+    XDR *xdr,
+    uint64_t *filesize)
 {
-    uint32_t tmp;
+    uint32_t blocks, bytes_per_block;
 
-    if (!xdr_u_int32_t(xdr, &tmp))
+    if (!xdr_u_int32_t(xdr, &blocks))
         return FALSE;
 
-    return xdr_u_int32_t(xdr, &tmp);
+    if (!xdr_u_int32_t(xdr, &bytes_per_block))
+        return FALSE;
+
+    *filesize = blocks * bytes_per_block;
+    return TRUE;
 }
 
 enum limit_by4 {
@@ -2053,27 +2058,23 @@ enum limit_by4 {
 };
 
 static bool_t decode_space_limit4(
-    XDR *xdr)
+    XDR *xdr,
+    uint64_t *filesize)
 {
-    uint32_t tmp_limitby;
-    uint64_t tmp_filesize;
+    uint32_t limitby;
 
-    if (!xdr_u_int32_t(xdr, &tmp_limitby))
+    if (!xdr_u_int32_t(xdr, &limitby))
         return FALSE;
 
-    switch (tmp_limitby)
+    switch (limitby)
     {
     case NFS_LIMIT_SIZE:
-        return xdr_u_hyper(xdr, &tmp_filesize);
-        break;
+        return xdr_u_hyper(xdr, filesize);
     case NFS_LIMIT_BLOCKS:
-        return decode_modified_limit4(xdr);
-        break;
+        return decode_modified_limit4(xdr, filesize);
     default:
-        eprintf("decode_space_limit4: limitby %d invalid\n",
-            tmp_limitby);
+        eprintf("decode_space_limit4: limitby %d invalid\n", limitby);
         return FALSE;
-        break;
     }
 }
 
@@ -2081,13 +2082,15 @@ static bool_t decode_open_write_delegation4(
     XDR *xdr,
     open_delegation4 *delegation)
 {
+    uint64_t size_limit;
+
     if (!xdr_stateid4(xdr, &delegation->stateid))
         return FALSE;
 
     if (!xdr_bool(xdr, &delegation->recalled))
         return FALSE;
 
-    if (!decode_space_limit4(xdr))
+    if (!decode_space_limit4(xdr, &size_limit))
         return FALSE;
 
     return xdr_nfsace4(xdr, &delegation->permissions);
@@ -2097,8 +2100,6 @@ static bool_t decode_open_res_ok(
     XDR *xdr,
     nfs41_op_open_res_ok *res)
 {
-    bool_t result = TRUE;
-
     if (!xdr_stateid4(xdr, res->stateid))
         return FALSE;
 
@@ -2117,23 +2118,18 @@ static bool_t decode_open_res_ok(
     switch (res->delegation->type)
     {
     case OPEN_DELEGATE_NONE:
-        break;
+        return TRUE;
     case OPEN_DELEGATE_NONE_EXT:
-        result = decode_open_none_delegation4(xdr, res);
-        break;
+        return decode_open_none_delegation4(xdr, res->delegation);
     case OPEN_DELEGATE_READ:
-        result = decode_open_read_delegation4(xdr, res->delegation);
-        break;
+        return decode_open_read_delegation4(xdr, res->delegation);
     case OPEN_DELEGATE_WRITE:
-        result = decode_open_write_delegation4(xdr, res->delegation);
-        break;
+        return decode_open_write_delegation4(xdr, res->delegation);
     default:
         eprintf("decode_open_res_ok: delegation type %d not "
             "supported.\n", res->delegation->type);
-        result = FALSE;
-        break;
+        return FALSE;
     }
-    return result;
 }
 
 static bool_t decode_op_open(
@@ -2678,6 +2674,64 @@ static bool_t decode_op_setattr(
         return xdr_bitmap4(xdr, &res->attrsset);
 
     return TRUE;
+}
+
+
+/*
+ * OP_WANT_DELEGATION
+ */
+static bool_t encode_op_want_delegation(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_want_delegation_args *args = (nfs41_want_delegation_args*)argop->arg;
+
+    if (unexpected_op(argop->op, OP_WANT_DELEGATION))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &args->want))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &args->claim->claim))
+        return FALSE;
+
+    return args->claim->claim != CLAIM_PREVIOUS ||
+        xdr_u_int32_t(xdr, &args->claim->prev_delegate_type);
+}
+
+static bool_t decode_op_want_delegation(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_want_delegation_res *res = (nfs41_want_delegation_res*)resop->res;
+
+    if (unexpected_op(resop->op, OP_WANT_DELEGATION))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &res->status))
+        return FALSE;
+
+    if (res->status)
+        return TRUE;
+
+    if (!xdr_enum(xdr, (enum_t*)&res->delegation->type))
+        return FALSE;
+
+    switch (res->delegation->type)
+    {
+    case OPEN_DELEGATE_NONE:
+        return TRUE;
+    case OPEN_DELEGATE_NONE_EXT:
+        return decode_open_none_delegation4(xdr, res->delegation);
+    case OPEN_DELEGATE_READ:
+        return decode_open_read_delegation4(xdr, res->delegation);
+    case OPEN_DELEGATE_WRITE:
+        return decode_open_write_delegation4(xdr, res->delegation);
+    default:
+        eprintf("decode_open_res_ok: delegation type %d not "
+            "supported.\n", res->delegation->type);
+        return FALSE;
+    }
 }
 
 
@@ -3426,7 +3480,7 @@ static const op_table_entry g_op_table[] = {
     { encode_op_sequence, decode_op_sequence }, /* OP_SEQUENCE = 53 */
     { NULL, NULL }, /* OP_SET_SSV = 54 */
     { NULL, NULL }, /* OP_TEST_STATEID = 55 */
-    { NULL, NULL }, /* OP_WANT_DELEGATION = 56 */
+    { encode_op_want_delegation, decode_op_want_delegation }, /* OP_WANT_DELEGATION = 56 */
     { encode_op_destroy_clientid, decode_op_destroy_clientid }, /* OP_DESTROY_CLIENTID = 57 */
     { encode_op_reclaim_complete, decode_op_reclaim_complete }, /* OP_RECLAIM_COMPLETE = 58 */
 };
