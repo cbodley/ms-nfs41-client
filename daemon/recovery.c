@@ -521,7 +521,7 @@ static bool_t recover_stateid_delegation(
         AcquireSRWLockShared(&stateid->open->lock);
         if (argop->op == OP_OPEN && stateid->open->do_close) {
             /* for nfs41_delegation_to_open(); if we've already reclaimed
-            * an open stateid, just fail this OPEN with BAD_STATEID */
+             * an open stateid, just fail this OPEN with BAD_STATEID */
         } else if (stateid->open->delegation.state) {
             nfs41_delegation_state *deleg = stateid->open->delegation.state;
             stateid4 *source = &deleg->state.stateid;

@@ -448,7 +448,8 @@ int nfs41_delegation_to_open(
         /* save the new open stateid */
         memcpy(&open->stateid, &open_stateid, sizeof(stateid4));
         open->do_close = 1;
-    } else if (status == NFS4ERR_BAD_STATEID && open->do_close) {
+    } else if (open->do_close && (status == NFS4ERR_BAD_STATEID ||
+        status == NFS4ERR_STALE_STATEID || status == NFS4ERR_EXPIRED)) {
         /* something triggered client state recovery, and the open stateid
          * has already been reclaimed; see recover_stateid_delegation() */
         status = NFS4_OK;
