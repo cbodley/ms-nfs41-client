@@ -105,7 +105,9 @@ typedef struct __nfs41_lock_state {
     struct list_entry open_entry; /* entry in nfs41_open_state.locks */
     uint64_t offset;
     uint64_t length;
-    uint32_t type;
+    uint32_t exclusive : 1;
+    uint32_t delegated : 1; /* whether or not there is state on the server */
+    uint32_t id : 30;
 } nfs41_lock_state;
 
 /* nfs41_open_state reference counting:
@@ -140,6 +142,7 @@ typedef struct __nfs41_open_state {
     struct { /* list of open lock state for recovery */
         stateid4 stateid;
         struct list_entry list;
+        uint32_t counter;
     } locks;
 } nfs41_open_state;
 

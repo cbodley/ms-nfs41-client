@@ -84,42 +84,7 @@ void nfs41_delegation_deref(
         free(state);
 }
 
-
-/* delegation return */
 #define open_entry(pos) list_container(pos, nfs41_open_state, client_entry)
-
-static int open_deleg_cmp(const struct list_entry *entry, const void *value)
-{
-    nfs41_open_state *open = open_entry(entry);
-    int result = -1;
-
-    /* open must match the delegation and have no open stateid */
-    AcquireSRWLockShared(&open->lock);
-    if (open->delegation.state != value) goto out;
-    if (open->do_close) goto out;
-    result = 0;
-out:
-    ReleaseSRWLockShared(&open->lock);
-    return result;
-}
-
-/* find the first open that needs recovery */
-static nfs41_open_state* deleg_open_find(
-    IN struct client_state *state,
-    IN const nfs41_delegation_state *deleg)
-{
-    struct list_entry *entry;
-    nfs41_open_state *open = NULL;
-
-    EnterCriticalSection(&state->lock);
-    entry = list_search(&state->opens, deleg, open_deleg_cmp);
-    if (entry) {
-        open = open_entry(entry);
-        nfs41_open_state_ref(open); /* return a reference */
-    }
-    LeaveCriticalSection(&state->lock);
-    return open;
-}
 
 static void delegation_remove(
     IN nfs41_client *client,
@@ -154,6 +119,145 @@ static void delegation_remove(
     nfs41_delegation_deref(deleg);
 }
 
+
+/* delegation return */
+#define lock_entry(pos) list_container(pos, nfs41_lock_state, open_entry)
+
+static bool_t has_delegated_locks(
+    IN nfs41_open_state *open)
+{
+    struct list_entry *entry;
+    list_for_each(entry, &open->locks.list) {
+        if (lock_entry(entry)->delegated)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static int open_deleg_cmp(const struct list_entry *entry, const void *value)
+{
+    nfs41_open_state *open = open_entry(entry);
+    int result = -1;
+
+    /* open must match the delegation and have state to reclaim */
+    AcquireSRWLockShared(&open->lock);
+    if (open->delegation.state != value) goto out;
+    if (open->do_close && !has_delegated_locks(open)) goto out;
+    result = 0;
+out:
+    ReleaseSRWLockShared(&open->lock);
+    return result;
+}
+
+/* find the first open that needs recovery */
+static nfs41_open_state* deleg_open_find(
+    IN struct client_state *state,
+    IN const nfs41_delegation_state *deleg)
+{
+    struct list_entry *entry;
+    nfs41_open_state *open = NULL;
+
+    EnterCriticalSection(&state->lock);
+    entry = list_search(&state->opens, deleg, open_deleg_cmp);
+    if (entry) {
+        open = open_entry(entry);
+        nfs41_open_state_ref(open); /* return a reference */
+    }
+    LeaveCriticalSection(&state->lock);
+    return open;
+}
+
+/* find the first lock that needs recovery */
+static bool_t deleg_lock_find(
+    IN nfs41_open_state *open,
+    OUT nfs41_lock_state *lock_out)
+{
+    struct list_entry *entry;
+    bool_t found = FALSE;
+
+    AcquireSRWLockShared(&open->lock);
+    list_for_each(entry, &open->locks.list) {
+        nfs41_lock_state *lock = lock_entry(entry);
+        if (lock->delegated) {
+            /* copy offset, length, type */
+            lock_out->offset = lock->offset;
+            lock_out->length = lock->length;
+            lock_out->exclusive = lock->exclusive;
+            lock_out->id = lock->id;
+            found = TRUE;
+            break;
+        }
+    }
+    ReleaseSRWLockShared(&open->lock);
+    return found;
+}
+
+/* find the matching lock by id, and reset lock.delegated */
+static void deleg_lock_update(
+    IN nfs41_open_state *open,
+    IN const nfs41_lock_state *source)
+{
+    struct list_entry *entry;
+
+    AcquireSRWLockExclusive(&open->lock);
+    list_for_each(entry, &open->locks.list) {
+        nfs41_lock_state *lock = lock_entry(entry);
+        if (lock->id == source->id) {
+            lock->delegated = FALSE;
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&open->lock);
+}
+
+static int delegation_flush_locks(
+    IN nfs41_open_state *open,
+    IN bool_t try_recovery)
+{
+    stateid_arg stateid;
+    nfs41_lock_state lock;
+    int status = NFS4_OK;
+
+    stateid.open = open;
+    stateid.delegation = NULL;
+
+    /* get the starting open/lock stateid */
+    AcquireSRWLockShared(&open->lock);
+    if (open->locks.stateid.seqid) {
+        memcpy(&stateid.stateid, &open->locks.stateid, sizeof(stateid4));
+        stateid.type = STATEID_LOCK;
+    } else {
+        memcpy(&stateid.stateid, &open->stateid, sizeof(stateid4));
+        stateid.type = STATEID_OPEN;
+    }
+    ReleaseSRWLockShared(&open->lock);
+
+    /* send LOCK requests for each delegated lock range */
+    while (deleg_lock_find(open, &lock)) {
+        status = nfs41_lock(open->session, &open->file,
+            &open->owner, lock.exclusive ? WRITE_LT : READ_LT,
+            lock.offset, lock.length, FALSE, try_recovery, &stateid);
+        if (status)
+            break;
+        deleg_lock_update(open, &lock);
+    }
+
+    /* save the updated lock stateid */
+    if (stateid.type == STATEID_LOCK) {
+        AcquireSRWLockExclusive(&open->lock);
+        if (open->locks.stateid.seqid == 0) {
+            /* if it's a new lock stateid, copy it in */
+            memcpy(&open->locks.stateid, &stateid.stateid, sizeof(stateid4));
+        } else if (stateid.stateid.seqid > open->locks.stateid.seqid) {
+            /* update the seqid if it's more recent */
+            open->locks.stateid.seqid = stateid.stateid.seqid;
+        }
+        ReleaseSRWLockExclusive(&open->lock);
+    }
+out:
+    return status;
+}
+
 #pragma warning (disable : 4706) /* assignment within conditional expression */
 
 static int delegation_return(
@@ -163,16 +267,18 @@ static int delegation_return(
     IN bool_t try_recovery)
 {
     stateid_arg stateid;
-    int status = NFS4_OK;
-
-    /* recover opens associated with the delegation */
     nfs41_open_state *open;
+    int status;
+
+    /* recover opens and locks associated with the delegation */
     while (open = deleg_open_find(&client->state, deleg)) {
         status = nfs41_delegation_to_open(open, try_recovery);
+        if (status == NFS4_OK)
+            status = delegation_flush_locks(open, try_recovery);
         nfs41_open_state_deref(open);
 
-        if (status == NFS4ERR_BADSESSION)
-            goto out;
+        if (status)
+            break;
     }
 
     /* return the delegation */
@@ -494,7 +600,7 @@ int nfs41_delegation_return(
         }
     } else {
         /* the delegation is being returned, wait for it to finish */
-        while (deleg->status != DELEGATION_RETURNED)
+        while (deleg->status == DELEGATION_RETURNING)
             SleepConditionVariableSRW(&deleg->cond, &deleg->lock, INFINITE, 0);
         status = NFS4ERR_BADHANDLE;
     }

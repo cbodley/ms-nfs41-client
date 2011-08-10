@@ -233,18 +233,22 @@ static int recover_locks(
     /* recover any locks for this open */
     list_for_each(entry, &open->locks.list) {
         lock = list_container(entry, nfs41_lock_state, open_entry);
+        if (lock->delegated)
+            continue;
 
         if (*grace)
-            status = nfs41_lock(session, &open->file, &open->owner,
-                lock->type, lock->offset, lock->length, TRUE, FALSE, &stateid);
+            status = nfs41_lock(session, &open->file,
+                &open->owner, lock->exclusive ? WRITE_LT : READ_LT,
+                lock->offset, lock->length, TRUE, FALSE, &stateid);
         else
             status = NFS4ERR_NO_GRACE;
 
         if (status == NFS4ERR_NO_GRACE) {
             *grace = FALSE;
             /* attempt out-of-grace recovery with a normal LOCK */
-            status = nfs41_lock(session, &open->file, &open->owner,
-                lock->type, lock->offset, lock->length, FALSE, FALSE, &stateid);
+            status = nfs41_lock(session, &open->file,
+                &open->owner, lock->exclusive ? WRITE_LT : READ_LT,
+                lock->offset, lock->length, FALSE, FALSE, &stateid);
         }
         if (status == NFS4ERR_BADSESSION)
             break;
