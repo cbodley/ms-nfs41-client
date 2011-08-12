@@ -1,6 +1,9 @@
-/* Copyright (c) 2010
+/* Copyright (c) 2010, 2011
  * The Regents of the University of Michigan
  * All Rights Reserved
+ *
+ * Olga Kornievskaia <aglo@umich.edu>
+ * Casey Bodley <cbodley@umich.edu>
  *
  * Permission is granted to use, copy and redistribute this software
  * for noncommercial education and research purposes, so long as no
