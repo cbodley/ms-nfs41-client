@@ -257,7 +257,6 @@ static int delegation_flush_locks(
         }
         ReleaseSRWLockExclusive(&open->lock);
     }
-out:
     return status;
 }
 
