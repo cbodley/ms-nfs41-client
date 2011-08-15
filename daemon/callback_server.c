@@ -48,23 +48,15 @@ static void replay_cache_write(
 void nfs41_callback_session_init(
     IN nfs41_session *session)
 {
-    struct cb_compound_res *res;
+    /* initialize the replay cache with status NFS4ERR_SEQ_MISORDERED */
+    struct cb_compound_res res;
+    StringCchCopyA(res.tag.str, CB_COMPOUND_MAX_TAG, g_server_tag);
+    res.tag.len = sizeof(g_server_tag);
+    res.status = NFS4ERR_SEQ_MISORDERED;
 
     session->cb_session.cb_sessionid = session->session_id;
 
-    /* initialize the replay cache with status NFS4ERR_SEQ_MISORDERED */
-    res = calloc(1, sizeof(struct cb_compound_res));
-    if (res == NULL) {
-        /* don't need to return failure, just leave cb_replay_cached=0 */
-        return;
-    }
-
-    StringCchCopyA(res->tag.str, CB_COMPOUND_MAX_TAG, g_server_tag);
-    res->tag.len = sizeof(g_server_tag);
-    res->status = NFS4ERR_SEQ_MISORDERED;
-
-    replay_cache_write(&session->cb_session, NULL, res, FALSE);
-    free(res);
+    replay_cache_write(&session->cb_session, NULL, &res, FALSE);
 }
 
 
