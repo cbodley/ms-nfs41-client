@@ -482,11 +482,10 @@ int nfs41_client_owner(
     HCRYPTHASH hash;
     PBYTE buffer;
     DWORD length;
-    const time_t time_created = time(NULL);
+    const ULONGLONG time_created = GetTickCount64();
     int status;
 
     /* owner.verifier = "time created" */
-    ZeroMemory(owner->co_verifier, sizeof(owner->co_verifier));
     memcpy(owner->co_verifier, &time_created, sizeof(time_created));
 
     /* set up the md5 hash generator */
