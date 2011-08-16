@@ -895,6 +895,8 @@ int nfs41_name_cache_insert(
         goto out_err_deleg;
 
     status = name_cache_entry_update(cache, target, fh, info, delegation);
+    if (status)
+        name_cache_entry_invalidate(cache, target);
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
