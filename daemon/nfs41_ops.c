@@ -305,6 +305,30 @@ out:
     return status;
 }
 
+static void open_delegation_return(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN open_delegation4 *delegation)
+{
+    stateid_arg stateid;
+    int status;
+
+    if (delegation->type == OPEN_DELEGATE_NONE ||
+        delegation->type == OPEN_DELEGATE_NONE_EXT)
+        return;
+
+    /* return the delegation */
+    stateid.open = NULL;
+    stateid.delegation = NULL;
+    stateid.type = STATEID_DELEG_FILE;
+    memcpy(&stateid.stateid, &delegation->stateid, sizeof(stateid4));
+
+    status = nfs41_delegreturn(session, file, &stateid, TRUE);
+
+    /* clear the delegation type returned by nfs41_open() */
+    delegation->type = OPEN_DELEGATE_NONE;
+}
+
 int nfs41_open(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
@@ -321,7 +345,7 @@ int nfs41_open(
     OUT open_delegation4 *delegation,
     OUT OPTIONAL nfs41_file_info *info)
 {
-    int status;
+    int status, attr_status;
     nfs41_compound compound;
     nfs_argop4 argops[8];
     nfs_resop4 resops[8];
@@ -459,10 +483,15 @@ int nfs41_open(
     memcpy(&info->attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));
     AcquireSRWLockShared(&file->path->lock);
-    nfs41_name_cache_insert(session_name_cache(session),
+    attr_status = nfs41_name_cache_insert(session_name_cache(session),
         file->path->path, &file->name, &file->fh,
         info, &open_res.resok4.cinfo, delegation->type);
     ReleaseSRWLockShared(&file->path->lock);
+
+    /* if we fail to cache the attributes, return the delegation
+     * immediately to free resources on the server */
+    if (attr_status)
+        open_delegation_return(session, file, delegation);
 
     if (create == OPEN4_CREATE)
         nfs41_superblock_space_changed(file->fh.superblock);

@@ -909,8 +909,9 @@ out_err_deleg:
     if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE) {
         /* we still need a reference to the attributes for the delegation */
         struct attr_cache_entry *attributes;
-        if (attr_cache_find_or_create(&cache->attributes,
-            info->fileid, &attributes) == NO_ERROR)
+        status = attr_cache_find_or_create(&cache->attributes,
+            info->fileid, &attributes);
+        if (status == NO_ERROR)
             attr_cache_update(attributes, info, delegation);
     }
     goto out_unlock;
