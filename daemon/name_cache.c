@@ -53,8 +53,38 @@ enum {
  * lookups over the wire.  a name cache entry is negative when its attributes
  * pointer is NULL.  negative entries are created by three functions:
  * nfs41_name_cache_remove(), _insert() when called with NULL for the fh and
- * attributes, and _rename() for the source entry
+ * attributes, and _rename() for the source entry */
+
+/* delegations and cache feedback
+ *
+ *   delegations provide a guarantee that no links or attributes will change
+ * without notice.  the name cache takes advantage of this by preventing
+ * delegated entries from being removed on NAME_CACHE_EXPIRATION, though
+ * they're still removed when a parent is invalidated.  the attribute cache
+ * holds an extra reference on delegated entries to prevent their removal
+ * entirely, until the delegation is returned.
+ *   this extra reference presents a problem when the number of delegations
+ * approaches the maximum number of attribute cache entries.  when there are
+ * not enough available entries to store the parent directories, every lookup
+ * results in a name cache miss, and cache performance degrades significantly.
+ *   the solution is to provide feedback via nfs41_name_cache_insert() when
+ * delegations reach a certain percent of the cache capacity.  the error code
+ * ERROR_TOO_MANY_OPEN_FILES, chosen arbitrarily for this case, instructs the
+ * caller to return an outstanding delegation before caching a new one.
  */
+static __inline bool_t is_delegation(
+    IN enum open_delegation_type4 type)
+{
+    return type == OPEN_DELEGATE_READ || type == OPEN_DELEGATE_WRITE;
+}
+
+static __inline bool_t deleg_entry_limit(
+    IN uint32_t delegations,
+    IN uint32_t max_entries)
+{
+    /* limit the number of delegations to 50% of the cache capacity */
+    return delegations >= max_entries / 2;
+}
 
 
 /* attribute cache */
@@ -283,7 +313,7 @@ static void attr_cache_update(
         }
     }
 
-    if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE)
+    if (is_delegation(delegation))
         entry->delegated = TRUE;
 }
 
@@ -335,6 +365,7 @@ struct nfs41_name_cache {
     struct list_entry       exp_entries; /* list of entries by expiry */
     uint32_t                expiration;
     uint32_t                entries;
+    uint32_t                delegations;
     uint32_t                max_entries;
     SRWLOCK                 lock;
 };
@@ -468,8 +499,10 @@ static int name_cache_entry_update(
             attr_cache_update(entry->attributes, info, delegation);
 
             /* hold a reference as long as we have the delegation */
-            if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE)
+            if (is_delegation(delegation)) {
                 attr_cache_entry_ref(&cache->attributes, entry->attributes);
+                cache->delegations++;
+            }
 
             /* keep the entry from expiring */
             if (entry->attributes->delegated)
@@ -865,6 +898,13 @@ int nfs41_name_cache_insert(
         goto out_unlock;
     }
 
+    /* limit the number of delegations to prevent attr cache starvation */
+    if (is_delegation(delegation) && deleg_entry_limit(
+        cache->delegations, cache->max_entries)) {
+        status = ERROR_TOO_MANY_OPEN_FILES;
+        goto out_unlock;
+    }
+
     /* an empty path or component implies the root entry */
     if (path == NULL || name == NULL || name->len == 0) {
         /* create the root entry if it doesn't exist */
@@ -906,13 +946,15 @@ out_unlock:
     return status;
 
 out_err_deleg:
-    if (delegation == OPEN_DELEGATE_READ || delegation == OPEN_DELEGATE_WRITE) {
+    if (is_delegation(delegation)) {
         /* we still need a reference to the attributes for the delegation */
         struct attr_cache_entry *attributes;
         status = attr_cache_find_or_create(&cache->attributes,
             info->fileid, &attributes);
         if (status == NO_ERROR)
             attr_cache_update(attributes, info, delegation);
+        else
+            status = ERROR_TOO_MANY_OPEN_FILES;
     }
     goto out_unlock;
 }
@@ -958,6 +1000,7 @@ int nfs41_name_cache_delegreturn(
     /* release the reference from name_cache_entry_update() */
     attributes->delegated = FALSE;
     attr_cache_entry_deref(&cache->attributes, attributes);
+    cache->delegations--;
     status = NO_ERROR;
 
 out_unlock:

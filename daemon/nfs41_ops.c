@@ -34,6 +34,7 @@
 #include "nfs41_compound.h"
 #include "nfs41_xdr.h"
 #include "name_cache.h"
+#include "delegation.h"
 #include "daemon_debug.h"
 #include "util.h"
 
@@ -329,6 +330,47 @@ static void open_delegation_return(
     delegation->type = OPEN_DELEGATE_NONE;
 }
 
+static void open_update_cache(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN nfs41_path_fh *file,
+    IN open_delegation4 *delegation,
+    IN change_info4 *changeinfo,
+    IN nfs41_getattr_res *dir_attrs,
+    IN nfs41_getattr_res *file_attrs)
+{
+    struct nfs41_name_cache *cache = session_name_cache(session);
+    uint32_t status;
+    
+    /* update the attributes of the parent directory */
+    memcpy(&dir_attrs->info->attrmask, &dir_attrs->obj_attributes.attrmask,
+        sizeof(bitmap4));
+    nfs41_attr_cache_update(cache, parent->fh.fileid, dir_attrs->info);
+
+    /* add the file handle and attributes to the name cache */
+    memcpy(&file_attrs->info->attrmask, &file_attrs->obj_attributes.attrmask,
+        sizeof(bitmap4));
+retry_cache_insert:
+    AcquireSRWLockShared(&file->path->lock);
+    status = nfs41_name_cache_insert(cache, file->path->path, &file->name,
+        &file->fh, file_attrs->info, changeinfo, delegation->type);
+    ReleaseSRWLockShared(&file->path->lock);
+
+    if (status == ERROR_TOO_MANY_OPEN_FILES) {
+        /* the cache won't accept any more delegations; ask the client to
+         * return a delegation to free up a slot in the attribute cache */
+        status = nfs41_client_delegation_return_lru(session->client);
+        if (status == NFS4_OK)
+            goto retry_cache_insert;
+    }
+
+    if (status) {
+        /* if we can't make room in the cache, return this
+         * delegation immediately to free resources on the server */
+        open_delegation_return(session, file, delegation);
+    }
+}
+
 int nfs41_open(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
@@ -345,7 +387,7 @@ int nfs41_open(
     OUT open_delegation4 *delegation,
     OUT OPTIONAL nfs41_file_info *info)
 {
-    int status, attr_status;
+    int status;
     nfs41_compound compound;
     nfs_argop4 argops[8];
     nfs_resop4 resops[8];
@@ -473,28 +515,12 @@ int nfs41_open(
     if (status)
         goto out;
 
-    /* update the attributes of the parent directory */
-    memcpy(&dir_info.attrmask, &pgetattr_res.obj_attributes.attrmask,
-        sizeof(bitmap4));
-    nfs41_attr_cache_update(session_name_cache(session),
-        parent->fh.fileid, &dir_info);
-
-    /* add the file handle and attributes to the name cache */
-    memcpy(&info->attrmask, &getattr_res.obj_attributes.attrmask,
-        sizeof(bitmap4));
-    AcquireSRWLockShared(&file->path->lock);
-    attr_status = nfs41_name_cache_insert(session_name_cache(session),
-        file->path->path, &file->name, &file->fh,
-        info, &open_res.resok4.cinfo, delegation->type);
-    ReleaseSRWLockShared(&file->path->lock);
-
-    /* if we fail to cache the attributes, return the delegation
-     * immediately to free resources on the server */
-    if (attr_status)
-        open_delegation_return(session, file, delegation);
-
     if (create == OPEN4_CREATE)
         nfs41_superblock_space_changed(file->fh.superblock);
+
+    /* update the name/attr cache with the results */
+    open_update_cache(session, parent, file, delegation,
+        &open_res.resok4.cinfo, &pgetattr_res, &getattr_res);
 out:
     return status;
 }

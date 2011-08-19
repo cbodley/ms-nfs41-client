@@ -301,7 +301,6 @@ out:
     return status;
 }
 
-
 /* open delegation */
 int nfs41_delegation_granted(
     IN nfs41_session *session,
@@ -320,8 +319,10 @@ int nfs41_delegation_granted(
         delegation->type != OPEN_DELEGATE_WRITE)
         goto out;
 
-    if (delegation->recalled)
+    if (delegation->recalled) {
+        status = NFS4ERR_DELEG_REVOKED;
         goto out_return;
+    }
 
     /* allocate the delegation state */
     status = delegation_create(parent, file, delegation, &state);
@@ -398,8 +399,13 @@ static int delegation_find(
     EnterCriticalSection(&client->state.lock);
     entry = list_search(&client->state.delegations, value, cmp);
     if (entry) {
+        /* return a reference to the delegation */
         *deleg_out = deleg_entry(entry);
         nfs41_delegation_ref(*deleg_out);
+
+        /* move to the 'most recently used' end of the list */
+        list_remove(entry);
+        list_add_tail(&client->state.delegations, entry);
         status = NFS4_OK;
     }
     LeaveCriticalSection(&client->state.lock);
@@ -718,6 +724,7 @@ out_deleg:
     goto out;
 }
 
+
 void nfs41_client_delegation_free(
     IN nfs41_client *client)
 {
@@ -788,5 +795,42 @@ int nfs41_client_delegation_recovery(
     if (status != NFS4ERR_BADSESSION)
         status = NFS4_OK;
 out:
+    return status;
+}
+
+
+int nfs41_client_delegation_return_lru(
+    IN nfs41_client *client)
+{
+    struct list_entry *entry;
+    nfs41_delegation_state *state = NULL;
+    int status = NFS4ERR_BADHANDLE;
+
+    /* starting from the least recently opened, find a delegation
+     * that's not 'in use' and return it */
+    EnterCriticalSection(&client->state.lock);
+    list_for_each(entry, &client->state.delegations) {
+        state = deleg_entry(entry);
+
+        /* skip if it's currently in use for an open; note that ref_count
+         * can't go from 1 to 2 without holding client->state.lock */
+        if (state->ref_count > 1)
+            continue;
+
+        AcquireSRWLockExclusive(&state->lock);
+        if (state->status == DELEGATION_GRANTED) {
+            /* start returning the delegation */
+            state->status = DELEGATION_RETURNING;
+            status = NFS4ERR_DELEG_REVOKED;
+        }
+        ReleaseSRWLockExclusive(&state->lock);
+
+        if (status == NFS4ERR_DELEG_REVOKED)
+            break;
+    }
+    LeaveCriticalSection(&client->state.lock);
+
+    if (status == NFS4ERR_DELEG_REVOKED)
+        status = delegation_return(client, state, FALSE, TRUE);
     return status;
 }

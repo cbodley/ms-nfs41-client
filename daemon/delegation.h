@@ -101,4 +101,9 @@ int nfs41_delegation_recall(
 int nfs41_client_delegation_recovery(
     IN nfs41_client *client);
 
+/* attempt to return the least recently used delegation;
+ * fails with NFS4ERR_BADHANDLE if all delegations are in use */
+int nfs41_client_delegation_return_lru(
+    IN nfs41_client *client);
+
 #endif /* DELEGATION_H */
