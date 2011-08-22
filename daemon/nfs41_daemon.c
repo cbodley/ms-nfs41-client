@@ -136,6 +136,12 @@ write_downcall:
             inbuf_len = UPCALL_BUF_SIZE;
 
         inbuf = malloc(inbuf_len);
+        if (inbuf == NULL) {
+            upcall.status = GetLastError();
+            upcall_cancel(&upcall);
+            eprintf("Failed to allocate memory for downcall buffer... Exiting\n");
+            break;
+        }
         upcall_marshall(&upcall, inbuf, (uint32_t)inbuf_len, (uint32_t*)&outbuf_len);
 
         dprintf(2, "making a downcall: outbuf_len %ld\n\n", outbuf_len);
