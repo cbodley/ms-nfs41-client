@@ -286,7 +286,7 @@ out:
     return status;
 }
 
-static BOOLEAN do_lookup(uint32_t type, ULONG access_mask, ULONG disposition)
+static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask, ULONG disposition)
 {
     if (type == NF4DIR) {
         if (disposition == FILE_OPEN || disposition == FILE_OVERWRITE) {
@@ -554,7 +554,7 @@ static int handle_open(nfs41_upcall *upcall)
         state->file.fh.superblock = state->parent.fh.superblock;
 
         status = NO_ERROR;
-    } else if (do_lookup(state->type, args->access_mask, args->disposition)) {
+    } else if (open_for_attributes(state->type, args->access_mask, args->disposition)) {
         if (status) {
             dprintf(1, "nfs41_lookup failed with %d\n", status);
             goto out_free_state;
