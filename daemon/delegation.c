@@ -440,15 +440,15 @@ static int delegation_truncate(
 }
 
 int nfs41_delegate_open(
-    IN nfs41_client *client,
-    IN nfs41_path_fh *file,
+    IN nfs41_open_state *state,
     IN uint32_t create,
     IN uint32_t mode,
-    IN uint32_t access,
-    IN uint32_t deny,
-    OUT nfs41_delegation_state **deleg_out,
     OUT nfs41_file_info *info)
 {
+    nfs41_client *client = state->session->client;
+    nfs41_path_fh *file = &state->file;
+    uint32_t access = state->share_access;
+    uint32_t deny = state->share_deny;
     nfs41_delegation_state *deleg;
     stateid_arg stateid;
     int status;
@@ -496,7 +496,7 @@ int nfs41_delegate_open(
 
     /* TODO: check access against deleg->state.permissions or send ACCESS */
 
-    *deleg_out = deleg;
+    state->delegation.state = deleg;
     status = NFS4_OK;
 out:
     return status;
