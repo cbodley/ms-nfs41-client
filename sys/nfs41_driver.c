@@ -330,6 +330,9 @@ typedef struct _NFS41_FOBX {
 
     HANDLE nfs41_open_state;
     SECURITY_CLIENT_CONTEXT sec_ctx;
+    PVOID *acl;
+    DWORD acl_len;
+    LARGE_INTEGER time; 
 } NFS41_FOBX, *PNFS41_FOBX;
 #define NFS41GetFileObjectExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
@@ -1522,20 +1525,16 @@ nfs41_downcall (
         case NFS41_ACL_QUERY:
             RtlCopyMemory(&tmp->u.Acl.buf_len, buf, sizeof(DWORD));
             buf += sizeof(DWORD);
-            if (tmp->u.Acl.buf_len > cur->u.Acl.buf_len) {
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-                cur->u.Acl.buf_len = tmp->u.Acl.buf_len;
-                break;
-            } else {
-                cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
-                    tmp->u.Acl.buf_len, NFS41_MM_POOLTAG);
-                if (cur->u.Acl.buf == NULL) {
-                    status = STATUS_INSUFFICIENT_RESOURCES;
-                    goto out_free;
-                }
-                RtlCopyMemory(cur->u.Acl.buf, buf, tmp->u.Acl.buf_len);
-                cur->u.Acl.buf_len = tmp->u.Acl.buf_len;
+            cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
+                tmp->u.Acl.buf_len, NFS41_MM_POOLTAG);
+            if (cur->u.Acl.buf == NULL) {
+                cur->status = status = STATUS_INSUFFICIENT_RESOURCES;
+                goto out_free;
             }
+            RtlCopyMemory(cur->u.Acl.buf, buf, tmp->u.Acl.buf_len);
+            if (tmp->u.Acl.buf_len > cur->u.Acl.buf_len)
+                cur->status = STATUS_BUFFER_TOO_SMALL;
+            cur->u.Acl.buf_len = tmp->u.Acl.buf_len;
             break;
         }
     }
@@ -3175,12 +3174,16 @@ NTSTATUS nfs41_DeallocateForFobx (
     IN OUT PMRX_FOBX pFobx)
 {
     NTSTATUS status = STATUS_SUCCESS;
+    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)pFobx->Context;
 #ifdef DEBUG_CLOSE
     DbgEn();
     print_fobx(1, pFobx);
     print_srv_open(1, pFobx->pSrvOpen);
     DbgEx();
 #endif
+    if (nfs41_fobx->acl)
+        RxFreePool(nfs41_fobx->acl);
+
     return status;
 }
 
@@ -3678,6 +3681,39 @@ NTSTATUS nfs41_QuerySecurityInformation (
     if (info_class == SACL_SECURITY_INFORMATION)
         goto out;
 
+    if (nfs41_fobx->acl && nfs41_fobx->acl_len) {
+        LARGE_INTEGER current_time;
+        KeQuerySystemTime(&current_time);
+        DbgP("CurrentTime %x Saved Acl time %x\n", 
+            current_time.QuadPart, nfs41_fobx->time.QuadPart);
+        if (current_time.QuadPart - nfs41_fobx->time.QuadPart <= 20*1000) {         
+            if (RtlValidSecurityDescriptor(nfs41_fobx->acl)) {
+                DbgP("Received a valid security descriptor\n");
+                if (MmIsAddressValid(RxContext->CurrentIrp->UserBuffer)) {
+                    PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
+                        RxContext->CurrentIrp->UserBuffer;
+                    DbgP("Received a valid user pointer\n");
+                    RtlCopyMemory(sec_desc, nfs41_fobx->acl, nfs41_fobx->acl_len); 
+                    RxContext->IoStatusBlock.Information = 
+                        RxContext->InformationToReturn = nfs41_fobx->acl_len;
+                    RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
+                } else {
+                    DbgP("Received invalid user pointer\n");
+                    status = STATUS_INTERNAL_ERROR;
+                    goto out;
+                }
+            } else {
+                DbgP("Invalid saved security descriptor, do an upcall\n");
+                status = STATUS_INTERNAL_ERROR;
+            }
+        }
+        RxFreePool(nfs41_fobx->acl);
+        nfs41_fobx->acl = NULL;
+        nfs41_fobx->acl_len = 0;
+        if (!status)
+            goto out;
+    }
+
     status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, &entry);
@@ -3701,6 +3737,11 @@ NTSTATUS nfs41_QuerySecurityInformation (
                 entry->u.Acl.buf_len);
         status = STATUS_BUFFER_OVERFLOW;
         RxContext->InformationToReturn = entry->u.Acl.buf_len;
+
+        /* Save ACL buffer */
+        nfs41_fobx->acl = entry->u.Acl.buf;
+        nfs41_fobx->acl_len = entry->u.Acl.buf_len;
+        KeQuerySystemTime(&nfs41_fobx->time);
     } else if (entry->status == STATUS_SUCCESS) {
         if (RtlValidSecurityDescriptor(entry->u.Acl.buf)) {
             DbgP("Received a valid security descriptor\n");
@@ -3718,6 +3759,8 @@ NTSTATUS nfs41_QuerySecurityInformation (
             status = STATUS_INTERNAL_ERROR;
         }
         RxFreePool(entry->u.Acl.buf);
+        nfs41_fobx->acl = NULL;
+        nfs41_fobx->acl_len = 0;
         RxContext->IoStatusBlock.Information = RxContext->InformationToReturn = 
             entry->u.Acl.buf_len;
         if (!status)
