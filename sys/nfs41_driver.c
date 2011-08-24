@@ -3678,7 +3678,8 @@ NTSTATUS nfs41_QuerySecurityInformation (
     print_acl_args(info_class);
 
     /* we don't support sacls */
-    if (info_class == SACL_SECURITY_INFORMATION)
+    if (info_class == SACL_SECURITY_INFORMATION || 
+            info_class == LABEL_SECURITY_INFORMATION)
         goto out;
 
     if (nfs41_fobx->acl && nfs41_fobx->acl_len) {
@@ -3808,7 +3809,8 @@ NTSTATUS nfs41_SetSecurityInformation (
     }
 
     /* we don't support sacls */
-    if (info_class == SACL_SECURITY_INFORMATION)
+    if (info_class == SACL_SECURITY_INFORMATION  || 
+            info_class == LABEL_SECURITY_INFORMATION)
         goto out;
 
     status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, 
