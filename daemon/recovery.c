@@ -87,9 +87,8 @@ static int recover_open_grace(
     claim.claim = CLAIM_PREVIOUS;
     claim.u.prev.delegate_type = delegate_type;
 
-    return nfs41_open(session, parent, file, owner,
-        &claim, access, deny, OPEN4_NOCREATE, 0, 0, FALSE,
-        stateid, delegation, NULL);
+    return nfs41_open(session, parent, file, owner, &claim, access, deny, 
+        OPEN4_NOCREATE, 0, 0, FALSE, stateid, delegation, NULL);
 }
 
 static int recover_open_no_grace(
@@ -240,18 +239,18 @@ static int recover_locks(
             continue;
 
         if (*grace)
-            status = nfs41_lock(session, &open->file,
-                &open->owner, lock->exclusive ? WRITE_LT : READ_LT,
-                lock->offset, lock->length, TRUE, FALSE, &stateid);
+            status = nfs41_lock(session, &open->file, &open->owner, 
+                lock->exclusive ? WRITE_LT : READ_LT, lock->offset, 
+                lock->length, TRUE, FALSE, &stateid);
         else
             status = NFS4ERR_NO_GRACE;
 
         if (status == NFS4ERR_NO_GRACE) {
             *grace = FALSE;
             /* attempt out-of-grace recovery with a normal LOCK */
-            status = nfs41_lock(session, &open->file,
-                &open->owner, lock->exclusive ? WRITE_LT : READ_LT,
-                lock->offset, lock->length, FALSE, FALSE, &stateid);
+            status = nfs41_lock(session, &open->file, &open->owner, 
+                lock->exclusive ? WRITE_LT : READ_LT, lock->offset, 
+                lock->length, FALSE, FALSE, &stateid);
         }
         if (status == NFS4ERR_BADSESSION)
             break;
@@ -295,8 +294,8 @@ static int recover_delegation_want(
         claim.claim = CLAIM_PREVIOUS;
         claim.prev_delegate_type = delegate_type;
 
-        status = nfs41_want_delegation(session, &deleg->file,
-            &claim, want_flags, FALSE, &delegation);
+        status = nfs41_want_delegation(session, &deleg->file, &claim, 
+            want_flags, FALSE, &delegation);
     } else
         status = NFS4ERR_NO_GRACE;
 
@@ -305,8 +304,8 @@ static int recover_delegation_want(
         /* attempt out-of-grace recovery with with CLAIM_DELEG_PREV_FH */
         claim.claim = CLAIM_DELEG_PREV_FH;
 
-        status = nfs41_want_delegation(session, &deleg->file,
-            &claim, want_flags, FALSE, &delegation);
+        status = nfs41_want_delegation(session, &deleg->file, &claim, 
+            want_flags, FALSE, &delegation);
     }
     if (status)
         goto out;
@@ -314,7 +313,7 @@ static int recover_delegation_want(
     /* update delegation state */
     AcquireSRWLockExclusive(&deleg->lock);
     if (delegation.type != OPEN_DELEGATE_READ &&
-        delegation.type != OPEN_DELEGATE_WRITE) {
+            delegation.type != OPEN_DELEGATE_WRITE) {
         eprintf("recover_delegation_want() got delegation type %u, "
             "expected %u\n", delegation.type, deleg->state.type);
     } else {
@@ -372,7 +371,7 @@ static int recover_delegation_open(
     /* update delegation state */
     AcquireSRWLockExclusive(&deleg->lock);
     if (delegation.type != OPEN_DELEGATE_READ &&
-        delegation.type != OPEN_DELEGATE_WRITE) {
+            delegation.type != OPEN_DELEGATE_WRITE) {
         eprintf("recover_delegation_open() got delegation type %u, "
             "expected %u\n", delegation.type, deleg->state.type);
     } else {
