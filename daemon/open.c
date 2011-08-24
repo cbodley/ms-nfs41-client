@@ -655,7 +655,8 @@ static void cancel_open(IN nfs41_upcall *upcall)
 
     dprintf(1, "--> cancel_open('%s')\n", args->path);
 
-    if (upcall->status)
+    if (upcall->state_ref == NULL || 
+            upcall->state_ref == INVALID_HANDLE_VALUE)
         goto out; /* if handle_open() failed, the state was already freed */
 
     if (state->do_close) {
