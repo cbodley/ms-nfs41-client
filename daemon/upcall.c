@@ -159,7 +159,6 @@ void upcall_marshall(
     IN uint32_t length,
     OUT uint32_t *length_out)
 {
-    int status = NO_ERROR;
     const nfs41_upcall_op *op;
     unsigned char *orig_buf = buffer;
     const uint32_t total = length, orig_len = length;
@@ -179,11 +178,8 @@ write_downcall:
     /* marshall the operation's results */
     op = g_upcall_op_table[upcall->opcode];
     if (op && op->marshall) {
-        status = op->marshall(buffer, &length, upcall);
-        if (status) {
-            upcall->status = status;
+        if ((upcall->status = op->marshall(buffer, &length, upcall)))
             goto write_downcall;
-        }
     }
 out:
     *length_out = total - length;
