@@ -74,10 +74,8 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     nfs41_open_state *state = args->state;
     nfs41_superblock *superblock = state->file.fh.superblock;
     stateid_arg stateid;
-    nfs41_file_info info;
+    nfs41_file_info info = { 0 };
     int status = NO_ERROR;
-
-    ZeroMemory(&info, sizeof(info));
 
     /* hidden */
     info.hidden = basic_info->FileAttributes & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
@@ -205,13 +203,12 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
     nfs41_open_state *state = args->state;
     nfs41_session *dst_session;
     PFILE_RENAME_INFO rename = (PFILE_RENAME_INFO)args->buf;
-    nfs41_abs_path dst_path;
+    nfs41_abs_path dst_path = { 0 };
     nfs41_path_fh dst_dir, dst;
     nfs41_component dst_name, *src_name;
     uint32_t depth = 0;
     int status;
 
-    ZeroMemory(&dst_path, sizeof(dst_path));
     src_name = &state->file.name;
 
     if (rename->FileNameLength == 0) {
@@ -336,7 +333,7 @@ out:
 
 static int handle_nfs41_set_size(setattr_upcall_args *args)
 {
-    nfs41_file_info info;
+    nfs41_file_info info = { 0 };
     stateid_arg stateid;
     /* note: this is called with either FILE_END_OF_FILE_INFO or
      * FILE_ALLOCATION_INFO, both of which contain a single LARGE_INTEGER */
@@ -350,9 +347,7 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
 
     nfs41_open_stateid_arg(state, &stateid);
 
-    ZeroMemory(&info, sizeof(info));
     info.size = size->QuadPart;
-
     info.attrmask.count = 1;
     info.attrmask.arr[0] = FATTR4_WORD0_SIZE;
 
@@ -370,13 +365,11 @@ static int handle_nfs41_link(setattr_upcall_args *args)
     nfs41_open_state *state = args->state;
     PFILE_LINK_INFORMATION link = (PFILE_LINK_INFORMATION)args->buf;
     nfs41_session *dst_session;
-    nfs41_abs_path dst_path;
+    nfs41_abs_path dst_path = { 0 };
     nfs41_path_fh dst_dir, dst;
     nfs41_component dst_name;
     uint32_t depth = 0;
     int status;
-
-    ZeroMemory(&dst_path, sizeof(dst_path));
 
     dst_path.len = (unsigned short)WideCharToMultiByte(CP_UTF8, 0,
         link->FileName, link->FileNameLength/sizeof(WCHAR),
@@ -520,15 +513,13 @@ static int handle_setexattr(nfs41_upcall *upcall)
     setexattr_upcall_args *args = &upcall->args.setexattr;
     nfs41_open_state *state = upcall->state_ref;
     stateid_arg stateid;
-    nfs41_file_info info;
+    nfs41_file_info info = { 0 };
 
     /* break read delegations before SETATTR */
     nfs41_delegation_return(state->session, &state->file,
         OPEN_DELEGATE_READ, FALSE);
 
     nfs41_open_stateid_arg(state, &stateid);
-
-    ZeroMemory(&info, sizeof(info));
 
     /* mode */
     info.mode = args->mode;

@@ -1207,9 +1207,9 @@ static int rpc_array_putfh(
     nfs_argop4 argops[1+MAX_PUTFH_PER_COMPOUND];
     nfs_resop4 resops[1+MAX_PUTFH_PER_COMPOUND];
     nfs41_sequence_args sequence_args;
-    nfs41_sequence_res sequence_res;
+    nfs41_sequence_res sequence_res = { 0 };
     nfs41_putfh_args putfh_args[MAX_PUTFH_PER_COMPOUND];
-    nfs41_putfh_res putfh_res[MAX_PUTFH_PER_COMPOUND];
+    nfs41_putfh_res putfh_res[MAX_PUTFH_PER_COMPOUND] = { 0 };
     uint32_t i;
     int status;
 
@@ -1221,8 +1221,6 @@ static int rpc_array_putfh(
     status = nfs41_session_sequence(&sequence_args, session, 0);
     if (status)
         goto out;
-    ZeroMemory(&sequence_res, sizeof(sequence_res));
-    ZeroMemory(putfh_res, sizeof(putfh_res));
 
     for (i = 0; i < count; i++){
         compound_add_op(&compound, OP_PUTFH, &putfh_args[i], &putfh_res[i]);

@@ -92,9 +92,6 @@ static void init_component_args(
 {
     uint32_t i;
 
-    ZeroMemory(args, sizeof(nfs41_lookup_component_args));
-    ZeroMemory(res, sizeof(nfs41_lookup_component_res));
-
     args->attr_request.count = 2;
     args->attr_request.arr[0] = FATTR4_WORD0_TYPE
         | FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE
@@ -328,8 +325,8 @@ static int server_lookup_loop(
     OUT OPTIONAL nfs41_path_fh *target_out,
     OUT OPTIONAL nfs41_file_info *info_out)
 {
-    nfs41_lookup_component_args args;
-    nfs41_lookup_component_res res;
+    nfs41_lookup_component_args args = { 0 };
+    nfs41_lookup_component_res res = { 0 };
     nfs41_path_fh *dir, *parent, *target;
     const char *path_end;
     const uint32_t max_components = max_lookup_components(session);

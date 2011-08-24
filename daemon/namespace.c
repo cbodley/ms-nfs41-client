@@ -343,7 +343,7 @@ int nfs41_root_mount_addrs(
     IN OPTIONAL uint32_t lease_time,
     OUT nfs41_client **client_out)
 {
-    nfs41_exchange_id_res exchangeid;
+    nfs41_exchange_id_res exchangeid = { 0 };
     nfs41_rpc_clnt *rpc;
     nfs41_client *client, *existing;
     int status;
@@ -367,7 +367,6 @@ int nfs41_root_mount_addrs(
     }
 
     /* get a clientid with exchangeid */
-    ZeroMemory(&exchangeid, sizeof(exchangeid));
     status = nfs41_exchange_id(rpc, &root->client_owner,
         nfs41_exchange_id_flags(is_data), &exchangeid);
     if (status) {

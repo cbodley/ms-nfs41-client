@@ -381,7 +381,7 @@ restart_recovery:
                 saved_auth = session->client->rpc->rpc->cl_auth;
                 if (op == OP_LOOKUP || op == OP_OPEN) {
                     const nfs41_component *name;
-                    nfs41_path_fh *file = NULL, tmp;
+                    nfs41_path_fh *file = NULL, tmp = { 0 };
                     if (compound->args.argarray[compound->res.resarray_count-2].op == OP_PUTFH) {
                         nfs41_putfh_args *putfh = (nfs41_putfh_args*)
                             compound->args.argarray[compound->res.resarray_count-2].arg;
@@ -390,7 +390,6 @@ restart_recovery:
                                compound->args.argarray[compound->res.resarray_count-3].op == OP_GETFH) {
                         nfs41_getfh_res *getfh = (nfs41_getfh_res *)
                             compound->res.resarray[compound->res.resarray_count-3].res;
-                        ZeroMemory(&tmp, sizeof(nfs41_path_fh));
                         memcpy(&tmp.fh, getfh->fh, sizeof(nfs41_fh));
                         file = &tmp;
                     }

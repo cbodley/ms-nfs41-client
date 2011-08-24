@@ -159,10 +159,9 @@ static int getdomainname(char *domain)
     }
 
     if (net_info->DomainName[0] == '\0') {
-        struct addrinfo *result = NULL, *ptr = NULL, hints;
+        struct addrinfo *result = NULL, *ptr = NULL, hints = { 0 };
         char hostname[NI_MAXHOST], servInfo[NI_MAXSERV];
 
-        ZeroMemory(&hints, sizeof(hints));
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_protocol = IPPROTO_TCP;
 
@@ -290,10 +289,8 @@ static void dprint_roles(
 int nfs41_client_renew(
     IN nfs41_client *client)
 {
-    nfs41_exchange_id_res exchangeid;
+    nfs41_exchange_id_res exchangeid = { 0 };
     int status;
-
-    ZeroMemory(&exchangeid, sizeof(exchangeid));
 
     status = nfs41_exchange_id(client->rpc, &client->owner,
         nfs41_exchange_id_flags(client->is_data), &exchangeid);

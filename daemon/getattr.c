@@ -82,9 +82,7 @@ static int handle_getattr(nfs41_upcall *upcall)
     int status;
     getattr_upcall_args *args = &upcall->args.getattr;
     nfs41_open_state *state = upcall->state_ref;
-    nfs41_file_info info;
-
-    ZeroMemory(&info, sizeof(info));
+    nfs41_file_info info = { 0 };
 
     status = nfs41_cached_getattr(state->session, &state->file, &info);
     if (status) {

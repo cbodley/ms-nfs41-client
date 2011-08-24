@@ -82,7 +82,7 @@ static int get_superblock_attrs(
 {
     int status;
     bitmap4 attr_request;
-    nfs41_file_info info;
+    nfs41_file_info info = { 0 };
 
     attr_request.arr[0] = FATTR4_WORD0_SUPPORTED_ATTRS |
         FATTR4_WORD0_LINK_SUPPORT | FATTR4_WORD0_SYMLINK_SUPPORT |
@@ -93,7 +93,6 @@ static int get_superblock_attrs(
         FATTR4_WORD1_TIME_DELTA;
     attr_request.count = 2;
 
-    ZeroMemory(&info, sizeof(info));
     info.supported_attrs = &superblock->supported_attrs;
     info.time_delta = &superblock->time_delta;
 

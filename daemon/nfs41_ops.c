@@ -112,14 +112,13 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session, bool_t try_
     nfs41_compound compound;
     nfs_argop4 argop;
     nfs_resop4 resop;
-    nfs41_create_session_args req;
-    nfs41_create_session_res reply;
+    nfs41_create_session_args req = { 0 };
+    nfs41_create_session_res reply = { 0 };
 
     compound_init(&compound, &argop, &resop, "create_session");
 
     compound_add_op(&compound, OP_CREATE_SESSION, &req, &reply);
 
-    ZeroMemory(&req, sizeof(req));
     AcquireSRWLockShared(&clnt->exid_lock);
     req.csa_clientid = clnt->clnt_id;
     req.csa_sequence = clnt->seq_id;
@@ -137,7 +136,6 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session, bool_t try_
     set_back_channel_attrs(clnt->rpc,
         1, &req.csa_back_chan_attrs);
     
-    ZeroMemory(&reply, sizeof(nfs41_create_session_res));
     reply.csr_sessionid = session->session_id;
     reply.csr_fore_chan_attrs = &session->fore_chan_attrs;
     reply.csr_back_chan_attrs = &session->back_chan_attrs;
@@ -201,15 +199,14 @@ enum nfsstat4 nfs41_bind_conn_to_session(
     nfs41_compound compound;
     nfs_argop4 argop;
     nfs_resop4 resop;
-    nfs41_bind_conn_to_session_args bind_args;
-    nfs41_bind_conn_to_session_res bind_res;
+    nfs41_bind_conn_to_session_args bind_args = { 0 };
+    nfs41_bind_conn_to_session_res bind_res = { 0 };
 
     compound_init(&compound, &argop, &resop, "bind_conn_to_session");
 
     compound_add_op(&compound, OP_BIND_CONN_TO_SESSION, &bind_args, &bind_res);
     bind_args.sessionid = (unsigned char *)sessionid;
     bind_args.dir = dir;
-    ZeroMemory(&bind_res, sizeof(bind_res));
 
     status = nfs41_send_compound(rpc,
         (char*)&compound.args, (char*)&compound.res);
@@ -1379,13 +1376,12 @@ int nfs41_link(
     nfs41_getfh_res getfh_res;
     nfs41_getattr_args getattr_args[2];
     nfs41_getattr_res getattr_res[2];
-    nfs41_file_info info[2];
+    nfs41_file_info info[2] = { 0 };
     nfs41_path_fh file;
 
     if (link_out == NULL)
         link_out = &file;
 
-    ZeroMemory(&info, sizeof(info));
     init_getattr_request(&info[0].attrmask);
     init_getattr_request(&info[1].attrmask);
     info[1].attrmask.arr[0] |= FATTR4_WORD0_FSID;
@@ -1862,7 +1858,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     nfs41_putfh_args putfh_args;
     nfs41_putfh_res putfh_res;
     pnfs_layoutget_args layoutget_args;
-    pnfs_layoutget_res layoutget_res;
+    pnfs_layoutget_res layoutget_res = { 0 };
     uint32_t i;
     struct list_entry *entry;
 
@@ -1886,7 +1882,7 @@ enum nfsstat4 pnfs_rpc_layoutget(
     layoutget_args.length = length;
     layoutget_args.stateid = stateid;
     layoutget_args.maxcount = session->fore_chan_attrs.ca_maxresponsesize - READ_OVERHEAD;
-    ZeroMemory(&layoutget_res, sizeof(layoutget_res));
+
     layoutget_res.u.res_ok = layoutget_res_ok;
 
     status = compound_encode_send_decode(session, &compound, TRUE);

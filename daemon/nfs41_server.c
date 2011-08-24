@@ -284,7 +284,7 @@ int nfs41_server_resolve(
 {
     int status = ERROR_BAD_NET_NAME;
     char service[16];
-    struct addrinfo hints, *res, *info;
+    struct addrinfo hints = { 0 }, *res, *info;
     struct netconfig *nconf;
     struct netbuf addr;
     char *netid, *uaddr;
@@ -297,7 +297,6 @@ int nfs41_server_resolve(
     StringCchPrintfA(service, 16, "%u", port);
 
     /* request a list of tcp addrs for the given hostname,port */
-    ZeroMemory(&hints, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
