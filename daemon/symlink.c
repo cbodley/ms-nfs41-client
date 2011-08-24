@@ -71,14 +71,13 @@ static int abs_path_link(
         }
 
         /* copy the component and add a \ */
-        if (FAILED(StringCchCopyNA(path_pos,
-            path_max-path_pos, name.name, name.len))) {
+        if (FAILED(StringCchCopyNA(path_pos, path_max-path_pos, name.name, 
+                name.len))) {
             status = ERROR_BUFFER_OVERFLOW;
             goto out;
         }
         path_pos += name.len;
-        if (FAILED(StringCchCopyNA(path_pos,
-            path_max-path_pos, "\\", 1))) {
+        if (FAILED(StringCchCopyNA(path_pos, path_max-path_pos, "\\", 1))) {
             status = ERROR_BUFFER_OVERFLOW;
             goto out;
         }
@@ -132,7 +131,7 @@ int nfs41_symlink_target(
     if (target != path) {
         target->len = path->len;
         if (FAILED(StringCchCopyNA(target->path, NFS41_MAX_PATH_LEN,
-            path->path, path->len))) {
+                path->path, path->len))) {
             status = ERROR_BUFFER_OVERFLOW;
             goto out;
         }
@@ -285,8 +284,8 @@ static int marshall_symlink(unsigned char *buffer, uint32_t *length, nfs41_upcal
     if (status) goto out;
 
     if (*length <= len || !MultiByteToWideChar(CP_UTF8, 0,
-        args->target_get.path, args->target_get.len,
-        (LPWSTR)buffer, len / sizeof(WCHAR))) {
+            args->target_get.path, args->target_get.len,
+            (LPWSTR)buffer, len / sizeof(WCHAR))) {
         status = ERROR_BUFFER_OVERFLOW;
         goto out;
     }
