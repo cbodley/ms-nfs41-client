@@ -110,16 +110,15 @@ int upcall_parse(
         upcall->status = status = NFSD_VERSION_MISMATCH;
         goto out;
     }
-    if (upcall->root_ref != INVALID_HANDLE_VALUE)
-        nfs41_root_ref(upcall->root_ref);
-    if (upcall->state_ref != INVALID_HANDLE_VALUE)
-        nfs41_open_state_ref(upcall->state_ref);
-
     if (upcall->opcode >= g_upcall_op_table_size) {
         status = ERROR_NOT_SUPPORTED;
         eprintf("unrecognized upcall opcode %d!\n", upcall->opcode);
         goto out;
     }
+    if (upcall->root_ref != INVALID_HANDLE_VALUE)
+        nfs41_root_ref(upcall->root_ref);
+    if (upcall->state_ref != INVALID_HANDLE_VALUE)
+        nfs41_open_state_ref(upcall->state_ref);
 
     /* parse the operation's arguments */
     op = g_upcall_op_table[upcall->opcode];
