@@ -117,13 +117,12 @@ out:
     return status;
 }
 
-static int handle_volume_attributes(
+static void handle_volume_attributes(
     IN volume_upcall_args *args,
     IN nfs41_open_state *state)
 {
     PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
     const nfs41_superblock *superblock = state->file.fh.superblock;
-    int status = NO_ERROR;
 
     attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
     if (superblock->link_support)
@@ -147,14 +146,12 @@ static int handle_volume_attributes(
         "case_insensitive %u, max component %u\n",
         superblock->case_preserving, superblock->case_insensitive,
         attr->MaximumComponentNameLength);
-
-    return status;
 }
 
 static int handle_volume(nfs41_upcall *upcall)
 {
     volume_upcall_args *args = &upcall->args.volume;
-    int status;
+    int status = NO_ERROR;
 
     switch (args->query) {
     case FileFsSizeInformation:
@@ -182,7 +179,7 @@ static int handle_volume(nfs41_upcall *upcall)
         break;
 
     case FileFsAttributeInformation:
-        status = handle_volume_attributes(args, upcall->state_ref);
+        handle_volume_attributes(args, upcall->state_ref);
         break;
 
     default:
