@@ -78,8 +78,8 @@ static int read_from_mds(
     while(to_rcv > 0) {
         uint32_t bytes_read = 0, chunk = min(to_rcv, maxreadsize);
 
-        status = nfs41_read(session, file, stateid,
-            offset + reloffset, chunk, p, &bytes_read, &eof);
+        status = nfs41_read(session, file, stateid, offset + reloffset, chunk, 
+            p, &bytes_read, &eof);
         if (status == NFS4ERR_OPENMODE && !len) {
             stateid->type = STATEID_SPECIAL;
             memcpy(&stateid->stateid, &special_read_stateid, sizeof(stateid4));
@@ -255,8 +255,8 @@ static int write_to_pnfs(
         goto out;
     }
 
-    pnfsstat = pnfs_write(root, state->session, &state->file,
-        stateid, layout, offset, length, buffer, len_out);
+    pnfsstat = pnfs_write(root, state->session, &state->file, stateid, layout, 
+        offset, length, buffer, len_out);
     if (pnfsstat) {
         status = ERROR_WRITE_FAULT;
         goto out;
