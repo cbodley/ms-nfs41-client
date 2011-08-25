@@ -463,27 +463,20 @@ static int handle_readdir(nfs41_upcall *upcall)
     args->buf = NULL;
     args->query_reply_len = 0;
 
-    if (state->cookie.cookie) { /* cookie exists */
-        if (args->restart) {
+    if (args->initial || args->restart) {
+        ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
+        if (!state->cookie.cookie)
+            dprintf(1, "initializing the 1st readdir cookie\n");
+        else if (args->restart)
             dprintf(1, "restarting; clearing previous cookie %llu\n",
                 state->cookie.cookie);
-            ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
-        } else if (args->initial) { /* shouldn't happen */
+        else if (args->initial)
             dprintf(1, "*** initial; clearing previous cookie %llu!\n",
                 state->cookie.cookie);
-            ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
-        } else
-            dprintf(1, "resuming enumeration with cookie %llu.\n",
-                state->cookie.cookie);
-    } else { /* cookie is null */
-        if (args->initial || args->restart) {
-            dprintf(1, "initializing the 1st readdir cookie\n");
-            ZeroMemory(&state->cookie, sizeof(nfs41_readdir_cookie));
-        } else {
-            dprintf(1, "handle_nfs41_readdir: EOF\n");
-            status = ERROR_NO_MORE_FILES;
-            goto out;
-        }
+    } else if (!state->cookie.cookie) {
+        dprintf(1, "handle_nfs41_readdir: EOF\n");
+        status = ERROR_NO_MORE_FILES;
+        goto out;
     }
 
     entry_buf = malloc(max(args->buf_len, 4096));
