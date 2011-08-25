@@ -455,17 +455,31 @@ static int name_cache_entry_create(
     return status;
 }
 
-static void name_cache_entry_refresh(
+static void name_cache_entry_accessed(
+    IN struct nfs41_name_cache *cache,
+    IN struct name_cache_entry *entry)
+{
+    /* move the entry to the front of cache->exp_entries, then do
+     * the same for its parents, which are more costly to evict */
+    while (entry) {
+        /* if entry is delegated, it won't be in the list */
+        if (!list_empty(&entry->exp_entry)) {
+            list_remove(&entry->exp_entry);
+            list_add_head(&cache->exp_entries, &entry->exp_entry);
+        }
+        if (entry == entry->parent)
+            break;
+        entry = entry->parent;
+    }
+}
+
+static void name_cache_entry_updated(
     IN struct nfs41_name_cache *cache,
     IN struct name_cache_entry *entry)
 {
     /* update the expiration timer */
     entry->expiration = time(NULL) + cache->expiration;
-    /* move the entry to the front of cache->exp_entries */
-    if (!list_empty(&entry->exp_entry)) {
-        list_remove(&entry->exp_entry);
-        list_add_head(&cache->exp_entries, &entry->exp_entry);
-    }
+    name_cache_entry_accessed(cache, entry);
 }
 
 static int name_cache_entry_update(
@@ -506,7 +520,7 @@ static int name_cache_entry_update(
         attr_cache_entry_deref(&cache->attributes, entry->attributes);
         entry->attributes = NULL;
     }
-    name_cache_entry_refresh(cache, entry);
+    name_cache_entry_updated(cache, entry);
     return status;
 }
 
@@ -521,7 +535,7 @@ static int name_cache_entry_changed(
     if (cinfo->after == entry->attributes->change ||
             (cinfo->atomic && cinfo->before == entry->attributes->change)) {
         entry->attributes->change = cinfo->after;
-        name_cache_entry_refresh(cache, entry);
+        name_cache_entry_updated(cache, entry);
         dprintf(NCLVL1, "name_cache_entry_changed('%s') has not changed. "
             "updated change=%llu\n", entry->component,
             entry->attributes->change);
@@ -978,7 +992,7 @@ int nfs41_name_cache_delegreturn(
     if (status == NO_ERROR) {
         /* put the name cache entry back on the exp_entries list */
         list_add_head(&cache->exp_entries, &target->exp_entry);
-        name_cache_entry_refresh(cache, target);
+        name_cache_entry_updated(cache, target);
 
         attributes = target->attributes;
     } else {
