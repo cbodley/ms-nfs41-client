@@ -258,8 +258,6 @@ void pnfs_layout_list_free(
     IN struct pnfs_layout_list *layouts);
 
 enum pnfs_status pnfs_layout_state_open(
-    IN struct pnfs_layout_list *layouts,
-    IN struct __nfs41_session *session,
     IN struct __nfs41_open_state *state,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
@@ -364,8 +362,7 @@ __inline uint32_t data_server_index(
 /* pnfs_io.c */
 enum pnfs_status pnfs_read(
     IN struct __nfs41_root *root,
-    IN struct __nfs41_session *session,
-    IN nfs41_path_fh *meta_file,
+    IN struct __nfs41_open_state *state,
     IN const struct __stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
@@ -375,8 +372,7 @@ enum pnfs_status pnfs_read(
 
 enum pnfs_status pnfs_write(
     IN struct __nfs41_root *root,
-    IN struct __nfs41_session *session,
-    IN nfs41_path_fh *meta_file,
+    IN struct __nfs41_open_state *state,
     IN const struct __stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,

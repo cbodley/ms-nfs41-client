@@ -57,18 +57,16 @@ out:
 
 /* NFS41_READ */
 static int read_from_mds(
-    IN nfs41_session *session,
-    IN nfs41_path_fh *file,
-    IN stateid_arg *stateid,
-    IN uint64_t offset,
-    IN uint32_t length,
-    OUT unsigned char *buffer,
-    OUT ULONG *len_out)
+    IN nfs41_upcall *upcall,
+    IN stateid_arg *stateid)
 {
+    nfs41_session *session = upcall->state_ref->session;
+    nfs41_path_fh *file = &upcall->state_ref->file;
+    readwrite_upcall_args *args = &upcall->args.rw;
     int status = 0;
     bool_t eof;
-    unsigned char *p = buffer;
-    ULONG to_rcv = length, reloffset = 0, len = 0;
+    unsigned char *p = args->buffer;
+    ULONG to_rcv = args->len, reloffset = 0, len = 0;
     const uint32_t maxreadsize = max_read_size(session, &file->fh);
 
     if (to_rcv > maxreadsize)
@@ -78,8 +76,8 @@ static int read_from_mds(
     while(to_rcv > 0) {
         uint32_t bytes_read = 0, chunk = min(to_rcv, maxreadsize);
 
-        status = nfs41_read(session, file, stateid, offset + reloffset, chunk, 
-            p, &bytes_read, &eof);
+        status = nfs41_read(session, file, stateid, args->offset + reloffset, chunk, 
+                p, &bytes_read, &eof);
         if (status == NFS4ERR_OPENMODE && !len) {
             stateid->type = STATEID_SPECIAL;
             memcpy(&stateid->stateid, &special_read_stateid, sizeof(stateid4));
@@ -92,7 +90,7 @@ static int read_from_mds(
         p += bytes_read;
         to_rcv -= bytes_read;
         len += bytes_read;
-        offset += bytes_read;
+        args->offset += bytes_read;
         if (status) {
             status = NO_ERROR;
             break;
@@ -104,32 +102,27 @@ static int read_from_mds(
         }
     }
 out:
-    *len_out = len;
+    args->out_len = len;
     return status;
 }
 
 static int read_from_pnfs(
-    IN nfs41_root *root,
-    IN nfs41_open_state *state,
-    IN const stateid_arg *stateid,
-    IN uint64_t offset,
-    IN uint32_t length,
-    OUT unsigned char *buffer,
-    OUT ULONG *len_out)
+    IN nfs41_upcall *upcall,
+    IN stateid_arg *stateid)
 {
+    readwrite_upcall_args *args = &upcall->args.rw;
     pnfs_layout_state *layout;
     enum pnfs_status pnfsstat;
     int status = NO_ERROR;
 
-    pnfsstat = pnfs_layout_state_open(state->session->client->layouts,
-        state->session, state, PNFS_IOMODE_READ, offset, length, &layout);
-    if (pnfsstat) {
+    if (pnfs_layout_state_open(upcall->state_ref, PNFS_IOMODE_READ, 
+            args->offset, args->len, &layout)) {
         status = ERROR_NOT_SUPPORTED;
         goto out;
     }
 
-    pnfsstat = pnfs_read(root, state->session, &state->file,
-        stateid, layout, offset, length, buffer, len_out);
+    pnfsstat = pnfs_read(upcall->root_ref, upcall->state_ref, stateid, layout, 
+        args->offset, args->len, args->buffer, &args->out_len);
     switch (pnfsstat) {
     case PNFS_SUCCESS:
         break;
@@ -154,8 +147,7 @@ static int handle_read(nfs41_upcall *upcall)
     nfs41_open_stateid_arg(upcall->state_ref, &stateid);
 
 #ifdef PNFS_ENABLE_READ
-    status = read_from_pnfs(upcall->root_ref, upcall->state_ref, &stateid,
-        args->offset, args->len, args->buffer, &args->out_len);
+    status = read_from_pnfs(upcall, &stateid);
 
     if (status == NO_ERROR || status == ERROR_HANDLE_EOF)
         goto out;
@@ -170,8 +162,7 @@ static int handle_read(nfs41_upcall *upcall)
     }
 #endif
 
-    status = read_from_mds(upcall->state_ref->session, &upcall->state_ref->file,
-        &stateid, args->offset, args->len, args->buffer, &args->out_len);
+    status = read_from_mds(upcall, &stateid);
 
     args->out_len += pnfs_bytes_read;
 out:
@@ -181,14 +172,12 @@ out:
 
 /* NFS41_WRITE */
 static int write_to_mds(
-    IN nfs41_session *session,
-    IN nfs41_path_fh *file,
-    IN stateid_arg *stateid,
-    IN uint64_t offset,
-    IN uint32_t length,
-    IN unsigned char *buffer,
-    OUT ULONG *len_out)
+    IN nfs41_upcall *upcall,
+    IN stateid_arg *stateid)
 {
+    nfs41_session *session = upcall->state_ref->session;
+    nfs41_path_fh *file = &upcall->state_ref->file;
+    readwrite_upcall_args *args = &upcall->args.rw;
     nfs41_write_verf verf;
     enum stable_how4 stable, committed;
     unsigned char *p;
@@ -197,8 +186,8 @@ static int write_to_mds(
     int status = 0;
 
 retry_write:
-    p = buffer;
-    to_send = length;
+    p = args->buffer;
+    to_send = args->len;
     reloffset = 0;
     len = 0;
     stable = to_send <= maxwritesize ? DATA_SYNC4 : UNSTABLE4;
@@ -212,7 +201,7 @@ retry_write:
         uint32_t bytes_written = 0, chunk = min(to_send, maxwritesize);
 
         status = nfs41_write(session, file, stateid, p, chunk,
-            offset + reloffset, stable, &bytes_written, &verf);
+            args->offset + reloffset, stable, &bytes_written, &verf);
         if (status && !len)
             goto out;
         p += bytes_written;
@@ -227,37 +216,30 @@ retry_write:
             goto retry_write;
     }
     if (committed == UNSTABLE4) {
-        dprintf(1, "sending COMMIT for offset=%d and len=%d\n", offset, len);
-        status = nfs41_commit(session, file, offset, len, 1);
+        dprintf(1, "sending COMMIT for offset=%d and len=%d\n", args->offset, len);
+        status = nfs41_commit(session, file, args->offset, len, 1);
     }
 out:
-    *len_out = len;
+    args->out_len = len;
     return nfs_to_windows_error(status, ERROR_NET_WRITE_FAULT);
 }
 
 static int write_to_pnfs(
-    IN nfs41_root *root,
-    IN nfs41_open_state *state,
-    IN const stateid_arg *stateid,
-    IN uint64_t offset,
-    IN uint32_t length,
-    IN unsigned char *buffer,
-    OUT ULONG *len_out)
+    IN nfs41_upcall *upcall,
+    IN const stateid_arg *stateid)
 {
+    readwrite_upcall_args *args = &upcall->args.rw;
     pnfs_layout_state *layout;
-    enum pnfs_status pnfsstat;
     int status = NO_ERROR;
 
-    pnfsstat = pnfs_layout_state_open(state->session->client->layouts,
-        state->session, state, PNFS_IOMODE_RW, offset, length, &layout);
-    if (pnfsstat) {
+    if (pnfs_layout_state_open(upcall->state_ref, PNFS_IOMODE_RW, args->offset, 
+            args->len, &layout)) {
         status = ERROR_NOT_SUPPORTED;
         goto out;
     }
 
-    pnfsstat = pnfs_write(root, state->session, &state->file, stateid, layout, 
-        offset, length, buffer, len_out);
-    if (pnfsstat) {
+    if (pnfs_write(upcall->root_ref, upcall->state_ref, stateid, layout, 
+            args->offset, args->len, args->buffer, &args->out_len)) {
         status = ERROR_WRITE_FAULT;
         goto out;
     }
@@ -275,9 +257,7 @@ static int handle_write(nfs41_upcall *upcall)
     nfs41_open_stateid_arg(upcall->state_ref, &stateid);
 
 #ifdef PNFS_ENABLE_WRITE
-    status = write_to_pnfs(upcall->root_ref, upcall->state_ref, &stateid,
-        args->offset, args->len, args->buffer, &args->out_len);
-
+    status = write_to_pnfs(upcall, &stateid);
     if (status == NO_ERROR)
         goto out;
 
@@ -291,8 +271,7 @@ static int handle_write(nfs41_upcall *upcall)
     }
 #endif
 
-    status = write_to_mds(upcall->state_ref->session, &upcall->state_ref->file,
-        &stateid, args->offset, args->len, args->buffer, &args->out_len);
+    status = write_to_mds(upcall, &stateid);
 
     args->out_len += pnfs_bytes_written;
 out:

@@ -680,14 +680,14 @@ static enum pnfs_status open_state_layout_cached(
 }
 
 enum pnfs_status pnfs_layout_state_open(
-    IN struct pnfs_layout_list *layouts,
-    IN nfs41_session *session,
     IN nfs41_open_state *state,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
     IN uint64_t length,
     OUT pnfs_layout_state **layout_out)
 {
+    struct pnfs_layout_list *layouts = state->session->client->layouts;
+    nfs41_session *session = state->session;
     stateid_arg stateid;
     pnfs_layout_state *layout;
     enum pnfs_status status;

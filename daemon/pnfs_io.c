@@ -462,8 +462,7 @@ out:
 
 enum pnfs_status pnfs_read(
     IN nfs41_root *root,
-    IN nfs41_session *session,
-    IN nfs41_path_fh *meta_file,
+    IN struct __nfs41_open_state *state,
     IN const stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
@@ -478,8 +477,8 @@ enum pnfs_status pnfs_read(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, meta_file, stateid, layout,
-        buffer_out, offset, length, session->lease_time);
+    status = pattern_init(&pattern, root, &state->file, stateid, layout,
+        buffer_out, offset, length, state->session->lease_time);
     if (status) {
         eprintf("pattern_init() failed with %s\n",
             pnfs_error_string(status));
@@ -502,8 +501,7 @@ out:
 
 enum pnfs_status pnfs_write(
     IN nfs41_root *root,
-    IN nfs41_session *session,
-    IN nfs41_path_fh *meta_file,
+    IN nfs41_open_state *state,
     IN const stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
@@ -520,8 +518,8 @@ enum pnfs_status pnfs_write(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, meta_file, stateid, layout,
-        buffer, offset, length, session->lease_time);
+    status = pattern_init(&pattern, root, &state->file, stateid, layout,
+        buffer, offset, length, state->session->lease_time);
     if (status) {
         eprintf("pattern_init() failed with %s\n",
             pnfs_error_string(status));
@@ -541,7 +539,7 @@ enum pnfs_status pnfs_write(
         /* not all data was committed, so commit to metadata server */
         dprintf(1, "sending COMMIT to meta server for offset=%d and len=%d\n",
             offset, *len_out);
-        nfsstat = nfs41_commit(session, meta_file, offset, *len_out, 1);
+        nfsstat = nfs41_commit(state->session, &state->file, offset, *len_out, 1);
         if (nfsstat) {
             dprintf(IOLVL, "nfs41_commit() failed with %s\n",
                 nfs_error_string(nfsstat));
@@ -556,7 +554,7 @@ enum pnfs_status pnfs_write(
         memcpy(&layout_stateid, &layout->stateid, sizeof(layout_stateid));
         ReleaseSRWLockShared(&layout->lock);
 
-        nfsstat = pnfs_rpc_layoutcommit(session, meta_file,
+        nfsstat = pnfs_rpc_layoutcommit(state->session, &state->file,
             &layout_stateid, offset, *len_out, &new_last_offset, NULL);
         if (nfsstat) {
             dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
