@@ -301,27 +301,29 @@ enum pnfs_status pnfs_data_server_client(
     pnfsstat = data_client_status(server, client_out);
     ReleaseSRWLockShared(&server->lock);
 
+    if (!pnfsstat)
+        goto out;
+
+    AcquireSRWLockExclusive(&server->lock);
+
+    pnfsstat = data_client_status(server, client_out);
     if (pnfsstat) {
-        AcquireSRWLockExclusive(&server->lock);
+        status = nfs41_root_mount_addrs(root, &server->addrs, 1, default_lease, 
+            &server->client);
+        if (status) {
+            dprintf(FDLVL, "data_client_create('%s') failed with %d\n",
+                server->addrs.arr[0].uaddr, status);
+        } else {
+            *client_out = server->client;
+            pnfsstat = PNFS_SUCCESS;
 
-        pnfsstat = data_client_status(server, client_out);
-        if (pnfsstat) {
-            status = nfs41_root_mount_addrs(root, &server->addrs,
-                1, default_lease, &server->client);
-            if (status) {
-                dprintf(FDLVL, "data_client_create('%s') failed with %d\n",
-                    server->addrs.arr[0].uaddr, status);
-            } else {
-                *client_out = server->client;
-                pnfsstat = PNFS_SUCCESS;
-
-                dprintf(FDLVL, "pnfs_data_server_client() returning "
-                    "new client %llu\n", server->client->clnt_id);
-            }
+            dprintf(FDLVL, "pnfs_data_server_client() returning new client "
+                "%llu\n", server->client->clnt_id);
         }
-
-        ReleaseSRWLockExclusive(&server->lock);
     }
+
+    ReleaseSRWLockExclusive(&server->lock);
+out:
     return pnfsstat;
 }
 
