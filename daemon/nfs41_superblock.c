@@ -98,9 +98,8 @@ static int get_superblock_attrs(
 
     status = nfs41_getattr(session, file, &attr_request, &info);
     if (status) {
-        eprintf("nfs41_getattr() failed with %s when "
-            "fetching attributes for fsid(%llu,%llu)\n",
-            nfs_error_string(status),
+        eprintf("nfs41_getattr() failed with %s when fetching attributes for "
+            "fsid(%llu,%llu)\n", nfs_error_string(status),
             superblock->fsid.major, superblock->fsid.minor);
         goto out;
     }
@@ -203,7 +202,7 @@ int nfs41_superblock_for_fh(
 
     /* compare with the parent's fsid, and use that if it matches */
     if (parent && parent->superblock &&
-        compare_fsid(fsid, &parent->superblock->fsid) == 0) {
+            compare_fsid(fsid, &parent->superblock->fsid) == 0) {
         file->fh.superblock = parent->superblock;
         dprintf(SBLVL, "using superblock from parent\n");
         goto out;
