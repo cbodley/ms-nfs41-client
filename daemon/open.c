@@ -58,13 +58,11 @@ static int create_open_state(
     state->path.len = (unsigned short)strlen(state->path.path);
     path_fh_init(&state->file, &state->path);
     path_fh_init(&state->parent, &state->path);
-    last_component(state->path.path, state->file.name.name,
-        &state->parent.name);
+    last_component(state->path.path, state->file.name.name, &state->parent.name);
 
-    StringCchPrintfA((LPSTR)state->owner.owner, NFS4_OPAQUE_LIMIT,
-        "%u", open_owner_id);
-    state->owner.owner_len = (uint32_t)strlen(
-        (const char*)state->owner.owner);
+    StringCchPrintfA((LPSTR)state->owner.owner, NFS4_OPAQUE_LIMIT, "%u", 
+        open_owner_id);
+    state->owner.owner_len = (uint32_t)strlen((const char*)state->owner.owner);
     state->ref_count = 1;
     list_init(&state->locks.list);
     list_init(&state->client_entry);
@@ -99,8 +97,7 @@ void nfs41_open_state_ref(
 {
     const LONG count = InterlockedIncrement(&state->ref_count);
 
-    dprintf(2, "nfs41_open_state_ref(%s) count %d\n",
-        state->path.path, count);
+    dprintf(2, "nfs41_open_state_ref(%s) count %d\n", state->path.path, count);
 }
 
 void nfs41_open_state_deref(
@@ -108,8 +105,7 @@ void nfs41_open_state_deref(
 {
     const LONG count = InterlockedDecrement(&state->ref_count);
 
-    dprintf(2, "nfs41_open_state_deref(%s) count %d\n",
-        state->path.path, count);
+    dprintf(2, "nfs41_open_state_deref(%s) count %d\n", state->path.path, count);
     if (count == 0)
         open_state_free(state);
 }
@@ -286,7 +282,8 @@ out:
     return status;
 }
 
-static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask, ULONG disposition)
+static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask, 
+                                   ULONG disposition)
 {
     if (type == NF4DIR) {
         if (disposition == FILE_OPEN || disposition == FILE_OVERWRITE) {
@@ -299,9 +296,9 @@ static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask, ULONG dispo
     }
 
     if ((access_mask & FILE_READ_DATA) ||
-        (access_mask & FILE_WRITE_DATA) ||
-        (access_mask & FILE_APPEND_DATA) ||
-        (access_mask & FILE_EXECUTE))
+            (access_mask & FILE_WRITE_DATA) ||
+            (access_mask & FILE_APPEND_DATA) ||
+            (access_mask & FILE_EXECUTE))
         return FALSE;
     else {
         dprintf(1, "Open call that wants to manage attributes\n");
@@ -537,9 +534,9 @@ static int handle_open(nfs41_upcall *upcall)
      *   this case we'd create the file on open, and need to remove it
      *   before creating the symlink */
     if (args->disposition == FILE_CREATE &&
-        args->access_mask == (FILE_WRITE_ATTRIBUTES | SYNCHRONIZE | DELETE) &&
-        args->access_mode == 0 &&
-        args->create_opts & FILE_OPEN_REPARSE_POINT) {
+            args->access_mask == (FILE_WRITE_ATTRIBUTES | SYNCHRONIZE | DELETE) &&
+            args->access_mode == 0 &&
+            args->create_opts & FILE_OPEN_REPARSE_POINT) {
         /* fail if the file already exists */
         if (status == NO_ERROR) {
             status = ERROR_FILE_EXISTS;
@@ -554,7 +551,8 @@ static int handle_open(nfs41_upcall *upcall)
         state->file.fh.superblock = state->parent.fh.superblock;
 
         status = NO_ERROR;
-    } else if (open_for_attributes(state->type, args->access_mask, args->disposition)) {
+    } else if (open_for_attributes(state->type, args->access_mask, 
+                args->disposition)) {
         if (status) {
             dprintf(1, "nfs41_lookup failed with %d\n", status);
             goto out_free_state;
@@ -582,13 +580,13 @@ static int handle_open(nfs41_upcall *upcall)
         }
 
         if (create == OPEN4_CREATE && (args->create_opts & FILE_DIRECTORY_FILE)) {
-            status = nfs41_create(state->session, NF4DIR, args->mode,
-                NULL, &state->parent, &state->file);
+            status = nfs41_create(state->session, NF4DIR, args->mode, NULL, 
+                &state->parent, &state->file);
             args->std_info.Directory = 1;
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
-            status = open_or_delegate(state, create,
-                createhowmode, args->mode, TRUE, &info);
+            status = open_or_delegate(state, create, createhowmode, args->mode, 
+                TRUE, &info);
             if (status == NFS4_OK) {
                 nfs_to_basic_info(&info, &args->basic_info);
                 nfs_to_standard_info(&info, &args->std_info);
