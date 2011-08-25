@@ -43,14 +43,14 @@ static int init_slot_table(nfs41_slot_table *table)
     table->lock = CreateMutex(NULL, FALSE, "session_table_lock");
     if (table->lock == NULL) {
         status = GetLastError();
-        eprintf("CreateMutext failed %d\n", status);
+        eprintf("init_slot_table: CreateMutex failed %d\n", status);
         goto out;
     }
     //initialize condition variable for slots
     table->cond = CreateEvent(NULL, TRUE, FALSE, "session_table_cond");
     if (table->cond == NULL) {
         status = GetLastError();
-        eprintf("CreateEvent failed %d\n", status);
+        eprintf("init_slot_table: CreateEvent failed %d\n", status);
         goto out_mutex;
     }
 
@@ -73,7 +73,7 @@ static int reinit_slot_table(nfs41_slot_table *table)
 
     status = WaitForSingleObject(table->lock, INFINITE);
     if (status != WAIT_OBJECT_0) {
-        dprintf(1, "nfs41_session_bump_seq: WaitForSingleObject failed\n");
+        dprintf(1, "reinit_slot_table: WaitForSingleObject failed\n");
         print_condwait_status(1, status);
         status = ERROR_LOCK_VIOLATION;
         goto out;
@@ -163,7 +163,8 @@ int nfs41_session_get_slot(
 look_for_slot:
     status = WaitForSingleObject(session->table.lock, INFINITE);
     if (status != WAIT_OBJECT_0) {
-        dprintf(1, "nfs41_session_get_slot: WaitForSingleObject failed\n");
+        eprintf("nfs41_session_get_slot: WaitForSingleObject failed with %d\n", 
+            status);
         print_condwait_status(1, status);
         status = ERROR_LOCK_VIOLATION;
         goto out;
@@ -182,13 +183,20 @@ look_for_slot:
         }
     }
     if (i == session->table.max_slots) {
-        dprintf(1, "all (%d) slots are used. waiting for a free slot\n", session->table.max_slots);
+        dprintf(1, "all (%d) slots are used. waiting for a free slot\n", 
+            session->table.max_slots);
         ReleaseMutex(session->table.lock);
         status = WaitForSingleObject(session->table.cond, INFINITE);
         if (status == WAIT_OBJECT_0) {
             dprintf(1, "received a signal to look for a free slot\n");
             ResetEvent(session->table.cond);
             goto look_for_slot;
+        } else {
+            eprintf("nfs41_session_get_slot: WaitForSingleObject failed "
+                "with %d\n", status);
+            print_condwait_status(1, status);
+            status = ERROR_LOCK_VIOLATION;
+            goto out;
         }
     }        
     ReleaseMutex(session->table.lock);
@@ -253,10 +261,8 @@ static int session_alloc(
     session->isValidState = FALSE;
 
     status = init_slot_table(&session->table);
-    if (status) {
-        eprintf("init_slot_table failed %d\n", status);
+    if (status)
         goto out_err_session;
-    }
 
     //initialize session lock
     InitializeSRWLock(&client->session_lock);
@@ -326,10 +332,9 @@ int nfs41_session_renew(
     AcquireSRWLockExclusive(&session->client->session_lock);
     session->cb_session.cb_seqnum = 0;
     status = reinit_slot_table(&session->table);
-    if (status) {
-        eprintf("init_slot_table failed %d\n", status);
+    if (status)
         goto out_unlock;
-    }
+
     status = nfs41_create_session(session->client, session, FALSE);
     if (status) {
         eprintf("nfs41_create_session failed %d\n", status);
