@@ -361,10 +361,11 @@ retry_cache_insert:
             goto retry_cache_insert;
     }
 
-    if (status) {
+    if (status && delegation->type != OPEN_DELEGATE_NONE) {
         /* if we can't make room in the cache, return this
          * delegation immediately to free resources on the server */
         open_delegation_return(session, file, delegation);
+        goto retry_cache_insert;
     }
 }
 

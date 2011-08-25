@@ -806,8 +806,13 @@ int nfs41_client_delegation_return_lru(
     nfs41_delegation_state *state = NULL;
     int status = NFS4ERR_BADHANDLE;
 
-    /* starting from the least recently opened, find a delegation
-     * that's not 'in use' and return it */
+    /* starting from the least recently opened, find and return
+     * the first delegation that's not 'in use' (currently open) */
+
+    /* TODO: use a more robust algorithm, taking into account:
+     *  -number of total opens
+     *  -time since last operation on an associated open, or
+     *  -number of operations/second over last n seconds */
     EnterCriticalSection(&client->state.lock);
     list_for_each(entry, &client->state.delegations) {
         state = deleg_entry(entry);

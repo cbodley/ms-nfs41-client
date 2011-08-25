@@ -78,14 +78,6 @@ static __inline bool_t is_delegation(
     return type == OPEN_DELEGATE_READ || type == OPEN_DELEGATE_WRITE;
 }
 
-static __inline bool_t deleg_entry_limit(
-    IN uint32_t delegations,
-    IN uint32_t max_entries)
-{
-    /* limit the number of delegations to 50% of the cache capacity */
-    return delegations >= max_entries / 2;
-}
-
 
 /* attribute cache */
 struct attr_cache_entry {
@@ -365,8 +357,9 @@ struct nfs41_name_cache {
     struct list_entry       exp_entries; /* list of entries by expiry */
     uint32_t                expiration;
     uint32_t                entries;
-    uint32_t                delegations;
     uint32_t                max_entries;
+    uint32_t                delegations;
+    uint32_t                max_delegations;
     SRWLOCK                 lock;
 };
 
@@ -724,6 +717,7 @@ int nfs41_name_cache_create(
     list_init(&cache->exp_entries);
     cache->expiration = NAME_CACHE_EXPIRATION;
     cache->max_entries = NAME_CACHE_MAX_ENTRIES;
+    cache->max_delegations = NAME_CACHE_MAX_ENTRIES / 2;
     InitializeSRWLock(&cache->lock);
 
     /* allocate a pool of entries */
@@ -899,8 +893,8 @@ int nfs41_name_cache_insert(
     }
 
     /* limit the number of delegations to prevent attr cache starvation */
-    if (is_delegation(delegation) && deleg_entry_limit(
-        cache->delegations, cache->max_entries)) {
+    if (is_delegation(delegation) &&
+        cache->delegations >= cache->max_delegations) {
         status = ERROR_TOO_MANY_OPEN_FILES;
         goto out_unlock;
     }
@@ -998,9 +992,11 @@ int nfs41_name_cache_delegreturn(
     }
 
     /* release the reference from name_cache_entry_update() */
-    attributes->delegated = FALSE;
-    attr_cache_entry_deref(&cache->attributes, attributes);
-    cache->delegations--;
+    if (attributes->delegated) {
+        attributes->delegated = FALSE;
+        attr_cache_entry_deref(&cache->attributes, attributes);
+        cache->delegations--;
+    }
     status = NO_ERROR;
 
 out_unlock:
