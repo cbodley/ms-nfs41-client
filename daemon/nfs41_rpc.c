@@ -70,15 +70,14 @@ static int get_client_for_netaddr(
         dprintf(1, "servername is %s\n", server_name);
     }
     dprintf(1, "callback function %p args %p\n", nfs41_handle_callback, rpc);
-    client = clnt_tli_create(RPC_ANYFD, nconf, addr,
-        NFS41_RPC_PROGRAM, NFS41_RPC_VERSION, wsize, rsize, 
-        rpc?proc_cb_compound_res:NULL, rpc?nfs41_handle_callback:NULL, rpc?rpc:NULL);
+    client = clnt_tli_create(RPC_ANYFD, nconf, addr, NFS41_RPC_PROGRAM, 
+        NFS41_RPC_VERSION, wsize, rsize, rpc ? proc_cb_compound_res : NULL, 
+        rpc ? nfs41_handle_callback : NULL, rpc ? rpc : NULL);
     if (client) {
         *client_out = client;
         status = NO_ERROR;
-        goto out_free_addr;
     }
-out_free_addr:
+
     freenetbuf(addr);
 out_free_conf:
     freenetconfigent(nconf);
@@ -202,6 +201,11 @@ int nfs41_rpc_clnt_create(
         }
         machname[sizeof(machname) - 1] = '\0';
         client->cl_auth = authsys_create(machname, uid, gid, 0, gids);
+        if (client->cl_auth == NULL) {
+            eprintf("nfs41_rpc_clnt_create: failed to create rpc authsys\n");
+            status = ERROR_NETWORK_UNREACHABLE;
+            goto out_err_client;
+        }
     } else {
         status = create_rpcsec_auth_client(sec_flavor, rpc->server_name, client);
         if (status) {
