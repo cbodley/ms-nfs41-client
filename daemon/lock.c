@@ -72,37 +72,25 @@ static void lock_stateid_update(
     }
 }
 
-static int open_lock_add(
+static void open_lock_add(
     IN nfs41_open_state *open,
     IN const stateid_arg *stateid,
-    IN const nfs41_lock_state *input)
+    IN nfs41_lock_state *lock)
 {
-    nfs41_lock_state *lock;
-    int status = NO_ERROR;
-
     AcquireSRWLockExclusive(&open->lock);
+
     if (stateid->type == STATEID_LOCK)
         lock_stateid_update(open, &stateid->stateid);
 
-    lock = calloc(1, sizeof(nfs41_lock_state));
-    if (lock == NULL) {
-        status = GetLastError();
-        goto out;
-    }
-    lock->offset = input->offset;
-    lock->length = input->length;
-    lock->exclusive = input->exclusive;
     lock->id = open->locks.counter++;
-
     list_add_tail(&open->locks.list, &lock->open_entry);
-out:
+
     ReleaseSRWLockExclusive(&open->lock);
-    return status;
 }
 
 static bool_t open_lock_delegate(
     IN nfs41_open_state *open,
-    IN const nfs41_lock_state *input)
+    IN nfs41_lock_state *lock)
 {
     bool_t delegated = FALSE;
 
@@ -112,16 +100,10 @@ static bool_t open_lock_delegate(
         AcquireSRWLockShared(&deleg->lock);
         if (deleg->state.type == OPEN_DELEGATE_WRITE
             && deleg->status == DELEGATION_GRANTED) {
-            nfs41_lock_state *lock = calloc(1, sizeof(nfs41_lock_state));
-            if (lock) {
-                lock->offset = input->offset;
-                lock->length = input->length;
-                lock->exclusive = input->exclusive;
-                lock->delegated = 1;
-                lock->id = open->locks.counter++;
-                list_add_tail(&open->locks.list, &lock->open_entry);
-                delegated = TRUE;
-            }
+            lock->delegated = 1;
+            lock->id = open->locks.counter++;
+            list_add_tail(&open->locks.list, &lock->open_entry);
+            delegated = TRUE;
         }
         ReleaseSRWLockShared(&deleg->lock);
     }
@@ -219,10 +201,10 @@ static __inline uint32_t get_lock_type(BOOLEAN exclusive, BOOLEAN blocking)
 
 static int handle_lock(nfs41_upcall *upcall)
 {
-    nfs41_lock_state input;
     stateid_arg stateid;
     lock_upcall_args *args = &upcall->args.lock;
     nfs41_open_state *state = upcall->state_ref;
+    nfs41_lock_state *lock;
     const uint32_t type = get_lock_type(args->exclusive, args->blocking);
     int status = NO_ERROR;
 
@@ -233,14 +215,20 @@ static int handle_lock(nfs41_upcall *upcall)
     if (args->length >= NFS4_UINT64_MAX - args->offset)
         args->length = NFS4_UINT64_MAX;
 
-    input.offset = args->offset;
-    input.length = args->length;
-    input.exclusive = args->exclusive;
+    /* allocate the lock state */
+    lock = calloc(1, sizeof(nfs41_lock_state));
+    if (lock == NULL) {
+        status = GetLastError();
+        goto out;
+    }
+    lock->offset = args->offset;
+    lock->length = args->length;
+    lock->exclusive = args->exclusive;
 
     /* if we hold a write delegation, handle the lock locally */
-    if (open_lock_delegate(state, &input)) {
+    if (open_lock_delegate(state, lock)) {
         dprintf(LKLVL, "delegated lock { %llu, %llu }\n",
-            input.offset, input.length);
+            lock->offset, lock->length);
         goto out;
     }
 
@@ -249,25 +237,28 @@ static int handle_lock(nfs41_upcall *upcall)
     status = nfs41_delegation_to_open(state, TRUE);
     if (status) {
         status = ERROR_FILE_INVALID;
-        goto out;
+        goto out_free;
     }
 
     lock_stateid_arg(state, &stateid);
 
     status = nfs41_lock(state->session, &state->file, &state->owner,
-        type, input.offset, input.length, FALSE, TRUE, &stateid);
+        type, lock->offset, lock->length, FALSE, TRUE, &stateid);
     if (status) {
         dprintf(LKLVL, "nfs41_lock failed with %s\n",
             nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
-        goto out;
+        goto out_free;
     }
 
-    /* ignore errors from open_lock_add(); they just mean we
-     * won't be able to recover the lock after reboot */
-    open_lock_add(state, &stateid, &input);
+    /* save lock state with the open */
+    open_lock_add(state, &stateid, lock);
 out:
     return status;
+
+out_free:
+    free(lock);
+    goto out;
 }
 
 static void cancel_lock(IN nfs41_upcall *upcall)
