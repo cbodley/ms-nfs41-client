@@ -152,7 +152,7 @@ int upcall_handle(
 out:
     return status;
 }
-
+#pragma warning (disable : 4706) /* assignment within conditional expression */
 void upcall_marshall(
     IN nfs41_upcall *upcall,
     OUT unsigned char *buffer,
