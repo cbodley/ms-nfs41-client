@@ -437,6 +437,10 @@ static int name_cache_entry_create(
 
     if (cache->entries >= cache->max_entries) {
         /* scavenge the oldest entry */
+        if (list_empty(&cache->exp_entries)) {
+            status = ERROR_OUTOFMEMORY;
+            goto out;
+        }
         entry = name_entry(cache->exp_entries.prev);
         name_cache_unlink(cache, entry);
 
@@ -452,6 +456,7 @@ static int name_cache_entry_create(
     name_cache_entry_rename(entry, component);
 
     *entry_out = entry;
+out:
     return status;
 }
 
