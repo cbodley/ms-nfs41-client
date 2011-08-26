@@ -49,7 +49,7 @@ void nfs41_callback_session_init(
     IN nfs41_session *session)
 {
     /* initialize the replay cache with status NFS4ERR_SEQ_MISORDERED */
-    struct cb_compound_res res;
+    struct cb_compound_res res = { 0 };
     StringCchCopyA(res.tag.str, CB_COMPOUND_MAX_TAG, g_server_tag);
     res.tag.len = sizeof(g_server_tag);
     res.status = NFS4ERR_SEQ_MISORDERED;
