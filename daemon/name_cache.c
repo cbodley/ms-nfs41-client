@@ -898,7 +898,7 @@ int nfs41_name_cache_insert(
     IN OPTIONAL const change_info4 *cinfo,
     IN enum open_delegation_type4 delegation)
 {
-    struct name_cache_entry *grandparent, *parent, *target;
+    struct name_cache_entry *parent, *target;
     int status;
 
     dprintf(NCLVL1, "--> nfs41_name_cache_insert('%.*s')\n",
@@ -927,29 +927,28 @@ int nfs41_name_cache_insert(
             if (status)
                 goto out_err_deleg;
         }
+        target = cache->root;
+    } else {
+        /* find/create an entry under its parent */
+        status = name_cache_lookup(cache, 0, path,
+            name->name, NULL, NULL, &parent, NULL);
+        if (status)
+            goto out_err_deleg;
 
-        status = name_cache_entry_update(cache,
-            cache->root, fh, info, delegation);
-        goto out_err_deleg;
+        if (cinfo && name_cache_entry_changed(cache, parent, cinfo)) {
+            name_cache_entry_invalidate(cache, parent);
+            goto out_err_deleg;
+        }
+
+        status = name_cache_find_or_create(cache, parent, name, &target);
+        if (status)
+            goto out_err_deleg;
     }
 
-    status = name_cache_lookup(cache, 0, path, name->name,
-        NULL, &grandparent, &parent, NULL);
-    if (status)
-        goto out_err_deleg;
-
-    if (cinfo && name_cache_entry_changed(cache, parent, cinfo)) {
-        name_cache_entry_invalidate(cache, parent);
-        goto out_err_deleg;
-    }
-
-    status = name_cache_find_or_create(cache, parent, name, &target);
-    if (status)
-        goto out_err_deleg;
-
+    /* pass in the new fh/attributes */
     status = name_cache_entry_update(cache, target, fh, info, delegation);
     if (status)
-        name_cache_entry_invalidate(cache, target);
+        goto out_err_update;
 
 out_unlock:
     ReleaseSRWLockExclusive(&cache->lock);
@@ -957,6 +956,11 @@ out_unlock:
     dprintf(NCLVL1, "<-- nfs41_name_cache_insert() returning %d\n",
         status);
     return status;
+
+out_err_update:
+    /* a failure in name_cache_entry_update() leaves a negative entry
+     * where there shouldn't be one; remove it from the cache */
+    name_cache_entry_invalidate(cache, target);
 
 out_err_deleg:
     if (is_delegation(delegation)) {
