@@ -502,30 +502,32 @@ static int name_cache_entry_update(
         entry->fh.len = 0;
 
     if (info) {
-        /* negative -> positive entry, create the attributes */
-        if (entry->attributes == NULL)
+        if (entry->attributes == NULL) {
+            /* negative -> positive entry, create the attributes */
             status = attr_cache_find_or_create(&cache->attributes,
                 info->fileid, &entry->attributes);
-
-        if (status == NO_ERROR) {
-            attr_cache_update(entry->attributes, info, delegation);
-
-            /* hold a reference as long as we have the delegation */
-            if (is_delegation(delegation)) {
-                attr_cache_entry_ref(&cache->attributes, entry->attributes);
-                cache->delegations++;
-            }
-
-            /* keep the entry from expiring */
-            if (entry->attributes->delegated)
-                list_remove(&entry->exp_entry);
+            if (status)
+                goto out;
         }
+
+        attr_cache_update(entry->attributes, info, delegation);
+
+        /* hold a reference as long as we have the delegation */
+        if (is_delegation(delegation)) {
+            attr_cache_entry_ref(&cache->attributes, entry->attributes);
+            cache->delegations++;
+        }
+
+        /* keep the entry from expiring */
+        if (entry->attributes->delegated)
+            list_remove(&entry->exp_entry);
     } else if (entry->attributes) {
         /* positive -> negative entry, deref the attributes */
         attr_cache_entry_deref(&cache->attributes, entry->attributes);
         entry->attributes = NULL;
     }
     name_cache_entry_updated(cache, entry);
+out:
     return status;
 }
 
