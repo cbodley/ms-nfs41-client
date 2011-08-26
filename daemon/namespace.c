@@ -370,8 +370,7 @@ int nfs41_root_mount_addrs(
     status = nfs41_exchange_id(rpc, &root->client_owner,
         nfs41_exchange_id_flags(is_data), &exchangeid);
     if (status) {
-        eprintf("nfs41_exchange_id() failed %s\n",
-            nfs_error_string(status));
+        eprintf("nfs41_exchange_id() failed %s\n", nfs_error_string(status));
         status = ERROR_BAD_NET_RESP;
         goto out_free_rpc;
     }
@@ -389,6 +388,8 @@ int nfs41_root_mount_addrs(
         lease_time, &exchangeid, &client);
     if (status) {
         eprintf("nfs41_client_create() failed %d\n", status);
+        /* root_client_create takes care of cleaning up 
+         * thus don't go to out_free_rpc */
         goto out;
     }
 
