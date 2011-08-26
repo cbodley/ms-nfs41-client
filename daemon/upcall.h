@@ -74,6 +74,7 @@ typedef struct __lock_upcall_args {
     uint64_t length;
     BOOLEAN exclusive;
     BOOLEAN blocking;
+    BOOLEAN acquired;
 } lock_upcall_args;
 
 typedef struct __unlock_upcall_args {

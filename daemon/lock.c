@@ -229,6 +229,7 @@ static int handle_lock(nfs41_upcall *upcall)
     if (open_lock_delegate(state, lock)) {
         dprintf(LKLVL, "delegated lock { %llu, %llu }\n",
             lock->offset, lock->length);
+        args->acquired = TRUE; /* for cancel_lock() */
         goto out;
     }
 
@@ -253,6 +254,7 @@ static int handle_lock(nfs41_upcall *upcall)
 
     /* save lock state with the open */
     open_lock_add(state, &stateid, lock);
+    args->acquired = TRUE; /* for cancel_lock() */
 out:
     return status;
 
@@ -271,7 +273,9 @@ static void cancel_lock(IN nfs41_upcall *upcall)
 
     dprintf(1, "--> cancel_lock()\n");
 
-    if (upcall->status)
+    /* can't do 'if (upcall->status)' here, because a handle_lock() success
+     * could be overwritten by upcall_marshall() or allocation failure */
+    if (!args->acquired)
         goto out;
 
     input.offset = args->offset;
