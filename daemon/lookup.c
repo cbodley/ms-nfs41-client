@@ -40,16 +40,6 @@
 
 #define MAX_LOOKUP_COMPONENTS 8
 
-/* calculate how much space to allocate for rpc reply */
-#define MAX_LOOKUP_RES_SIZE     4
-#define MAX_GETFH_RES_SIZE      (NFS4_FHSIZE + 8)
-#define MAX_GETATTR_RES_SIZE    128 /* depends on what we request */
-#define MAX_COMPONENT_RES_SIZE  \
-    (MAX_LOOKUP_RES_SIZE + MAX_GETFH_RES_SIZE + MAX_GETATTR_RES_SIZE)
-#define MAX_RPC_RES_SIZE(num_components) \
-    (MAX_COMPONENT_RES_SIZE * ((num_components) + 1))
-
-
 /* map NFS4ERR_MOVED to an arbitrary windows error */
 #define ERROR_FILESYSTEM_ABSENT ERROR_DEVICE_REMOVED
 
@@ -138,25 +128,20 @@ static int lookup_rpc(
         goto out;
 
     if (dir == &res->root) {
-        compound_add_op(&compound, OP_PUTROOTFH,
-            NULL, &res->putfh);
-        compound_add_op(&compound, OP_GETFH,
-            NULL, &res->getrootfh);
-        compound_add_op(&compound, OP_GETATTR,
-            &args->getrootattr, &res->getrootattr);
+        compound_add_op(&compound, OP_PUTROOTFH, NULL, &res->putfh);
+        compound_add_op(&compound, OP_GETFH, NULL, &res->getrootfh);
+        compound_add_op(&compound, OP_GETATTR, &args->getrootattr, 
+            &res->getrootattr);
     } else {
         args->putfh.file = dir;
-        compound_add_op(&compound, OP_PUTFH,
-            &args->putfh, &res->putfh);
+        compound_add_op(&compound, OP_PUTFH, &args->putfh, &res->putfh);
     }
 
     for (i = 0; i < component_count; i++) {
-        compound_add_op(&compound, OP_LOOKUP,
-            &args->lookup[i], &res->lookup[i]);
-        compound_add_op(&compound, OP_GETFH,
-            NULL, &res->getfh[i]);
-        compound_add_op(&compound, OP_GETATTR,
-            &args->getattr[i], &res->getattr[i]);
+        compound_add_op(&compound, OP_LOOKUP, &args->lookup[i], &res->lookup[i]);
+        compound_add_op(&compound, OP_GETFH, NULL, &res->getfh[i]);
+        compound_add_op(&compound, OP_GETATTR, &args->getattr[i], 
+            &res->getattr[i]);
     }
 
     status = compound_encode_send_decode(session, &compound, TRUE);
