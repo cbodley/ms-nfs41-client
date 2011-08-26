@@ -719,6 +719,7 @@ static int handle_setacl(nfs41_upcall *upcall)
     BOOL sid_default, gsid_default;
 
     if (args->query & OWNER_SECURITY_INFORMATION) {
+        char owner[NFS4_OPAQUE_LIMIT];
         dprintf(1, "handle_setacl: OWNER_SECURITY_INFORMATION\n");
         status = GetSecurityDescriptorOwner(args->sec_desc, &sid, &sid_default);
         if (!status) {
@@ -726,6 +727,7 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
+        info.owner = owner;
         status = map_nfs4ace_who(sid, NULL, NULL, info.owner,
                                  state->session->client->domain_name);
         if (status)
@@ -736,6 +738,7 @@ static int handle_setacl(nfs41_upcall *upcall)
         }
     }
     if (args->query & GROUP_SECURITY_INFORMATION) {
+        char group[NFS4_OPAQUE_LIMIT];
         dprintf(1, "handle_setacl: GROUP_SECURITY_INFORMATION\n");
         status = GetSecurityDescriptorGroup(args->sec_desc, &sid, &sid_default);
         if (!status) {
@@ -743,6 +746,7 @@ static int handle_setacl(nfs41_upcall *upcall)
             eprintf("GetSecurityDescriptorOwner failed with %d\n", status);
             goto out;
         }
+        info.owner_group = group;
         status = map_nfs4ace_who(sid, NULL, NULL, info.owner_group,
                                  state->session->client->domain_name);
         if (status)
