@@ -26,6 +26,7 @@
 
 #include "delegation.h"
 #include "nfs41_ops.h"
+#include "name_cache.h"
 #include "util.h"
 #include "daemon_debug.h"
 
@@ -722,6 +723,49 @@ out_args:
 out_deleg:
     nfs41_delegation_deref(deleg);
     goto out;
+}
+
+
+int nfs41_delegation_getattr(
+    IN nfs41_client *client,
+    IN const nfs41_fh *fh,
+    IN const bitmap4 *attr_request,
+    OUT nfs41_file_info *info)
+{
+    nfs41_delegation_state *deleg;
+    uint64_t fileid;
+    int status;
+
+    dprintf(2, "--> nfs41_delegation_getattr()\n");
+
+    /* search for a delegation on this file handle */
+    status = delegation_find(client, fh, deleg_fh_cmp, &deleg);
+    if (status)
+        goto out;
+
+    AcquireSRWLockShared(&deleg->lock);
+    fileid = deleg->file.fh.fileid;
+    if (deleg->status != DELEGATION_GRANTED ||
+        deleg->state.type != OPEN_DELEGATE_WRITE) {
+        status = NFS4ERR_BADHANDLE;
+    }
+    ReleaseSRWLockShared(&deleg->lock);
+    if (status)
+        goto out;
+
+    ZeroMemory(&info, sizeof(nfs41_file_info));
+
+    /* find attributes for the given fileid */
+    status = nfs41_attr_cache_lookup(
+        client_name_cache(client), fileid, info);
+    if (status) {
+        status = NFS4ERR_BADHANDLE;
+        goto out;
+    }
+out:
+    dprintf(DGLVL, "<-- nfs41_delegation_getattr() returning %s\n",
+        nfs_error_string(status));
+    return status;
 }
 
 

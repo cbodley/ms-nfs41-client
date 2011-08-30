@@ -172,6 +172,18 @@ out:
     return status;
 }
 
+/* OP_CB_GETATTR */
+static enum_t handle_cb_getattr(
+    IN nfs41_rpc_clnt *rpc_clnt,
+    IN struct cb_getattr_args *args,
+    OUT struct cb_getattr_res *res)
+{
+    /* look up cached attributes for the given filehandle */
+    res->status = nfs41_delegation_getattr(rpc_clnt->client,
+        &args->fh, &args->attr_request, &res->info);
+    return res->status;
+}
+
 /* OP_CB_RECALL */
 static enum_t handle_cb_recall(
     IN nfs41_rpc_clnt *rpc_clnt,
@@ -437,7 +449,8 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
             break;
         case OP_CB_GETATTR:
             dprintf(1, "OP_CB_GETATTR\n");
-            res->status = NFS4ERR_NOTSUPP;
+            res->status = handle_cb_getattr(rpc_clnt, 
+                &argop->args.getattr, &resop->res.getattr);
             break;
         case OP_CB_RECALL:
             dprintf(1, "OP_CB_RECALL\n");

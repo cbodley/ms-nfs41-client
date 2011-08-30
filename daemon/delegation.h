@@ -91,6 +91,12 @@ int nfs41_delegation_recall(
     IN const stateid4 *stateid,
     IN bool_t truncate);
 
+int nfs41_delegation_getattr(
+    IN nfs41_client *client,
+    IN const nfs41_fh *fh,
+    IN const bitmap4 *attr_request,
+    OUT nfs41_file_info *info);
+
 
 /* after client state recovery, return any 'recalled' delegations;
  * must be called under the client's state lock */

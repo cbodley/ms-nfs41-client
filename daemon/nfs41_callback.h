@@ -124,11 +124,13 @@ struct cb_sequence_res {
 
 /* OP_CB_GETATTR */
 struct cb_getattr_args {
-    uint32_t                target_highest_slotid;
+    nfs41_fh                fh;
+    bitmap4                 attr_request;
 };
 
 struct cb_getattr_res {
     enum_t                  status;
+    nfs41_file_info         info;
 };
 
 /* OP_CB_RECALL */
@@ -231,7 +233,8 @@ union cb_op_args {
     struct cb_layoutrecall_args layoutrecall;
     struct cb_recall_slot_args recall_slot;
     struct cb_sequence_args sequence;
-    struct cb_recall_args recall;
+    struct cb_getattr_args  getattr;
+    struct cb_recall_args   recall;
     struct cb_notify_deviceid_args notify_deviceid;
 };
 struct cb_argop {
@@ -255,6 +258,7 @@ union cb_op_res {
     struct cb_layoutrecall_res layoutrecall;
     struct cb_recall_slot_res recall_slot;
     struct cb_sequence_res  sequence;
+    struct cb_getattr_res   getattr;
     struct cb_recall_res    recall;
     struct cb_notify_deviceid_res notify_deviceid;
 };

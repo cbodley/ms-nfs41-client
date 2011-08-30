@@ -146,7 +146,7 @@ static bool_t xdr_stateid4(
 }
 
 /* fattr4 */
-static bool_t xdr_fattr4(
+bool_t xdr_fattr4(
     XDR *xdr,
     fattr4 *fattr)
 {

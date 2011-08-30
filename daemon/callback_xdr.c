@@ -25,9 +25,10 @@
  */
 
 #include "nfs41_callback.h"
-
 #include "nfs41_ops.h"
+#include "util.h"
 #include "daemon_debug.h"
+
 
 #define CBXLVL 2 /* dprintf level for callback xdr logging */
 #define CBX_ERR(msg) dprintf((CBXLVL), __FUNCTION__ ": failed at " msg "\n")
@@ -35,6 +36,7 @@
 
 /* common types */
 bool_t xdr_bitmap4(XDR *xdr, bitmap4 *bitmap);
+bool_t xdr_fattr4(XDR *xdr, fattr4 *fattr);
 
 static bool_t common_stateid(XDR *xdr, stateid4 *stateid)
 {
@@ -245,12 +247,41 @@ out:
 }
 
 /* OP_CB_GETATTR */
-static bool_t op_cb_getattr_args(XDR *xdr, struct cb_getattr_args *res)
+static bool_t op_cb_getattr_args(XDR *xdr, struct cb_getattr_args *args)
 {
     bool_t result;
 
-    result = xdr_u_int32_t(xdr, &res->target_highest_slotid);
-    if (!result) { CBX_ERR("getattr.target_highest_slotid"); goto out; }
+    result = common_fh(xdr, &args->fh);
+    if (!result) { CBX_ERR("getattr.fh"); goto out; }
+
+    result = xdr_bitmap4(xdr, &args->attr_request);
+    if (!result) { CBX_ERR("getattr.attr_request"); goto out; }
+out:
+    return result;
+}
+
+static bool_t info_to_fattr4(nfs41_file_info *info, fattr4 *fattr)
+{
+    XDR fattr_xdr;
+    bool_t result = TRUE;
+
+    /* encode nfs41_file_info into fattr4 */
+    xdrmem_create(&fattr_xdr, (char*)fattr->attr_vals,
+        NFS4_OPAQUE_LIMIT, XDR_ENCODE);
+    
+    /* The only attributes that the server can reliably
+     * query via CB_GETATTR are size and change. */
+    if (bitmap_isset(&info->attrmask, 0, FATTR4_WORD0_CHANGE)) {
+        result = xdr_u_hyper(&fattr_xdr, &info->change);
+        if (!result) { CBX_ERR("getattr.info.change"); goto out; }
+        bitmap_set(&fattr->attrmask, 0, FATTR4_WORD0_CHANGE);
+    }
+    if (bitmap_isset(&info->attrmask, 0, FATTR4_WORD0_SIZE)) {
+        result = xdr_u_hyper(&fattr_xdr, &info->size);
+        if (!result) { CBX_ERR("getattr.info.size"); goto out; }
+        bitmap_set(&fattr->attrmask, 0, FATTR4_WORD0_SIZE);
+    }
+    fattr->attr_vals_len = xdr_getpos(&fattr_xdr);
 out:
     return result;
 }
@@ -261,6 +292,16 @@ static bool_t op_cb_getattr_res(XDR *xdr, struct cb_getattr_res *res)
 
     result = xdr_enum(xdr, &res->status);
     if (!result) { CBX_ERR("getattr.status"); goto out; }
+
+    if (res->status == NFS4_OK) {
+        fattr4 fattr = { 0 };
+
+        result = info_to_fattr4(&res->info, &fattr);
+        if (!result) { goto out; }
+
+        result = xdr_fattr4(xdr, &fattr);
+        if (!result) { CBX_ERR("getattr.obj_attributes"); goto out; }
+    }
 out:
     return result;
 }
