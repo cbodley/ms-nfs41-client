@@ -35,14 +35,6 @@
 #define IOLVL 2 /* dprintf level for pnfs io logging */
 
 
-static uint32_t io_unit_count(
-    const pnfs_file_layout *layout,
-    uint64_t length)
-{
-    const uint32_t unit_size = layout_unit_size(layout);
-    return (uint32_t)(length / unit_size) + (length % unit_size ? 1 : 0);
-}
-
 static enum pnfs_status pattern_init(
     IN pnfs_io_pattern *pattern,
     IN nfs41_root *root,
@@ -54,9 +46,6 @@ static enum pnfs_status pattern_init(
     IN uint64_t length,
     IN uint32_t default_lease)
 {
-#ifndef PNFS_THREAD_BY_SERVER
-    pnfs_io_unit io;
-#endif
     uint64_t pos;
     uint32_t i;
     enum pnfs_status status;
@@ -69,7 +58,7 @@ static enum pnfs_status pattern_init(
 #ifdef PNFS_THREAD_BY_SERVER
     pattern->count = state->layout->device->servers.count;
 #else
-    pattern->count = io_unit_count(state->layout, length);
+    pattern->count = state->layout->device->stripes.count;
 #endif
     pattern->threads = calloc(pattern->count, sizeof(pnfs_io_thread));
     if (pattern->threads == NULL) {
@@ -92,26 +81,8 @@ static enum pnfs_status pattern_init(
     for (i = 0; i < pattern->count; i++) {
         pattern->threads[i].pattern = pattern;
         pattern->threads[i].stable = FILE_SYNC4;
-#ifdef PNFS_THREAD_BY_SERVER
         pattern->threads[i].offset = pattern->offset_start;
-        pattern->threads[i].offset_end = pattern->offset_end;
         pattern->threads[i].id = i;
-#else
-        pnfs_file_device_io_unit(pattern, pos, &io);
-        pattern->threads[i].offset = pos;
-        pattern->threads[i].offset_end = pos += io.length;
-        pattern->threads[i].id = io.stripeid;
-
-        if (pattern->threads[i].offset > pattern->offset_end)
-            pattern->threads[i].offset = pattern->offset_end;
-        if (pattern->threads[i].offset_end > pattern->offset_end)
-            pattern->threads[i].offset_end = pattern->offset_end;
-
-        dprintf(IOLVL, "io_unit(off=%llu end=%llu id=%u)\n",
-            pattern->threads[i].offset,
-            pattern->threads[i].offset_end,
-            pattern->threads[i].id);
-#endif
     }
 out:
     return status;
@@ -146,7 +117,7 @@ static enum pnfs_status thread_next_unit(
     }
 
     /* loop until we find an io unit that matches this thread */
-    while (thread->offset < thread->offset_end) {
+    while (thread->offset < pattern->offset_end) {
         status = pnfs_file_device_io_unit(pattern, thread->offset, io);
         if (status)
             break;

@@ -230,7 +230,6 @@ typedef struct __pnfs_io_pattern {
 typedef struct __pnfs_io_thread {
     pnfs_io_pattern         *pattern;
     uint64_t                offset;
-    uint64_t                offset_end;
     uint32_t                id;
     enum stable_how4        stable;
 } pnfs_io_thread;
