@@ -343,7 +343,7 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
     nfs41_client *client;
     nfs41_path_fh *commit_file;
     const uint64_t offset_start = thread->offset;
-    uint64_t commit_len;
+    uint64_t commit_min, commit_max;
     uint32_t maxwritesize, bytes_written, total_written;
     enum pnfs_status status;
     enum nfsstat4 nfsstat;
@@ -373,6 +373,8 @@ retry_write:
     thread->offset = offset_start;
     thread->stable = FILE_SYNC4;
     commit_file = NULL;
+    commit_min = NFS4_UINT64_MAX;
+    commit_max = 0;
     total_written = 0;
 
     while ((status = thread_next_unit(thread, &io)) == PNFS_PENDING) {
@@ -393,18 +395,21 @@ retry_write:
 
         total_written += bytes_written;
         thread->offset += bytes_written;
+
         commit_file = io.file;
+
+        /* track the range for commit */
+        if (commit_min > io.offset)
+            commit_min = io.offset;
+        if (commit_max < io.offset + io.length)
+            commit_max = io.offset + io.length;
     }
 
-    commit_len = thread->offset - pattern->offset_start;
     /* nothing to commit */
-    if (commit_len == 0)
+    if (commit_max <= commit_min)
         goto out;
     /* layout changed; redo all io against metadata server */
     if (status == PNFSERR_LAYOUT_CHANGED)
-        goto out;
-    /* XXX: commit offsets (and possibly fh) are different in dense layouts! */
-    if (is_dense(layout))
         goto out;
     /* the data is already in stable storage */
     if (thread->stable != UNSTABLE4)
@@ -413,10 +418,10 @@ retry_write:
     if (should_commit_to_mds(layout))
         goto out;
 
-    dprintf(1, "sending COMMIT to data server for offset=%d and len=%d\n",
-        pattern->offset_start, commit_len);
+    dprintf(1, "sending COMMIT to data server for offset=%lld len=%lld\n",
+        commit_min, commit_max - commit_min);
     nfsstat = nfs41_commit(client->session, commit_file,
-        pattern->offset_start, (uint32_t)commit_len, 0);
+        commit_min, (uint32_t)(commit_max - commit_min), 0);
 
     /* on successful commit, leave pnfs_status unchanged; if the layout
      * was recalled, we still want to return the error */
@@ -508,7 +513,7 @@ enum pnfs_status pnfs_write(
 
     if (stable == UNSTABLE4) {
         /* not all data was committed, so commit to metadata server */
-        dprintf(1, "sending COMMIT to meta server for offset=%d and len=%d\n",
+        dprintf(1, "sending COMMIT to meta server for offset=%lld len=%lld\n",
             offset, *len_out);
         nfsstat = nfs41_commit(state->session, &state->file, offset, *len_out, 1);
         if (nfsstat) {
