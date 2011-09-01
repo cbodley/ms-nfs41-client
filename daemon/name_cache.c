@@ -26,6 +26,7 @@
 #include <Windows.h>
 #include <strsafe.h>
 #include <time.h>
+#include <assert.h>
 
 #include "nfs41_ops.h"
 #include "nfs41_compound.h"
@@ -136,6 +137,8 @@ static int attr_cache_entry_create(
     list_remove(&entry->free_entry);
 
     entry->fileid = fileid;
+    entry->invalidated = FALSE;
+    entry->delegated = FALSE;
     *entry_out = entry;
 out:
     return status;
@@ -970,8 +973,10 @@ out_err_deleg:
         struct attr_cache_entry *attributes;
         status = attr_cache_find_or_create(&cache->attributes,
             info->fileid, &attributes);
-        if (status == NO_ERROR)
+        if (status == NO_ERROR) {
             attr_cache_update(attributes, info, delegation);
+            cache->delegations++;
+        }
         else
             status = ERROR_TOO_MANY_OPEN_FILES;
     }
@@ -1020,6 +1025,7 @@ int nfs41_name_cache_delegreturn(
     if (attributes->delegated) {
         attributes->delegated = FALSE;
         attr_cache_entry_deref(&cache->attributes, attributes);
+        assert(cache->delegations > 0);
         cache->delegations--;
     }
     status = NO_ERROR;
