@@ -475,6 +475,44 @@ out:
     return status;
 }
 
+static enum pnfs_status layout_commit(
+    IN nfs41_open_state *state,
+    IN pnfs_layout_state *layout,
+    IN uint64_t offset,
+    IN uint64_t length)
+{
+    stateid4 layout_stateid;
+    uint64_t last_offset = offset + length - 1;
+    uint64_t *new_last_offset = NULL;
+    enum nfsstat4 nfsstat;
+    enum pnfs_status status = PNFS_SUCCESS;
+
+    AcquireSRWLockExclusive(&state->lock);
+    /* if this is past the current eof, update the open state's
+     * last offset, and pass a pointer to LAYOUTCOMMIT */
+    if (state->pnfs_last_offset < last_offset ||
+        (state->pnfs_last_offset == 0 && last_offset == 0)) {
+        state->pnfs_last_offset = last_offset;
+        new_last_offset = &last_offset;
+    }
+    ReleaseSRWLockExclusive(&state->lock);
+
+    AcquireSRWLockShared(&layout->lock);
+    memcpy(&layout_stateid, &layout->stateid, sizeof(layout_stateid));
+    ReleaseSRWLockShared(&layout->lock);
+
+    dprintf(1, "LAYOUTCOMMIT for offset=%lld len=%lld new_last_offset=%u\n",
+        offset, length, new_last_offset ? 1 : 0);
+    nfsstat = pnfs_rpc_layoutcommit(state->session, &state->file,
+        &layout_stateid, offset, length, new_last_offset, NULL);
+    if (nfsstat) {
+        dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
+            nfs_error_string(nfsstat));
+        status = PNFSERR_IO;
+    }
+    return status;
+}
+
 enum pnfs_status pnfs_write(
     IN nfs41_root *root,
     IN nfs41_open_state *state,
@@ -523,20 +561,7 @@ enum pnfs_status pnfs_write(
         }
     } else if (stable == DATA_SYNC4) {
         /* send LAYOUTCOMMIT to sync the metadata */
-        stateid4 layout_stateid;
-        uint64_t new_last_offset = offset + *len_out - 1;
-
-        AcquireSRWLockShared(&layout->lock);
-        memcpy(&layout_stateid, &layout->stateid, sizeof(layout_stateid));
-        ReleaseSRWLockShared(&layout->lock);
-
-        nfsstat = pnfs_rpc_layoutcommit(state->session, &state->file,
-            &layout_stateid, offset, *len_out, &new_last_offset, NULL);
-        if (nfsstat) {
-            dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
-                nfs_error_string(nfsstat));
-            status = PNFSERR_IO;
-        }
+        status = layout_commit(state, layout, offset, *len_out);
     }
 out_free_pattern:
     pattern_free(&pattern);

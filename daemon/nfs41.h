@@ -135,6 +135,7 @@ typedef struct __nfs41_open_state {
     LONG ref_count;
     uint32_t share_access;
     uint32_t share_deny;
+    uint64_t pnfs_last_offset; /* for layoutcommit */
 
     struct {
         nfs41_delegation_state *state;

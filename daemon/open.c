@@ -239,6 +239,8 @@ static int open_or_delegate(
     if (status)
         status = do_open(state, create, createhow, mode, try_recovery, info);
 
+    state->pnfs_last_offset = info->size ? info->size - 1 : 0;
+
     /* register the client's open state on success */
     if (status == NFS4_OK)
         client_state_add(state);

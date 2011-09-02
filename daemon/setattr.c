@@ -353,10 +353,17 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
 
     dprintf(2, "calling setattr() with size=%lld\n", info.size);
     status = nfs41_setattr(state->session, &state->file, &stateid, &info);
-    if (status)
+    if (status) {
         dprintf(1, "nfs41_setattr() failed with error %s.\n",
             nfs_error_string(status));
+        goto out;
+    }
 
+    /* update the last offset for LAYOUTCOMMIT */
+    AcquireSRWLockExclusive(&state->lock);
+    state->pnfs_last_offset = info.size ? info.size - 1 : 0;
+    ReleaseSRWLockExclusive(&state->lock);
+out:
     return status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
 }
 
