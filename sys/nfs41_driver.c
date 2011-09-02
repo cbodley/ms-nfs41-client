@@ -3279,8 +3279,6 @@ NTSTATUS nfs41_QueryDirectory (
         RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
-        RtlCopyMemory(RxContext->Info.Buffer, entry->u.QueryFile.buf, 
-            entry->u.QueryFile.buf_len);
         RxContext->Info.LengthRemaining -= entry->u.QueryFile.buf_len;
         status = STATUS_SUCCESS;
     } else {
