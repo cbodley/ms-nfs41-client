@@ -36,7 +36,17 @@
 #include "nfs41_debug.h"
 
 //#define DEBUG_CLOSE
+//#define ENABLE_TIMINGS
+//#define ENABLE_INDV_TIMINGS
+#ifdef ENABLE_TIMINGS
+typedef struct __nfs41_timings {
+    LONG tops, sops;
+    LONGLONG ticks, size;
+} nfs41_timings;
 
+nfs41_timings lookup, readdir, open, close, getattr, setattr, getacl, setacl, volume,
+    read, write, lock, unlock;
+#endif
 DRIVER_INITIALIZE DriverEntry;
 DRIVER_UNLOAD nfs41_driver_unload;
 DRIVER_DISPATCH ( nfs41_FsdDispatch );
@@ -1813,6 +1823,20 @@ out:
     return status;
 }
 
+#ifdef ENABLE_TIMINGS
+static void print_op_stat(const char *op_str, nfs41_timings *time, BOOLEAN clear) 
+{
+    DbgP("%-7s: num_ops=%-10d delta_ticks=%-10d size=%-10d\n", op_str, 
+        time->tops, time->tops ? time->ticks/time->tops : 0,
+        time->sops ? time->size/time->sops : 0);
+    if (clear) {
+        time->tops = 0;
+        time->ticks = 0;
+        time->size = 0;
+        time->sops = 0;
+    }
+}
+#endif
 NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
 {
     NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1831,6 +1855,21 @@ NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
     SeDeleteClientSecurity(&entry->sec_ctx);
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    print_op_stat("lookup", &lookup, 1);
+    print_op_stat("open", &open, 1);
+    print_op_stat("close", &close, 1);
+    print_op_stat("volume", &volume, 1);
+    print_op_stat("getattr", &getattr, 1);
+    print_op_stat("setattr", &setattr, 1);
+    print_op_stat("readdir", &readdir, 1);
+    print_op_stat("getacl", &getacl, 1);
+    print_op_stat("setacl", &setacl, 1);
+    print_op_stat("read", &read, 1);
+    print_op_stat("write", &write, 1);
+    print_op_stat("lock", &lock, 1);
+    print_op_stat("unlock", &unlock, 1);
+#endif
     DbgEx();
     return status;
 }
@@ -2734,6 +2773,10 @@ NTSTATUS nfs41_Create(
     BOOLEAN file_changed = FALSE;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     ASSERT( NodeType(SrvOpen) == RDBSS_NTC_SRVOPEN );
 
@@ -2966,6 +3009,27 @@ out_free:
     if (entry)
         RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    if ((params.DesiredAccess & FILE_READ_DATA) ||
+            (params.DesiredAccess & FILE_WRITE_DATA) ||
+            (params.DesiredAccess & FILE_APPEND_DATA) ||
+            (params.DesiredAccess & FILE_EXECUTE)) {
+        InterlockedIncrement(&open.tops); 
+        InterlockedAdd64(&open.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_Create open delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart, 
+        open.tops, open.ticks);
+#endif
+    } else {
+        InterlockedIncrement(&lookup.tops); 
+        InterlockedAdd64(&lookup.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_Create lookup delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart, 
+        lookup.tops, lookup.ticks);
+#endif
+    }
+#endif
     DbgEx();
     return status;
 }
@@ -3095,6 +3159,10 @@ NTSTATUS nfs41_CloseSrvOpen (
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_close_args(RxContext);
@@ -3123,6 +3191,15 @@ NTSTATUS nfs41_CloseSrvOpen (
     RxFreePool(entry);
     SeDeleteClientSecurity(&nfs41_fobx->sec_ctx);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&close.tops); 
+    InterlockedAdd64(&close.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_CloseSrvOpen delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, close.tops, close.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -3236,6 +3313,10 @@ NTSTATUS nfs41_QueryDirectory (
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_querydir_args(RxContext);
@@ -3279,6 +3360,10 @@ NTSTATUS nfs41_QueryDirectory (
         RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&readdir.sops); 
+        InterlockedAdd64(&readdir.size, entry->u.QueryFile.buf_len);
+#endif
         RxContext->Info.LengthRemaining -= entry->u.QueryFile.buf_len;
         status = STATUS_SUCCESS;
     } else {
@@ -3287,6 +3372,15 @@ NTSTATUS nfs41_QueryDirectory (
     }
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&readdir.tops); 
+    InterlockedAdd64(&readdir.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_QueryDirectory delta = %d ops=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, readdir.tops, readdir.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -3329,6 +3423,10 @@ NTSTATUS nfs41_QueryVolumeInformation (
     nfs41_updowncall_entry *entry;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_queryvolume_args(RxContext);
@@ -3446,6 +3544,10 @@ NTSTATUS nfs41_QueryVolumeInformation (
                 pVNetRootContext->FsAttrsLen = entry->u.Volume.buf_len;
             }
         }
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&volume.sops); 
+        InterlockedAdd64(&volume.size, entry->u.Volume.buf_len);
+#endif
         RxContext->Info.LengthRemaining -= entry->u.Volume.buf_len;
         status = STATUS_SUCCESS;
     } else {
@@ -3453,6 +3555,15 @@ NTSTATUS nfs41_QueryVolumeInformation (
     }
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&volume.tops); 
+    InterlockedAdd64(&volume.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_QueryVolumeInformation delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, volume.tops, volume.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -3670,6 +3781,10 @@ NTSTATUS nfs41_QuerySecurityInformation (
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     SECURITY_INFORMATION info_class =
         RxContext->CurrentIrpSp->Parameters.QuerySecurity.SecurityInformation;
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_debug_header(RxContext);
@@ -3757,6 +3872,10 @@ NTSTATUS nfs41_QuerySecurityInformation (
             DbgP("Received invalid security descriptor\n");
             status = STATUS_INTERNAL_ERROR;
         }
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&getacl.sops);
+        InterlockedAdd64(&getacl.size, entry->u.Acl.buf_len);
+#endif
         RxFreePool(entry->u.Acl.buf);
         nfs41_fobx->acl = NULL;
         nfs41_fobx->acl_len = 0;
@@ -3769,7 +3888,20 @@ NTSTATUS nfs41_QuerySecurityInformation (
     }
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    /* only count getacl that we made an upcall for */
+    if (status == STATUS_BUFFER_OVERFLOW) {
+        InterlockedIncrement(&getacl.tops); 
+        InterlockedAdd64(&getacl.ticks, t2.QuadPart - t1.QuadPart);
+    }
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_QuerySecurityInformation: delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, getacl.tops, getacl.ticks);
+#endif
+#endif
     DbgEx();
+
     return status;
 }
 
@@ -3787,6 +3919,11 @@ NTSTATUS nfs41_SetSecurityInformation (
     PSECURITY_DESCRIPTOR sec_desc = RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityDescriptor;
     SECURITY_INFORMATION info_class = 
         RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityInformation;
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
+
     DbgEn();
     print_debug_header(RxContext);
     print_acl_args(info_class);
@@ -3819,6 +3956,10 @@ NTSTATUS nfs41_SetSecurityInformation (
     entry->u.Acl.query = info_class;
     entry->u.Acl.buf = sec_desc;
     entry->u.Acl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
+#ifdef ENABLE_TIMINGS
+    InterlockedIncrement(&setacl.sops); 
+    InterlockedAdd64(&setacl.size, entry->u.Acl.buf_len);    
+#endif
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -3827,6 +3968,15 @@ NTSTATUS nfs41_SetSecurityInformation (
     status = map_query_acl_error(entry->status);
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&setacl.tops); 
+    InterlockedAdd64(&setacl.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_SetSecurityInformation delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, setacl.tops, setacl.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -3889,6 +4039,10 @@ NTSTATUS nfs41_QueryFileInformation (
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     switch (InfoClass) {
@@ -3953,6 +4107,10 @@ NTSTATUS nfs41_QueryFileInformation (
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
         BOOLEAN DeletePending = FALSE;
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&getattr.sops); 
+        InterlockedAdd64(&getattr.size, entry->u.QueryFile.buf_len);
+#endif
         RxContext->Info.LengthRemaining -= entry->u.QueryFile.buf_len;
         status = STATUS_SUCCESS;
 
@@ -4004,6 +4162,15 @@ NTSTATUS nfs41_QueryFileInformation (
     }
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&getattr.tops); 
+    InterlockedAdd64(&getattr.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_QueryFileInformation delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, getattr.tops, getattr.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -4050,6 +4217,10 @@ NTSTATUS nfs41_SetFileInformation (
     FILE_RENAME_INFORMATION rinfo;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_setfile_args(RxContext);
@@ -4153,6 +4324,10 @@ NTSTATUS nfs41_SetFileInformation (
         entry->u.SetFile.buf = RxContext->Info.Buffer;
         entry->u.SetFile.buf_len = RxContext->Info.Length;
     }
+#ifdef ENABLE_TIMINGS
+    InterlockedIncrement(&setattr.sops); 
+    InterlockedAdd64(&setattr.size, entry->u.SetFile.buf_len);
+#endif
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4162,6 +4337,15 @@ NTSTATUS nfs41_SetFileInformation (
     status = map_setfile_error(entry->status);
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&setattr.tops); 
+    InterlockedAdd64(&setattr.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_SetFileInformation delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, setattr.tops, setattr.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -4308,6 +4492,10 @@ NTSTATUS nfs41_Read (
     BOOLEAN async = FALSE;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_readwrite_args(RxContext);
@@ -4337,6 +4525,10 @@ NTSTATUS nfs41_Read (
     }
 
     if (entry->status == NO_ERROR) {
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&read.sops); 
+        InterlockedAdd64(&read.size, entry->u.ReadWrite.len);
+#endif
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
         nfs41_fcb->Flags = 0;
@@ -4354,6 +4546,15 @@ NTSTATUS nfs41_Read (
     }
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&read.tops); 
+    InterlockedAdd64(&read.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_Read delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart, 
+        read.tops, read.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -4372,6 +4573,10 @@ NTSTATUS nfs41_Write (
     BOOLEAN async = FALSE;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_readwrite_args(RxContext);
@@ -4403,6 +4608,10 @@ NTSTATUS nfs41_Write (
     
     if (entry->status == NO_ERROR) {
         //update cached file attributes
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&write.sops); 
+        InterlockedAdd64(&write.size, entry->u.ReadWrite.len);
+#endif
         nfs41_fcb->StandardInfo.EndOfFile.QuadPart = entry->u.ReadWrite.len + 
             entry->u.ReadWrite.offset;
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
@@ -4423,6 +4632,15 @@ NTSTATUS nfs41_Write (
     }
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&write.tops); 
+    InterlockedAdd64(&write.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_Write delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart, 
+        write.tops, write.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -4513,6 +4731,10 @@ NTSTATUS nfs41_Lock(
     LARGE_INTEGER poll_delay = {0};
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_lock_args(RxContext);
@@ -4551,6 +4773,15 @@ retry_upcall:
 
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&lock.tops); 
+    InterlockedAdd64(&lock.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_Lock delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart,
+        lock.tops, lock.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
@@ -4596,6 +4827,10 @@ NTSTATUS nfs41_Unlock(
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_lock_args(RxContext);
@@ -4632,6 +4867,15 @@ NTSTATUS nfs41_Unlock(
     RxContext->CurrentIrp->IoStatus.Status = status;
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&unlock.tops); 
+    InterlockedAdd64(&unlock.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_Unlock delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart,
+        unlock.tops, unlock.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
