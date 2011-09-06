@@ -849,7 +849,8 @@ int nfs41_commit(
     bitmap4 attr_request;
     nfs41_file_info info;
 
-    compound_init(&compound, argops, resops, "commit");
+    compound_init(&compound, argops, resops,
+        do_getattr ? "commit" : "ds commit");
 
     compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
     status = nfs41_session_sequence(&sequence_args, session, 1);
