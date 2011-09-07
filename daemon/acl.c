@@ -280,16 +280,13 @@ static int handle_getacl(nfs41_upcall *upcall)
     PSID osid = NULL, gsid = NULL;
     DWORD sid_len;
     char owner[NFS4_OPAQUE_LIMIT], group[NFS4_OPAQUE_LIMIT];
+    nfsacl41 acl = { 0 };
 
     // need to cache owner/group information XX
     attr_request.count = 2;
     attr_request.arr[1] = FATTR4_WORD1_OWNER | FATTR4_WORD1_OWNER_GROUP;
     if (args->query & DACL_SECURITY_INFORMATION) {
-        info.acl = calloc(1, sizeof(nfsacl41));
-        if (info.acl == NULL) {
-            status = GetLastError();
-            goto out;
-        }
+        info.acl = &acl;
         attr_request.arr[0] |= FATTR4_WORD0_ACL;
     }
     info.owner = owner;
@@ -396,7 +393,6 @@ out:
         if (sids) free_sids(sids, info.acl->count);
         free(dacl);
         nfsacl41_free(info.acl);
-        free(info.acl);
     }
     return status;
 }
