@@ -429,27 +429,18 @@ static int parse_setacl(unsigned char *buffer, uint32_t length,
     if (status) goto out;
     status = safe_read(&buffer, &length, &sec_desc_len, sizeof(ULONG));
     if (status) goto out;
-    args->sec_desc = malloc(sec_desc_len);
-    if (args->sec_desc == NULL) {
-        status = GetLastError();
-        goto out;
-    }
-    status = safe_read(&buffer, &length, args->sec_desc, sec_desc_len);
-    if (status) goto out_free;
+    args->sec_desc = (PSECURITY_DESCRIPTOR)buffer;
     status = IsValidSecurityDescriptor(args->sec_desc);
     if (!status) {
         eprintf("parse_setacl: received invalid security descriptor\n");
         status = ERROR_INVALID_PARAMETER;
-        goto out_free;
+        goto out;
     } else status = 0;
 
     dprintf(1, "parsing NFS41_ACL_SET: info_class=%d sec_desc_len=%d\n", 
             args->query, sec_desc_len);
 out:
     return status;
-out_free:
-    free(args->sec_desc);
-    goto out;
 }
 
 static int is_well_known_sid(PSID sid, char *who) 
@@ -801,7 +792,6 @@ static int handle_setacl(nfs41_upcall *upcall)
     if (args->query & DACL_SECURITY_INFORMATION)
         free(nfs4_acl.aces);
 out:
-    free(args->sec_desc);
     return status;
 }
 
