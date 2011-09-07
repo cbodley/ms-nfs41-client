@@ -340,7 +340,7 @@ typedef struct _NFS41_FOBX {
 
     HANDLE nfs41_open_state;
     SECURITY_CLIENT_CONTEXT sec_ctx;
-    PVOID *acl;
+    PVOID acl;
     DWORD acl_len;
     LARGE_INTEGER time; 
 } NFS41_FOBX, *PNFS41_FOBX;
