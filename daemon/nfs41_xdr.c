@@ -1302,7 +1302,7 @@ static bool_t decode_op_commit(
         return FALSE;
 
     if (res->status == NFS4_OK)
-        return xdr_opaque(xdr, (char *)res->writeverf, NFS4_VERIFIER_SIZE);
+        return xdr_opaque(xdr, (char *)res->verf->verf, NFS4_VERIFIER_SIZE);
 
     return TRUE;
 }

@@ -840,7 +840,8 @@ int nfs41_commit(
     IN nfs41_path_fh *file,
     IN uint64_t offset,
     IN uint32_t count,
-    IN bool_t do_getattr)
+    IN bool_t do_getattr,
+    OUT nfs41_write_verf *verf)
 {
     int status;
     nfs41_compound compound;
@@ -872,6 +873,7 @@ int nfs41_commit(
     compound_add_op(&compound, OP_COMMIT, &commit_args, &commit_res);
     commit_args.offset = offset;
     commit_args.count = count;
+    commit_res.verf = verf;
 
     /* send a GETATTR request to update the attribute cache,
      * but not if we're talking to a data server! */

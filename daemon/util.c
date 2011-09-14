@@ -127,6 +127,17 @@ bool_t verify_write(
     return 0;
 }
 
+bool_t verify_commit(
+    IN nfs41_write_verf *verf)
+{
+    if (memcmp(verf->expected, verf->verf, NFS4_VERIFIER_SIZE) == 0) {
+        dprintf(3, "verify_commit: verifier matches expected\n");
+        return 1;
+    }
+    dprintf(2, "verify_commit: verifier changed; writes have been lost!\n");
+    return 0;
+}
+
 ULONG nfs_file_info_to_attributes(
     IN const nfs41_file_info *info)
 {

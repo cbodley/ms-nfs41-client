@@ -50,8 +50,10 @@ uint32_t max_write_size(
     IN const nfs41_fh *fh);
 
 bool_t verify_write(
-    IN struct __nfs41_write_verf *verf,
+    IN nfs41_write_verf *verf,
     IN OUT enum stable_how4 *stable);
+bool_t verify_commit(
+    IN nfs41_write_verf *verf);
 
 /* bitmap4 */
 static __inline bool_t bitmap_isset(

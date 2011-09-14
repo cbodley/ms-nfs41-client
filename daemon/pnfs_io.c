@@ -421,14 +421,20 @@ retry_write:
     dprintf(1, "sending COMMIT to data server for offset=%lld len=%lld\n",
         commit_min, commit_max - commit_min);
     nfsstat = nfs41_commit(client->session, commit_file,
-        commit_min, (uint32_t)(commit_max - commit_min), 0);
+        commit_min, (uint32_t)(commit_max - commit_min), 0, &verf);
 
-    /* on successful commit, leave pnfs_status unchanged; if the layout
-     * was recalled, we still want to return the error */
-    if (nfsstat == NFS4_OK)
-        thread->stable = DATA_SYNC4;
-    else
+    if (nfsstat)
         status = map_ds_error(nfsstat, pattern->state);
+    else if (!verify_commit(&verf)) {
+        /* resend the writes unless the layout was recalled */
+        if (status != PNFSERR_LAYOUT_RECALLED)
+            goto retry_write;
+        status = PNFSERR_IO;
+    } else {
+        /* on successful commit, leave pnfs_status unchanged; if the
+         * layout was recalled, we still want to return the error */
+        thread->stable = DATA_SYNC4;
+    }
 out:
     dprintf(IOLVL, "<-- file_layout_write_thread(%u) returning %s\n",
         thread->id, pnfs_error_string(status));
@@ -550,10 +556,13 @@ enum pnfs_status pnfs_write(
         goto out_free_pattern;
 
     if (stable == UNSTABLE4) {
+        nfs41_write_verf ignored;
+
         /* not all data was committed, so commit to metadata server */
         dprintf(1, "sending COMMIT to meta server for offset=%lld len=%lld\n",
             offset, *len_out);
-        nfsstat = nfs41_commit(state->session, &state->file, offset, *len_out, 1);
+        nfsstat = nfs41_commit(state->session, &state->file,
+            offset, *len_out, 1, &ignored);
         if (nfsstat) {
             dprintf(IOLVL, "nfs41_commit() failed with %s\n",
                 nfs_error_string(nfsstat));

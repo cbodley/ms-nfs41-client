@@ -335,7 +335,7 @@ typedef struct __nfs41_commit_args {
 
 typedef struct __nfs41_commit_res {
     uint32_t                status;
-    unsigned char           writeverf[NFS4_VERIFIER_SIZE];
+    nfs41_write_verf        *verf;
 } nfs41_commit_res;
 
 
@@ -825,12 +825,6 @@ enum stable_how4 {
     FILE_SYNC4      = 2
 };
 
-typedef struct __nfs41_write_verf {
-    unsigned char           verf[NFS4_VERIFIER_SIZE];
-    unsigned char           expected[NFS4_VERIFIER_SIZE];
-    enum stable_how4        committed;
-} nfs41_write_verf;
-
 typedef struct __nfs41_write_args {
     stateid_arg             *stateid; /* -> nfs41_op_open_res_ok.stateid */
     uint64_t                offset;
@@ -1079,7 +1073,8 @@ int nfs41_commit(
     IN nfs41_path_fh *file,
     IN uint64_t offset,
     IN uint32_t count,
-    IN bool_t do_getattr);
+    IN bool_t do_getattr,
+    OUT nfs41_write_verf *verf);
 
 int nfs41_lock(
     IN nfs41_session *session,

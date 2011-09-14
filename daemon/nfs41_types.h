@@ -77,6 +77,12 @@ typedef struct __nfs41_readdir_cookie {
     unsigned char   verf[NFS4_VERIFIER_SIZE];
 } nfs41_readdir_cookie;
 
+typedef struct __nfs41_write_verf {
+    unsigned char   verf[NFS4_VERIFIER_SIZE];
+    unsigned char   expected[NFS4_VERIFIER_SIZE];
+    enum stable_how4 committed;
+} nfs41_write_verf;
+
 typedef struct __netaddr4 {
     char            netid[NFS41_NETWORK_ID_LEN+1];
     char            uaddr[NFS41_UNIVERSAL_ADDR_LEN+1];

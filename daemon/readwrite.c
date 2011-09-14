@@ -217,7 +217,12 @@ retry_write:
     }
     if (committed == UNSTABLE4) {
         dprintf(1, "sending COMMIT for offset=%d and len=%d\n", args->offset, len);
-        status = nfs41_commit(session, file, args->offset, len, 1);
+        status = nfs41_commit(session, file, args->offset, len, 1, &verf);
+        if (status)
+            goto out;
+
+        if (!verify_commit(&verf))
+            goto retry_write;
     }
 out:
     args->out_len = len;
