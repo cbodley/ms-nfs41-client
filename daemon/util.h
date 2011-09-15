@@ -94,13 +94,30 @@ void nfs_to_standard_info(
     IN const nfs41_file_info *info,
     OUT PFILE_STANDARD_INFO std_out);
 
-/* nfstime4 */
-void file_time_to_nfs_time(
+/* http://msdn.microsoft.com/en-us/library/ms724290%28VS.85%29.aspx:
+ * A file time is a 64-bit value that represents the number of
+ * 100-nanosecond intervals that have elapsed since 12:00 A.M.
+ * January 1, 1601 Coordinated Universal Time (UTC). */
+#define FILETIME_EPOCH 116444736000000000LL
+
+static __inline void file_time_to_nfs_time(
     IN const PLARGE_INTEGER file_time,
-    OUT nfstime4 *nfs_time);
-void nfs_time_to_file_time(
+    OUT nfstime4 *nfs_time)
+{
+    LONGLONG diff = file_time->QuadPart - FILETIME_EPOCH;
+    nfs_time->seconds = diff / 10000000;
+    nfs_time->nseconds = (uint32_t)((diff % 10000000)*100);
+}
+
+static __inline void nfs_time_to_file_time(
     IN const nfstime4 *nfs_time,
-    OUT PLARGE_INTEGER file_time);
+    OUT PLARGE_INTEGER file_time)
+{
+    file_time->QuadPart = FILETIME_EPOCH +
+        nfs_time->seconds * 10000000 +
+        nfs_time->nseconds / 100;
+}
+
 void get_file_time(
     OUT PLARGE_INTEGER file_time);
 void get_nfs_time(

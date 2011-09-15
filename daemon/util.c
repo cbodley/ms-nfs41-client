@@ -177,40 +177,6 @@ void nfs_to_standard_info(
         TRUE : FALSE;
 }
 
-
-/* http://msdn.microsoft.com/en-us/library/ms724290%28VS.85%29.aspx:
- * A file time is a 64-bit value that represents the number of
- * 100-nanosecond intervals that have elapsed since 12:00 A.M.
- * January 1, 1601 Coordinated Universal Time (UTC). */
-static __inline void get_file_epoch(
-    OUT PLARGE_INTEGER time_out)
-{
-    static const SYSTEMTIME jan_1_1970 = {1970, 1, 4, 1, 0, 0, 0, 0};
-    SystemTimeToFileTime(&jan_1_1970, (LPFILETIME)time_out);
-}
-
-void file_time_to_nfs_time(
-    IN const PLARGE_INTEGER file_time,
-    OUT nfstime4 *nfs_time)
-{
-    LARGE_INTEGER diff;
-    get_file_epoch(&diff);
-    diff.QuadPart = file_time->QuadPart - diff.QuadPart;
-    nfs_time->seconds = diff.QuadPart / 10000000;
-    nfs_time->nseconds = (uint32_t)((diff.QuadPart % 10000000)*100);
-}
-
-void nfs_time_to_file_time(
-    IN const nfstime4 *nfs_time,
-    OUT PLARGE_INTEGER file_time)
-{
-    LARGE_INTEGER diff;
-    get_file_epoch(&diff);
-    file_time->QuadPart = diff.QuadPart +
-        nfs_time->seconds * 10000000 +
-        nfs_time->nseconds / 100;
-}
-
 void get_file_time(
     OUT PLARGE_INTEGER file_time)
 {
