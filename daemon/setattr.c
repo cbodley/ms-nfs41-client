@@ -49,13 +49,8 @@ static int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->buf_len, sizeof(args->buf_len));
     if (status) goto out;
-    args->buf = malloc(args->buf_len);
-    if (args->buf == NULL) {
-        status = GetLastError();
-        goto out;
-    }
-    status = safe_read(&buffer, &length, args->buf, args->buf_len);
-    if (status) goto out_free;
+
+    args->buf = buffer;
     args->root = upcall->root_ref;
     args->state = upcall->state_ref;
 
@@ -63,9 +58,6 @@ static int parse_setattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
         "buf_len=%d\n", args->path, args->set_class, args->buf_len);
 out:
     return status;
-out_free:
-    free(args->buf);
-    goto out;
 }
 
 static int handle_nfs41_setattr(setattr_upcall_args *args)
@@ -495,7 +487,6 @@ static int handle_setattr(nfs41_upcall *upcall)
         break;
     }
 
-    free(args->buf);
     return status;
 }
 
