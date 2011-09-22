@@ -45,7 +45,7 @@ typedef struct __nfs41_timings {
 } nfs41_timings;
 
 nfs41_timings lookup, readdir, open, close, getattr, setattr, getacl, setacl, volume,
-    read, write, lock, unlock;
+    read, write, lock, unlock, setexattr, getexattr;
 #endif
 DRIVER_INITIALIZE DriverEntry;
 DRIVER_UNLOAD nfs41_driver_unload;
@@ -194,8 +194,21 @@ typedef struct _updowncall_entry {
             FILE_INFORMATION_CLASS InfoClass;
         } SetFile;
         struct {
+            PUNICODE_STRING filename;
+            PVOID buf;
+            ULONG buf_len;
             DWORD mode;
         } SetEa;
+        struct {
+            PUNICODE_STRING filename;
+            PVOID buf;
+            ULONG buf_len;
+            PVOID EaList;
+            ULONG EaListLength;
+            ULONG EaIndex;
+            BOOLEAN ReturnSingleEntry;
+            BOOLEAN RestartScan;
+        } QueryEa;
         struct {
             PUNICODE_STRING filename;
             PUNICODE_STRING target;
@@ -940,21 +953,76 @@ NTSTATUS marshal_nfs41_easet(nfs41_updowncall_entry *entry,
         goto out;
     else 
         tmp += *len;
-    header_len = *len + sizeof(DWORD);
+    header_len = *len + length_as_ansi(entry->u.SetEa.filename) + 
+        sizeof(ULONG) + entry->u.SetEa.buf_len  + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
+    status = marshall_unicode_as_ansi(&tmp, entry->u.SetEa.filename);
+    if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetEa.mode, sizeof(DWORD));
-
+    tmp += sizeof(DWORD);
+    RtlCopyMemory(tmp, &entry->u.SetEa.buf_len, sizeof(ULONG));
+    tmp += sizeof(ULONG);
+    RtlCopyMemory(tmp, entry->u.SetEa.buf, entry->u.SetEa.buf_len);
+    
     *len = header_len;
 
-    DbgP("marshal_nfs41_easet: mode=0x%x\n", entry->u.SetEa.mode);
+    DbgP("marshal_nfs41_easet: filename=%wZ, buflen=%d mode=0x%x\n", 
+        entry->u.SetEa.filename, entry->u.SetEa.buf_len, entry->u.SetEa.mode);
 out:
     DbgEx();
     return status;
 }
+
+NTSTATUS marshal_nfs41_eaget(nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG header_len = 0;
+    unsigned char *tmp = buf;
+
+    DbgEn();
+    status = marshal_nfs41_header(entry, tmp, buf_len, len);
+    if (status == STATUS_INSUFFICIENT_RESOURCES) 
+        goto out;
+    else
+        tmp += *len;
+    header_len = *len + length_as_ansi(entry->u.QueryEa.filename) + 
+        2 * sizeof(ULONG) + entry->u.QueryEa.EaListLength + 2 * sizeof(BOOLEAN);
+
+    if (header_len > buf_len) { 
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto out;
+    }
+
+    status = marshall_unicode_as_ansi(&tmp, entry->u.QueryEa.filename);
+    if (status) goto out;
+    RtlCopyMemory(tmp, &entry->u.QueryEa.EaIndex, sizeof(ULONG));
+    tmp += sizeof(ULONG);
+    RtlCopyMemory(tmp, &entry->u.QueryEa.RestartScan, sizeof(BOOLEAN));
+    tmp += sizeof(BOOLEAN);
+    RtlCopyMemory(tmp, &entry->u.QueryEa.ReturnSingleEntry, sizeof(BOOLEAN));
+    tmp += sizeof(BOOLEAN);
+    RtlCopyMemory(tmp, &entry->u.QueryEa.EaListLength, sizeof(ULONG));
+    tmp += sizeof(ULONG);
+    RtlCopyMemory(tmp, entry->u.QueryEa.EaList, entry->u.QueryEa.EaListLength);
+
+    *len = header_len; 
+
+    DbgP("marshal_nfs41_eaget: filename=%wZ, index=%d list_len=%d "
+        "rescan=%d single=%d\n", entry->u.QueryEa.filename, 
+        entry->u.QueryEa.EaIndex, entry->u.QueryEa.EaListLength, 
+        entry->u.QueryEa.RestartScan, entry->u.QueryEa.ReturnSingleEntry);
+out:
+    DbgEx();
+    return status;
+}
+
 
 NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
     unsigned char *buf,
@@ -1177,6 +1245,9 @@ handle_upcall(
         break;
     case NFS41_EA_SET:
         status = marshal_nfs41_easet(entry, pbOut, cbOut, len);
+        break;
+    case NFS41_EA_GET:
+        status = marshal_nfs41_eaget(entry, pbOut, cbOut, len);
         break;
     case NFS41_SYMLINK:
         status = marshal_nfs41_symlink(entry, pbOut, cbOut, len);
@@ -1508,6 +1579,17 @@ nfs41_downcall (
             cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
             RtlCopyMemory(cur->u.QueryFile.buf, buf, tmp->u.QueryFile.buf_len);
             break;
+        case NFS41_EA_GET:
+            RtlCopyMemory(&tmp->u.QueryEa.buf_len, buf, sizeof(ULONG));
+            buf += sizeof(ULONG);
+            if (tmp->u.QueryEa.buf_len > cur->u.QueryEa.buf_len) {
+                cur->status = STATUS_BUFFER_TOO_SMALL;
+                cur->u.QueryEa.buf_len = tmp->u.QueryEa.buf_len;
+                break;
+            }
+            cur->u.QueryEa.buf_len = tmp->u.QueryEa.buf_len;
+            RtlCopyMemory(cur->u.QueryEa.buf, buf, tmp->u.QueryEa.buf_len);
+            break;
         case NFS41_SYMLINK:
             if (cur->u.Symlink.set)
                 break;
@@ -1826,7 +1908,7 @@ out:
 #ifdef ENABLE_TIMINGS
 static void print_op_stat(const char *op_str, nfs41_timings *time, BOOLEAN clear) 
 {
-    DbgP("%-7s: num_ops=%-10d delta_ticks=%-10d size=%-10d\n", op_str, 
+    DbgP("%-9s: num_ops=%-10d delta_ticks=%-10d size=%-10d\n", op_str, 
         time->tops, time->tops ? time->ticks/time->tops : 0,
         time->sops ? time->size/time->sops : 0);
     if (clear) {
@@ -1862,6 +1944,8 @@ out:
     print_op_stat("volume", &volume, 1);
     print_op_stat("getattr", &getattr, 1);
     print_op_stat("setattr", &setattr, 1);
+    print_op_stat("getexattr", &getexattr, 1);
+    print_op_stat("setexattr", &setexattr, 1);
     print_op_stat("readdir", &readdir, 1);
     print_op_stat("getacl", &getacl, 1);
     print_op_stat("setacl", &setacl, 1);
@@ -3611,72 +3695,6 @@ void create_nfs3_attrs(nfs3_attrs *attrs, PNFS41_FCB nfs41_fcb)
     file_time_to_nfs_time(&nfs41_fcb->BasicInfo.CreationTime, &attrs->ctime);
 }
 
-NTSTATUS nfs41_QueryEaInformation (
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)
-        RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
-    PFILE_FULL_EA_INFORMATION info;
-    DbgEn();
-    print_debug_header(RxContext);
-    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList) {
-        DbgP("Looking for a specific EA?\n");
-        print_get_ea(1, query);
-
-        if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
-            nfs3_attrs attrs;
-
-            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
-                NfsV3Attributes.Length + sizeof(nfs3_attrs) - sizeof(CHAR);
-            if (LengthRequired > RxContext->Info.LengthRemaining) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = LengthRequired;
-                goto out;
-            }
-
-            create_nfs3_attrs(&attrs, nfs41_fcb);
-            DbgP("returning fake v3attrs EA\n");
-            print_nfs3_attrs(&attrs);
-
-            info = RxContext->Info.Buffer;
-            info->NextEntryOffset = 0;
-            info->Flags = 0;
-            info->EaNameLength = (UCHAR)NfsV3Attributes.Length;
-            info->EaValueLength = sizeof(nfs3_attrs);
-            RtlCopyMemory(info->EaName, NfsV3Attributes.Buffer, NfsV3Attributes.Length);
-            RtlCopyMemory(info->EaName + info->EaNameLength + 1, &attrs, 
-                sizeof(nfs3_attrs));
-            RxContext->Info.LengthRemaining = LengthRequired;
-            status = STATUS_SUCCESS;
-        } else if (AnsiStrEq(&NfsActOnLink, query->EaName, query->EaNameLength)
-            || AnsiStrEq(&NfsSymlinkTargetName, query->EaName, query->EaNameLength)) {
-
-            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
-                NfsActOnLink.Length - sizeof(CHAR);
-            if (LengthRequired > RxContext->Info.LengthRemaining) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = LengthRequired;
-                goto out;
-            }
-
-            DbgP("returning fake link EA\n");
-            info = RxContext->Info.Buffer;
-            info->NextEntryOffset = 0;
-            info->Flags = 0;
-            info->EaNameLength = (UCHAR)NfsActOnLink.Length;
-            info->EaValueLength = 0;
-            RtlCopyMemory(info->EaName, NfsActOnLink.Buffer, NfsActOnLink.Length);
-            RxContext->Info.LengthRemaining = LengthRequired;
-            status = STATUS_SUCCESS;
-        } else
-            print_error("Couldn't match %s\n", query->EaName);       
-    }
-out:
-    DbgEx();
-    return status;
-}
 
 static NTSTATUS map_setea_error(DWORD error)
 {
@@ -3708,42 +3726,200 @@ NTSTATUS nfs41_SetEaInformation (
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
+    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     PFILE_FULL_EA_INFORMATION eainfo = 
         (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;        
     nfs3_attrs *attrs = NULL;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    ULONG buflen = RxContext->CurrentIrpSp->Parameters.SetEa.Length, error_offset;
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
 
     DbgEn();
     print_debug_header(RxContext);
     print_ea_info(1, eainfo);
-    if (AnsiStrEq(&NfsV3Attributes, eainfo->EaName, eainfo->EaNameLength)) {
-        attrs = (nfs3_attrs *)(eainfo->EaName + eainfo->EaNameLength + 1);
-        print_nfs3_attrs(attrs);
-        DbgP("old mode is %x new mode is %x\n", nfs41_fcb->mode, attrs->mode);
-        nfs41_fcb->mode = attrs->mode;
-    } else
-        goto out;
 
     status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
-    entry->u.SetEa.mode = attrs->mode;
 
+    if (AnsiStrEq(&NfsV3Attributes, eainfo->EaName, eainfo->EaNameLength)) {
+        attrs = (nfs3_attrs *)(eainfo->EaName + eainfo->EaNameLength + 1);
+        print_nfs3_attrs(attrs);
+        DbgP("old mode is %o new mode is %o\n", nfs41_fcb->mode, attrs->mode);
+        entry->u.SetEa.mode = nfs41_fcb->mode = attrs->mode;
+    } else {
+        entry->u.SetEa.mode = 0;
+        status = IoCheckEaBufferValidity(eainfo, buflen, &error_offset);
+        if (status) {
+            RxFreePool(entry);
+            goto out;
+        }
+    }
+    entry->u.SetEa.buf = eainfo;
+    entry->u.SetEa.buf_len = buflen;
+    entry->u.SetEa.filename = FileName;
+    DbgP("FULL_EA_INFO: FileName=%wZ total_EA_len=%d EaNameLen=%d ExValueLen=%d\n",
+        entry->u.SetEa.filename, buflen, eainfo->EaNameLength, 
+        eainfo->EaValueLength);
+     
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
-
+#ifdef ENABLE_TIMINGS
+    if (entry->status == STATUS_SUCCESS) {
+        InterlockedIncrement(&setexattr.sops); 
+        InterlockedAdd64(&setexattr.size, entry->u.SetEa.buf_len);
+    }
+#endif
     status = map_setea_error(entry->status);
     RxFreePool(entry);
 out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&setexattr.tops); 
+    InterlockedAdd64(&setexattr.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_SetEaInformation delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, setexattr.tops, setexattr.ticks);
+#endif
+#endif
     DbgEx();
     return status;
 }
 
+NTSTATUS nfs41_QueryEaInformation (
+    IN OUT PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
+    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
+    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+            NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    PNFS41_NETROOT_EXTENSION pNetRootContext =
+            NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)
+            RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
+    PFILE_FULL_EA_INFORMATION info;
+    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
+    nfs41_updowncall_entry *entry;
+    ULONG buflen = RxContext->CurrentIrpSp->Parameters.QueryEa.Length;
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
+
+    DbgEn();
+    print_debug_header(RxContext);
+    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList) {
+        DbgP("Looking for a specific EA?\n");
+        print_get_ea(1, query);
+
+        if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
+            nfs3_attrs attrs;
+
+            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
+                NfsV3Attributes.Length + sizeof(nfs3_attrs) - sizeof(CHAR);
+            if (LengthRequired > RxContext->Info.LengthRemaining) {
+                status = STATUS_BUFFER_TOO_SMALL;
+                RxContext->InformationToReturn = LengthRequired;
+                goto out;
+            }
+
+            create_nfs3_attrs(&attrs, nfs41_fcb);
+            DbgP("returning fake v3attrs EA\n");
+            print_nfs3_attrs(&attrs);
+
+            info = RxContext->Info.Buffer;
+            info->NextEntryOffset = 0;
+            info->Flags = 0;
+            info->EaNameLength = (UCHAR)NfsV3Attributes.Length;
+            info->EaValueLength = sizeof(nfs3_attrs);
+            RtlCopyMemory(info->EaName, NfsV3Attributes.Buffer, NfsV3Attributes.Length);
+            RtlCopyMemory(info->EaName + info->EaNameLength + 1, &attrs, 
+                sizeof(nfs3_attrs));
+            RxContext->Info.LengthRemaining = LengthRequired;
+            status = STATUS_SUCCESS;
+            goto out;
+        } 
+        
+        if (AnsiStrEq(&NfsActOnLink, query->EaName, query->EaNameLength) || 
+                AnsiStrEq(&NfsSymlinkTargetName, query->EaName, query->EaNameLength)) {
+
+            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
+                NfsActOnLink.Length - sizeof(CHAR);
+            if (LengthRequired > RxContext->Info.LengthRemaining) {
+                status = STATUS_BUFFER_TOO_SMALL;
+                RxContext->InformationToReturn = LengthRequired;
+                goto out;
+            }
+
+            DbgP("returning fake link EA\n");
+            info = RxContext->Info.Buffer;
+            info->NextEntryOffset = 0;
+            info->Flags = 0;
+            info->EaNameLength = (UCHAR)NfsActOnLink.Length;
+            info->EaValueLength = 0;
+            RtlCopyMemory(info->EaName, NfsActOnLink.Buffer, NfsActOnLink.Length);
+            RxContext->Info.LengthRemaining = LengthRequired;
+            status = STATUS_SUCCESS;
+            goto out;
+        } 
+
+        status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx, 
+            pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+            pNetRootContext->nfs41d_version, &entry);
+        if (status)
+            goto out; 
+        entry->u.QueryEa.filename = FileName;  
+        entry->u.QueryEa.buf_len = buflen; 
+        entry->u.QueryEa.buf = RxContext->Info.Buffer; 
+        entry->u.QueryEa.EaList = query;
+        entry->u.QueryEa.EaListLength = RxContext->QueryEa.UserEaListLength;
+        entry->u.QueryEa.EaIndex = RxContext->QueryEa.UserEaIndex;
+        entry->u.QueryEa.RestartScan = RxContext->QueryEa.RestartScan;
+        entry->u.QueryEa.ReturnSingleEntry = RxContext->QueryEa.ReturnSingleEntry;
+
+        if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+            status = STATUS_INTERNAL_ERROR;
+            goto out;
+        }
+
+        if (entry->status == STATUS_BUFFER_TOO_SMALL) {
+            RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
+            status = STATUS_BUFFER_TOO_SMALL;
+        } else if (entry->status == STATUS_SUCCESS) {
+            RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
+            RxContext->IoStatusBlock.Status = STATUS_SUCCESS; 
+#ifdef ENABLE_TIMINGS
+            InterlockedIncrement(&getexattr.sops); 
+            InterlockedAdd64(&getexattr.size, entry->u.QueryEa.buf_len);
+#endif
+        } else {
+            status = map_setea_error(entry->status);
+        }
+        RxFreePool(entry);        
+    }
+out:
+#ifdef ENABLE_TIMINGS
+    t2 = KeQueryPerformanceCounter(NULL);
+    InterlockedIncrement(&getexattr.tops); 
+    InterlockedAdd64(&getexattr.ticks, t2.QuadPart - t1.QuadPart);
+#ifdef ENABLE_INDV_TIMINGS
+    DbgP("nfs41_QueryEaInformation delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, getexattr.tops, getexattr.ticks);
+#endif
+#endif
+    DbgEx();
+    return status;
+}
 static void print_acl_args(SECURITY_INFORMATION info)
 {
     DbgP("Security query: %s %s %s\n",

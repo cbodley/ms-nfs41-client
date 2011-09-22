@@ -42,6 +42,7 @@ extern const nfs41_upcall_op nfs41_op_unlock;
 extern const nfs41_upcall_op nfs41_op_readdir;
 extern const nfs41_upcall_op nfs41_op_getattr;
 extern const nfs41_upcall_op nfs41_op_setattr;
+extern const nfs41_upcall_op nfs41_op_getexattr;
 extern const nfs41_upcall_op nfs41_op_setexattr;
 extern const nfs41_upcall_op nfs41_op_symlink;
 extern const nfs41_upcall_op nfs41_op_volume;
@@ -60,6 +61,7 @@ static const nfs41_upcall_op *g_upcall_op_table[] = {
     &nfs41_op_readdir,
     &nfs41_op_getattr,
     &nfs41_op_setattr,
+    &nfs41_op_getexattr,
     &nfs41_op_setexattr,
     &nfs41_op_symlink,
     &nfs41_op_volume,

@@ -102,7 +102,22 @@ typedef struct __setattr_upcall_args {
     int set_class;
 } setattr_upcall_args;
 
+typedef struct __getexattr_upcall_args {
+    const char *path;
+    unsigned char *buf;
+    uint32_t buf_len;
+    ULONG eaindex;
+    unsigned char *ealist;
+    uint32_t ealist_len;
+    BOOLEAN single;
+    BOOLEAN restart;
+} getexattr_upcall_args;
+
+
 typedef struct __setexattr_upcall_args {
+    const char *path;
+    unsigned char *buf;
+    uint32_t buf_len;
     uint32_t mode;
 } setexattr_upcall_args;
 
@@ -155,6 +170,7 @@ typedef union __upcall_args {
     lock_upcall_args        lock;
     unlock_upcall_args      unlock;
     getattr_upcall_args     getattr;
+    getexattr_upcall_args   getexattr;
     setattr_upcall_args     setattr;
     setexattr_upcall_args   setexattr;
     readdir_upcall_args     readdir;

@@ -497,8 +497,13 @@ static int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall 
     int status;
     setexattr_upcall_args *args = &upcall->args.setexattr;
 
+    status = get_name(&buffer, &length, &args->path);
+    if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(args->mode));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->buf_len, sizeof(args->buf_len));
+    if (status) goto out;
+    args->buf = buffer;
 
     dprintf(1, "parsing NFS41_EA_SET: mode=%o\n", args->mode);
 out:
@@ -512,24 +517,97 @@ static int handle_setexattr(nfs41_upcall *upcall)
     nfs41_open_state *state = upcall->state_ref;
     stateid_arg stateid;
     nfs41_file_info info = { 0 };
+    PFILE_FULL_EA_INFORMATION eainfo = 
+        (PFILE_FULL_EA_INFORMATION)args->buf, prev = NULL;
+    nfs41_path_fh parent, file;
+    open_claim4 claim;
+    stateid4 open_stateid;
+    nfs41_component dst_name;
+    nfs41_write_verf verf;
+    uint32_t bytes_written;
+    UCHAR *buf;
+    open_delegation4 delegation = { 0 };
 
     /* break read delegations before SETATTR */
     nfs41_delegation_return(state->session, &state->file,
         OPEN_DELEGATE_READ, FALSE);
 
     nfs41_open_stateid_arg(state, &stateid);
+    
+    if ((strncmp("NfsV3Attributes", eainfo->EaName, eainfo->EaNameLength) == 0 &&
+            strlen("NfsV3Attributes") == eainfo->EaNameLength) ||
+            (strncmp("NfsActOnLink", eainfo->EaName, eainfo->EaNameLength)== 0 &&
+            strlen("NfsActOnLink") == eainfo->EaNameLength)) {
+        info.mode = args->mode;
+        info.attrmask.arr[1] |= FATTR4_WORD1_MODE;
+        info.attrmask.count = 2;
+        status = nfs41_setattr(state->session, &state->file, &stateid, &info);
+        if (status) {
+            dprintf(1, "nfs41_setattr() failed with error %s.\n",
+                nfs_error_string(status));
+            return nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+        }
+    } else {
+        status = nfs41_rpc_openattr(state->session, &state->file, TRUE, &parent.fh);
+        if (status) {
+            dprintf(1, "handle_setexattr: nfs41_rpc_openattr() failed with error %s.\n",
+                nfs_error_string(status));
+            return nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+        }
 
-    /* mode */
-    info.mode = args->mode;
-    info.attrmask.arr[1] |= FATTR4_WORD1_MODE;
-    info.attrmask.count = 2;
+        while (eainfo != prev) {
+            /* we don't allow for extended attribute values to be larger than NFS4_EASIZE.
+             * thus, let's not allow setting such.
+             */
+            if (eainfo->EaValueLength > NFS4_EASIZE) {
+                dprintf(1, "trying to write extended attribute value of size %d"
+                    "max allowed %d\n", eainfo->EaValueLength, NFS4_EASIZE);
+                status = ERROR_INVALID_DATA;
+                goto out;
+            }
+            dst_name.name = eainfo->EaName;
+            dst_name.len = eainfo->EaNameLength; 
+            claim.claim = CLAIM_NULL;
+            claim.u.null.filename = &dst_name;
+            status = nfs41_open(state->session, &parent, &file, &state->owner, &claim,
+                OPEN4_SHARE_ACCESS_WRITE, OPEN4_SHARE_DENY_BOTH, OPEN4_CREATE, 
+                UNCHECKED4, 0664, TRUE, &open_stateid, &delegation, NULL);
+            if (status) {
+                dprintf(1, "handle_setexattr: nfs41_rpc_open() failed with error %s.\n",
+                    nfs_error_string(status));
+                status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+                goto out;
+            }
 
-    status = nfs41_setattr(state->session, &state->file, &stateid, &info);
-    if (status)
-        dprintf(1, "nfs41_setattr() failed with error %s.\n",
-            nfs_error_string(status));
+            stateid.stateid = open_stateid;
+            stateid.stateid.seqid = 0;
+            buf = (UCHAR *) eainfo->EaName + eainfo->EaNameLength + 1;
+            status = nfs41_write(state->session, &file, &stateid, buf, 
+                eainfo->EaValueLength, 0, FILE_SYNC4, &bytes_written, &verf);
+            if (status) {
+                dprintf(1, "handle_setexattr: nfs41_write() failed w/error %s.\n",
+                    nfs_error_string(status));
+                status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+                nfs41_close(state->session, &file, &stateid);
+                goto out;
+            }
 
-    return nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+            status = nfs41_close(state->session, &file, &stateid);
+            if (status) {
+                dprintf(1, "handle_setexattr: nfs41_close() failed w/error %s.\n",
+                    nfs_error_string(status));
+                status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+                goto out;
+            }
+
+            bytes_written = 0;
+            prev = eainfo;
+            eainfo = (FILE_FULL_EA_INFORMATION *) ((ULONG_PTR) eainfo +
+                eainfo->NextEntryOffset);
+        }
+    }
+out:
+    return status;
 }
 
 

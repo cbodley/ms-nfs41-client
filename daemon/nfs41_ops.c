@@ -507,6 +507,10 @@ int nfs41_open(
     if (compound_error(status = compound.res.status))
         goto out;
 
+    if (dir_info.type == NF4ATTRDIR)
+        goto out;
+
+
     /* fill in the file handle's fileid and superblock */
     file->fh.fileid = info->fileid;
     status = nfs41_superblock_for_fh(session, &info->fsid, &parent->fh, file);
@@ -761,6 +765,10 @@ int nfs41_write(
         eprintf("WRITE succeeded with count=0; returning %s\n",
             nfs_error_string(status));
     }
+
+    if (info.type == NF4NAMEDATTR)
+        goto out;
+
     nfs41_superblock_space_changed(file->fh.superblock);
 out:
     return status;
