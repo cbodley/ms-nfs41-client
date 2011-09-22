@@ -3987,6 +3987,10 @@ NTSTATUS nfs41_QuerySecurityInformation (
                     RxContext->IoStatusBlock.Information = 
                         RxContext->InformationToReturn = nfs41_fobx->acl_len;
                     RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
+#ifdef ENABLE_TIMINGS
+                    InterlockedIncrement(&getacl.sops);
+                    InterlockedAdd64(&getacl.size, nfs41_fobx->acl_len);
+#endif
                 } else {
                     DbgP("Received invalid user pointer\n");
                     status = STATUS_INTERNAL_ERROR;
