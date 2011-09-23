@@ -3977,29 +3977,16 @@ NTSTATUS nfs41_QuerySecurityInformation (
         DbgP("CurrentTime %x Saved Acl time %x\n", 
             current_time.QuadPart, nfs41_fobx->time.QuadPart);
         if (current_time.QuadPart - nfs41_fobx->time.QuadPart <= 20*1000) {         
-            if (RtlValidSecurityDescriptor(nfs41_fobx->acl)) {
-                DbgP("Received a valid security descriptor\n");
-                if (MmIsAddressValid(RxContext->CurrentIrp->UserBuffer)) {
-                    PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
-                        RxContext->CurrentIrp->UserBuffer;
-                    DbgP("Received a valid user pointer\n");
-                    RtlCopyMemory(sec_desc, nfs41_fobx->acl, nfs41_fobx->acl_len); 
-                    RxContext->IoStatusBlock.Information = 
-                        RxContext->InformationToReturn = nfs41_fobx->acl_len;
-                    RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
+            PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
+                RxContext->CurrentIrp->UserBuffer;
+            RtlCopyMemory(sec_desc, nfs41_fobx->acl, nfs41_fobx->acl_len); 
+            RxContext->IoStatusBlock.Information = 
+                RxContext->InformationToReturn = nfs41_fobx->acl_len;
+            RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
 #ifdef ENABLE_TIMINGS
-                    InterlockedIncrement(&getacl.sops);
-                    InterlockedAdd64(&getacl.size, nfs41_fobx->acl_len);
+            InterlockedIncrement(&getacl.sops);
+            InterlockedAdd64(&getacl.size, nfs41_fobx->acl_len);
 #endif
-                } else {
-                    DbgP("Received invalid user pointer\n");
-                    status = STATUS_INTERNAL_ERROR;
-                    goto out;
-                }
-            } else {
-                DbgP("Invalid saved security descriptor, do an upcall\n");
-                status = STATUS_INTERNAL_ERROR;
-            }
         }
         RxFreePool(nfs41_fobx->acl);
         nfs41_fobx->acl = NULL;
@@ -4037,21 +4024,9 @@ NTSTATUS nfs41_QuerySecurityInformation (
         nfs41_fobx->acl_len = entry->u.Acl.buf_len;
         KeQuerySystemTime(&nfs41_fobx->time);
     } else if (entry->status == STATUS_SUCCESS) {
-        if (RtlValidSecurityDescriptor(entry->u.Acl.buf)) {
-            DbgP("Received a valid security descriptor\n");
-            if (MmIsAddressValid(RxContext->CurrentIrp->UserBuffer)) {
-                PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
-                    RxContext->CurrentIrp->UserBuffer;
-                DbgP("Received a valid user pointer\n");
-                RtlCopyMemory(sec_desc, entry->u.Acl.buf, entry->u.Acl.buf_len); 
-            } else {
-                DbgP("Received invalid user pointer\n");
-                status = STATUS_INTERNAL_ERROR;
-            }
-        } else {
-            DbgP("Received invalid security descriptor\n");
-            status = STATUS_INTERNAL_ERROR;
-        }
+        PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
+            RxContext->CurrentIrp->UserBuffer;
+        RtlCopyMemory(sec_desc, entry->u.Acl.buf, entry->u.Acl.buf_len); 
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&getacl.sops);
         InterlockedAdd64(&getacl.size, entry->u.Acl.buf_len);
@@ -4061,8 +4036,7 @@ NTSTATUS nfs41_QuerySecurityInformation (
         nfs41_fobx->acl_len = 0;
         RxContext->IoStatusBlock.Information = RxContext->InformationToReturn = 
             entry->u.Acl.buf_len;
-        if (!status)
-            RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
+        RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
     } else {
         status = map_query_acl_error(entry->status);
     }

@@ -34,6 +34,7 @@
 #include "upcall.h"
 #include "nfs41_xdr.h"
 
+//#define DEBUG_ACLS
 static int parse_getacl(unsigned char *buffer, uint32_t length, 
                         nfs41_upcall *upcall)
 {
@@ -122,6 +123,7 @@ static int map_name_2_sid(DWORD *sid_len, PSID *sid, LPCSTR name)
                     "with %d\n", name, GetLastError());
             goto out_free_sid;
         } else {
+#ifdef DEBUG_ACLS
             LPSTR ssid = NULL;
             if (IsValidSid(*sid))
                 if (ConvertSidToStringSidA(*sid, &ssid))
@@ -133,6 +135,7 @@ static int map_name_2_sid(DWORD *sid_len, PSID *sid, LPCSTR name)
             else
                 dprintf(1, "map_name_2_sid: Invalid Sid ?\n");
             if (ssid) LocalFree(ssid);
+#endif
         }
         status = ERROR_SUCCESS;
         break;
@@ -430,12 +433,6 @@ static int parse_setacl(unsigned char *buffer, uint32_t length,
     status = safe_read(&buffer, &length, &sec_desc_len, sizeof(ULONG));
     if (status) goto out;
     args->sec_desc = (PSECURITY_DESCRIPTOR)buffer;
-    status = IsValidSecurityDescriptor(args->sec_desc);
-    if (!status) {
-        eprintf("parse_setacl: received invalid security descriptor\n");
-        status = ERROR_INVALID_PARAMETER;
-        goto out;
-    } else status = 0;
 
     dprintf(1, "parsing NFS41_ACL_SET: info_class=%d sec_desc_len=%d\n", 
             args->query, sec_desc_len);
@@ -543,12 +540,6 @@ static int map_nfs4ace_who(PSID sid, PSID owner_sid, PSID group_sid, char *who_o
     SID_NAME_USE sid_type;
     LPSTR tmp_buf = NULL, who = NULL;
 
-    status = IsValidSid(sid);
-    if (!status) {
-        eprintf("map_dacl_2_nfs4acl: invalid sid\n");
-        status = GetLastError();
-        goto out;
-    }
     /* for ace mapping, we want to map owner's sid into "owner@" 
      * but for set_owner attribute we want to map owner into a user name
      * same applies to group
