@@ -186,6 +186,8 @@ typedef struct _updowncall_entry {
             BOOLEAN restart_scan;
             BOOLEAN return_single;
             BOOLEAN initial_query;
+            PMDL mdl;
+            PVOID mdl_buf;
         } QueryFile;
         struct {
             PUNICODE_STRING filename;
@@ -831,7 +833,7 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     else 
         tmp += *len;
 
-    header_len = *len + 2 * sizeof(ULONG) +
+    header_len = *len + 2 * sizeof(ULONG) + sizeof(HANDLE) +
         length_as_ansi(entry->u.QueryFile.filter) + 3 * sizeof(BOOLEAN);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -849,13 +851,34 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.QueryFile.restart_scan, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryFile.return_single, sizeof(BOOLEAN));
-
+    tmp += sizeof(BOOLEAN);
+    __try {
+        MmProbeAndLockPages(entry->u.QueryFile.mdl, KernelMode, IoModifyAccess);
+        entry->u.QueryFile.mdl_buf = 
+            MmMapLockedPagesSpecifyCache(entry->u.QueryFile.mdl, 
+                UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
+        if (entry->u.QueryFile.mdl_buf == NULL) {
+            print_error("MmMapLockedPagesSpecifyCache failed to map pages\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto out;
+        }
+        DbgP("MdlAddress=%p Userspace=%p\n", entry->u.QueryFile.mdl,
+            entry->u.QueryFile.mdl_buf);
+    } __except(EXCEPTION_EXECUTE_HANDLER) { 
+        NTSTATUS code; 
+        code = GetExceptionCode(); 
+        print_error("Call to MmMapLocked failed due to exception 0x%x\n", code);
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+    RtlCopyMemory(tmp, &entry->u.QueryFile.mdl_buf, sizeof(HANDLE));
     *len = header_len;
 
-    DbgP("marshal_nfs41_dirquery: filter='%wZ'class=%d "
+    DbgP("marshal_nfs41_dirquery: filter='%wZ'class=%d len=%d "
          "1st\\restart\\single=%d\\%d\\%d\n", entry->u.QueryFile.filter, 
-         entry->u.QueryFile.InfoClass, entry->u.QueryFile.initial_query, 
-         entry->u.QueryFile.restart_scan, entry->u.QueryFile.return_single);
+         entry->u.QueryFile.InfoClass, entry->u.QueryFile.buf_len, 
+         entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan, 
+         entry->u.QueryFile.return_single);
 out:
     DbgEx();
     return status;
@@ -1568,6 +1591,26 @@ nfs41_downcall (
                 cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr);
             break;
         case NFS41_DIR_QUERY:
+            RtlCopyMemory(&tmp->u.QueryFile.buf_len, buf, sizeof(ULONG));
+            DbgP("readdir reply size %d\n", tmp->u.QueryFile.buf_len);
+            buf += sizeof(ULONG);
+            __try {
+                MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, cur->u.QueryFile.mdl);
+                MmUnlockPages(cur->u.QueryFile.mdl);
+            } __except(EXCEPTION_EXECUTE_HANDLER) { 
+                NTSTATUS code; 
+                code = GetExceptionCode(); 
+                print_error("Call to MmUnmapLockedPages failed due to"
+                    " exception 0x%0x\n", code);
+                status = STATUS_ACCESS_DENIED;
+            }
+            if (tmp->u.QueryFile.buf_len > cur->u.QueryFile.buf_len) {
+                cur->status = STATUS_BUFFER_TOO_SMALL;
+                cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
+                break;
+            }
+            cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
+            break;
         case NFS41_FILE_QUERY:
             RtlCopyMemory(&tmp->u.QueryFile.buf_len, buf, sizeof(ULONG));
             buf += sizeof(ULONG);
@@ -3428,6 +3471,14 @@ NTSTATUS nfs41_QueryDirectory (
     entry->u.QueryFile.InfoClass = InfoClass;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
+    entry->u.QueryFile.mdl = IoAllocateMdl(RxContext->Info.Buffer, 
+        RxContext->Info.LengthRemaining, FALSE, FALSE, NULL);
+    if (entry->u.QueryFile.mdl == NULL) {
+        status = STATUS_INTERNAL_ERROR;
+        RxFreePool(entry);
+        goto out;
+    }
+
     entry->u.QueryFile.filter = Filter;
     entry->u.QueryFile.initial_query = RxContext->QueryDirectory.InitialQuery;
     entry->u.QueryFile.restart_scan = RxContext->QueryDirectory.RestartScan;
@@ -3454,6 +3505,7 @@ NTSTATUS nfs41_QueryDirectory (
         /* map windows ERRORs to NTSTATUS */
         status = map_querydir_errors(entry->status);
     }
+    IoFreeMdl(entry->u.QueryFile.mdl);
     RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS

@@ -63,13 +63,15 @@ static int parse_readdir(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->single, sizeof(args->single));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->kbuf, sizeof(args->kbuf));
+    if (status) goto out;
     args->root = upcall->root_ref;
     args->state = upcall->state_ref;
 
     dprintf(1, "parsing NFS41_DIR_QUERY: info_class=%d buf_len=%d "
-        "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d\n",
+        "filter='%s'\n\tInitial\\Restart\\Single %d\\%d\\%d buf=%p\n",
         args->query_class, args->buf_len, args->filter,
-        args->initial, args->restart, args->single);
+        args->initial, args->restart, args->single, args->kbuf);
 out:
     return status;
 }
@@ -479,13 +481,13 @@ static int handle_readdir(nfs41_upcall *upcall)
         goto out;
     }
 
-    entry_buf = malloc(max(args->buf_len, 4096));
+    entry_buf = malloc(args->buf_len);
     if (entry_buf == NULL) {
         status = GetLastError();
         goto out_free_cookie;
     }
 fetch_entries:
-    entry_buf_len = max(args->buf_len, 4096);
+    entry_buf_len = args->buf_len;
 
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_RDATTR_ERROR;
@@ -550,19 +552,10 @@ fetch_entries:
 
     if (entry_buf_len) {
         unsigned char *entry_pos = entry_buf;
-        unsigned char *dst_pos;
+        unsigned char *dst_pos = args->kbuf;
         uint32_t dst_len = args->buf_len;
         nfs41_readdir_entry *entry;
         PULONG offset, last_offset = NULL;
-
-        if (args->buf == NULL) {
-            args->buf = malloc(args->buf_len);
-            if (args->buf == NULL) {
-                status = GetLastError();
-                goto out_free_cookie;
-            }
-        }
-        dst_pos = args->buf;
 
         for (;;) {
             entry = (nfs41_readdir_entry*)entry_pos;
@@ -625,7 +618,6 @@ out:
             dprintf(1, "error code %d.\n", status);
             break;
         }
-        free(args->buf);
         args->buf = NULL;
     } else {
         dprintf(1, "success!\n");
@@ -642,10 +634,6 @@ static int marshall_readdir(unsigned char *buffer, uint32_t *length, nfs41_upcal
     readdir_upcall_args *args = &upcall->args.readdir;
 
     status = safe_write(&buffer, length, &args->query_reply_len, sizeof(args->query_reply_len));
-    if (status) goto out;
-    status = safe_write(&buffer, length, args->buf, args->query_reply_len);
-out:
-    free(args->buf);
     return status;
 }
 

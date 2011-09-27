@@ -132,6 +132,7 @@ typedef struct __readdir_upcall_args {
     BOOLEAN initial;
     BOOLEAN restart;
     BOOLEAN single;
+    unsigned char *kbuf;
 } readdir_upcall_args;
 
 typedef struct __symlink_upcall_args {

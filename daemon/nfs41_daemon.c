@@ -85,7 +85,7 @@ static unsigned int WINAPI thread_main(void *args)
     // buffer used to send downcall content, need to dynamically allocated 
     // as we don't know the length of the buffer (ie. size of directory listing
     unsigned char *inbuf = NULL;
-    DWORD inbuf_len, outbuf_len;
+    DWORD inbuf_len = UPCALL_BUF_SIZE, outbuf_len;
     nfs41_upcall upcall;
 
     pipe = CreateFile(NFS41_USER_DEVICE_NAME_A, GENERIC_READ | GENERIC_WRITE,
@@ -129,11 +129,6 @@ write_downcall:
         dprintf(1, "writing downcall: xid=%d opcode=%s status=%d "
             "get_last_error=%d\n", upcall.xid, opcode2string(upcall.opcode),
             upcall.status, upcall.last_error);
-
-        if (upcall.opcode == NFS41_DIR_QUERY)
-            inbuf_len = UPCALL_BUF_SIZE + upcall.args.readdir.query_reply_len;
-        else
-            inbuf_len = UPCALL_BUF_SIZE;
 
         inbuf = malloc(inbuf_len);
         if (inbuf == NULL) {
