@@ -81,10 +81,7 @@ static unsigned int WINAPI thread_main(void *args)
     HANDLE pipe;
     // buffer used to process upcall, assumed to be fixed size. 
     // if we ever need to handle non-cached IO, need to make it dynamic
-    unsigned char outbuf[UPCALL_BUF_SIZE]; 
-    // buffer used to send downcall content, need to dynamically allocated 
-    // as we don't know the length of the buffer (ie. size of directory listing
-    unsigned char *inbuf = NULL;
+    unsigned char outbuf[UPCALL_BUF_SIZE], inbuf[UPCALL_BUF_SIZE]; 
     DWORD inbuf_len = UPCALL_BUF_SIZE, outbuf_len;
     nfs41_upcall upcall;
 
@@ -130,19 +127,11 @@ write_downcall:
             "get_last_error=%d\n", upcall.xid, opcode2string(upcall.opcode),
             upcall.status, upcall.last_error);
 
-        inbuf = malloc(inbuf_len);
-        if (inbuf == NULL) {
-            upcall.status = GetLastError();
-            upcall_cancel(&upcall);
-            eprintf("Failed to allocate memory for downcall buffer... Exiting\n");
-            break;
-        }
         upcall_marshall(&upcall, inbuf, (uint32_t)inbuf_len, (uint32_t*)&outbuf_len);
 
         dprintf(2, "making a downcall: outbuf_len %ld\n\n", outbuf_len);
         status = DeviceIoControl(pipe, IOCTL_NFS41_WRITE,
             inbuf, inbuf_len, NULL, 0, (LPDWORD)&outbuf_len, NULL);
-        free(inbuf);
         if (!status) {
             eprintf("IOCTL_NFS41_WRITE failed with %d xid=%d opcode=%s\n", 
                 GetLastError(), upcall.xid, opcode2string(upcall.opcode));
