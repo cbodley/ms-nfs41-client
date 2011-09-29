@@ -235,6 +235,19 @@ typedef struct _updowncall_list {
 } nfs41_updowncall_list;
 nfs41_updowncall_list *upcall = NULL, *downcall = NULL;
 
+typedef struct _nfs41_mount_entry {
+    LIST_ENTRY next;
+    LUID login_id;
+    HANDLE authsys_session;
+    HANDLE gss_session;
+    HANDLE gssi_session;
+    HANDLE gssp_session;
+} nfs41_mount_entry;
+
+typedef struct _nfs41_mount_list {
+    LIST_ENTRY head;
+} nfs41_mount_list;
+
 #define nfs41_AddEntry(lock,pList,pEntry)                   \
             ExAcquireFastMutex(&lock);                      \
             InsertTailList(&pList->head, &(pEntry)->next);  \
@@ -264,6 +277,15 @@ nfs41_updowncall_list *upcall = NULL, *downcall = NULL;
              : (nfs41_updowncall_entry *)                   \
                (CONTAINING_RECORD(pList->head.Flink,        \
                                   nfs41_updowncall_entry,   \
+                                  next)));                  \
+            ExReleaseFastMutex(&lock);
+#define nfs41_GetFirstMountEntry(lock,pList,pEntry)              \
+            ExAcquireFastMutex(&lock);                      \
+            pEntry = (IsListEmpty(&pList->head)             \
+             ? NULL                                         \
+             : (nfs41_mount_entry *)                   \
+               (CONTAINING_RECORD(pList->head.Flink,        \
+                                  nfs41_mount_entry,   \
                                   next)));                  \
             ExReleaseFastMutex(&lock);
 #define nfs41_GetNextEntry(pList,pEntry)                    \
@@ -304,10 +326,10 @@ typedef struct _NFS41_MOUNT_CONFIG {
 typedef struct _NFS41_NETROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
-    HANDLE                  auth_sys_session;
-    HANDLE                  gss_session;
     DWORD                   nfs41d_version;
-    BOOLEAN                 do_umount;
+    BOOLEAN                 mounts_init;
+    FAST_MUTEX              mountLock;
+    nfs41_mount_list        *mounts;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
         (((pNetRoot) == NULL) ? NULL : (PNFS41_NETROOT_EXTENSION)((pNetRoot)->Context))
@@ -2546,6 +2568,36 @@ static NTSTATUS map_sec_flavor(
     return STATUS_SUCCESS;
 }
 
+NTSTATUS nfs41_GetLUID(PLUID id)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    SECURITY_SUBJECT_CONTEXT sec_ctx;
+    SECURITY_QUALITY_OF_SERVICE sec_qos;
+    SECURITY_CLIENT_CONTEXT clnt_sec_ctx;
+
+    SeCaptureSubjectContext(&sec_ctx);
+    sec_qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+    sec_qos.ImpersonationLevel = SecurityIdentification/*SecurityImpersonation*/;
+    sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    sec_qos.EffectiveOnly = 0;
+    status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &clnt_sec_ctx);
+    if (status) {
+        DbgP("SeCreateClientSecurityFromSubjectContext failed %x\n", status);
+        goto release_sec_ctx;
+    }
+    status = SeQueryAuthenticationIdToken(clnt_sec_ctx.ClientToken, id);
+    if (status) {
+        DbgP("SeQueryAuthenticationIdToken failed %x\n", status);
+        goto release_clnt_sec_ctx;
+    }
+release_clnt_sec_ctx:
+    SeDeleteClientSecurity(&clnt_sec_ctx);
+release_sec_ctx:
+    SeReleaseSubjectContext(&sec_ctx);
+
+    return status;
+}
+
 NTSTATUS nfs41_CreateVNetRoot(
     IN OUT PMRX_CREATENETROOT_CONTEXT pCreateNetRootContext)
 {
@@ -2560,6 +2612,10 @@ NTSTATUS nfs41_CreateVNetRoot(
         NFS41GetNetRootExtension(pNetRoot);
     NFS41GetDeviceExtension(pCreateNetRootContext->RxContext,DevExt);
     DWORD nfs41d_version = DevExt->nfs41d_version;
+    nfs41_mount_entry *existing_mount = NULL;
+    LUID luid;
+    BOOLEAN found_existing_mount = FALSE, found_matching_flavor = FALSE;
+
     ASSERT((NodeType(pNetRoot) == RDBSS_NTC_NETROOT) &&
         (NodeType(pNetRoot->pSrvCall) == RDBSS_NTC_SRVCALL));
 
@@ -2617,32 +2673,125 @@ NTSTATUS nfs41_CreateVNetRoot(
         goto out;
     }
 
-    if (pVNetRootContext->sec_flavor == RPCSEC_AUTH_SYS && 
-            pNetRootContext->auth_sys_session) {
-        pVNetRootContext->session = pNetRootContext->auth_sys_session;
-        DbgP("Using existing AUTH_SYS session 0x%x\n", pVNetRootContext->session);
-        goto out;
-    } else if ((pVNetRootContext->sec_flavor != RPCSEC_AUTH_SYS ||
-                pNetRoot->Type != NET_ROOT_WILD) &&
-                    pNetRootContext->gss_session) {    
-        pVNetRootContext->session = pNetRootContext->gss_session;
-        DbgP("Using existing AUTHGSS session 0x%x\n", pVNetRootContext->session);
+    status = nfs41_GetLUID(&luid);
+    if (status) {
         goto out;
     }
 
-    /* send the mount upcall */
-    DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
-        &Config.SrvName, &Config.MntPt, &Config.SecFlavor);
-    status = nfs41_mount(&Config.SrvName, &Config.MntPt, pVNetRootContext->sec_flavor,
-        &pVNetRootContext->session, &nfs41d_version);
-    if (status != STATUS_SUCCESS)
-        goto out;
+    if (!pNetRootContext->mounts_init) {
+        DbgP("Initializing mount array\n");
+        ExInitializeFastMutex(&pNetRootContext->mountLock);
+        pNetRootContext->mounts = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_mount_list), 
+                    NFS41_MM_POOLTAG);
+        if (pNetRootContext->mounts == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto out;
+        }
+        InitializeListHead(&pNetRootContext->mounts->head);
+        pNetRootContext->mounts_init = TRUE;
+    } else {
+        PLIST_ENTRY pEntry;
+
+        ExAcquireFastMutex(&pNetRootContext->mountLock); 
+        pEntry = &pNetRootContext->mounts->head;
+        while (pEntry != NULL) {
+            existing_mount = (nfs41_mount_entry *)CONTAINING_RECORD(pEntry, 
+                    nfs41_mount_entry, next);
+            DbgP("comparing %x.%x with %x.%x\n", luid.HighPart, luid.LowPart,
+                existing_mount->login_id.HighPart, existing_mount->login_id.LowPart);
+            if (RtlEqualLuid(&luid, &existing_mount->login_id)) {
+                DbgP("Found a matching LUID entry\n");
+                found_existing_mount = TRUE;
+                switch(pVNetRootContext->sec_flavor) {
+                case RPCSEC_AUTH_SYS:
+                    if (existing_mount->authsys_session != INVALID_HANDLE_VALUE)
+                        pVNetRootContext->session = existing_mount->authsys_session;
+                    break;
+                case RPCSEC_AUTHGSS_KRB5:
+                    if (existing_mount->gssi_session != INVALID_HANDLE_VALUE)
+                        pVNetRootContext->session = existing_mount->gss_session;
+                    break;
+                case RPCSEC_AUTHGSS_KRB5I:
+                    if (existing_mount->gss_session != INVALID_HANDLE_VALUE)
+                        pVNetRootContext->session = existing_mount->gssi_session;
+                    break;
+                case RPCSEC_AUTHGSS_KRB5P:
+                    if (existing_mount->gssp_session != INVALID_HANDLE_VALUE)
+                        pVNetRootContext->session = existing_mount->gssp_session;
+                    break;
+                }
+                if (pVNetRootContext->session)
+                    found_matching_flavor = 1;
+                break;                
+            }
+            if (pEntry->Flink == &pNetRootContext->mounts->head) {
+                DbgP("reached end of the list\n");
+                break;
+            }
+            pEntry = pEntry->Flink;
+        }
+        ExReleaseFastMutex(&pNetRootContext->mountLock); 
+        if (!found_matching_flavor)
+            DbgP("Didn't find matching security flavor\n");
+    }
+
+    if (!found_existing_mount || !found_matching_flavor) {
+        /* send the mount upcall */
+        DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
+            &Config.SrvName, &Config.MntPt, &Config.SecFlavor);
+        status = nfs41_mount(&Config.SrvName, &Config.MntPt, pVNetRootContext->sec_flavor,
+            &pVNetRootContext->session, &nfs41d_version);
+        if (status != STATUS_SUCCESS) {
+            if (!found_existing_mount) {
+                RxFreePool(pNetRootContext->mounts);
+                pNetRootContext->mounts_init = FALSE;
+                pVNetRootContext->session = INVALID_HANDLE_VALUE;
+            }
+            goto out;
+        }
+    } 
+
+    if (!found_existing_mount) {
+        /* create a new mount entry and add it to the list */
+        nfs41_mount_entry *entry;
+        entry = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_mount_entry), 
+            NFS41_MM_POOLTAG);
+        if (entry == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            RxFreePool(pNetRootContext->mounts);
+            goto out;
+        }
+        entry->authsys_session = entry->gss_session = 
+            entry->gssi_session = entry->gssp_session = INVALID_HANDLE_VALUE;
+        switch (pVNetRootContext->sec_flavor) {
+        case RPCSEC_AUTH_SYS:
+            entry->authsys_session = pVNetRootContext->session; break;
+        case RPCSEC_AUTHGSS_KRB5:
+            entry->gss_session = pVNetRootContext->session; break;
+        case RPCSEC_AUTHGSS_KRB5I:
+            entry->gssi_session = pVNetRootContext->session; break;
+        case RPCSEC_AUTHGSS_KRB5P:
+            entry->gssp_session = pVNetRootContext->session; break;
+        }
+        RtlCopyLuid(&entry->login_id, &luid);
+        nfs41_AddEntry(pNetRootContext->mountLock, pNetRootContext->mounts, entry);
+    } else if (!found_matching_flavor) {
+        ASSERT(existing_mount != NULL);
+        /* modify existing mount entry */
+        DbgP("Using existing %d flavor session 0x%x\n", 
+            pVNetRootContext->sec_flavor);
+        switch (pVNetRootContext->sec_flavor) {
+        case RPCSEC_AUTH_SYS:
+            existing_mount->authsys_session = pVNetRootContext->session; break;
+        case RPCSEC_AUTHGSS_KRB5:
+            existing_mount->gss_session = pVNetRootContext->session; break;
+        case RPCSEC_AUTHGSS_KRB5I:
+            existing_mount->gssi_session = pVNetRootContext->session; break;
+        case RPCSEC_AUTHGSS_KRB5P:
+            existing_mount->gssp_session = pVNetRootContext->session; break;
+        }
+    }
     pNetRootContext->nfs41d_version = nfs41d_version;
-    pNetRootContext->do_umount = TRUE;
-    if (pVNetRootContext->sec_flavor == RPCSEC_AUTH_SYS)
-        pNetRootContext->auth_sys_session = pVNetRootContext->session;
-    else
-        pNetRootContext->gss_session = pVNetRootContext->session;
     DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
 
 out:
@@ -2730,6 +2879,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
     PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension((PMRX_NET_ROOT)pNetRoot);
     nfs41_updowncall_entry *tmp;
+    nfs41_mount_entry *mount_tmp;
     
     DbgEn();
     print_net_root(1, pNetRoot);
@@ -2739,8 +2889,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }
 
-    if (pNetRootContext == NULL || (pNetRootContext->auth_sys_session == NULL &&
-            pNetRootContext->gss_session == NULL)) {
+    if (pNetRootContext == NULL || !pNetRootContext->mounts_init) {
         print_error("No valid session has been established\n");
         goto out;
     }
@@ -2751,20 +2900,41 @@ NTSTATUS nfs41_FinalizeNetRoot(
         goto out;
     }
 
-    if (pNetRootContext->auth_sys_session && pNetRootContext->do_umount) {
-        status = nfs41_unmount(pNetRootContext->auth_sys_session, pNetRootContext->nfs41d_version);
-        if (status) {
-            print_error("nfs41_mount AUTH_SYS failed with %d\n", status);
-            goto out;
+    do {
+        nfs41_GetFirstMountEntry(pNetRootContext->mountLock, 
+            pNetRootContext->mounts, mount_tmp);
+        if (mount_tmp == NULL)
+            break;
+        DbgP("Removing entry luid %x.%x from mount list\n", mount_tmp->login_id.HighPart,
+            mount_tmp->login_id.LowPart);
+
+        if (mount_tmp->authsys_session != INVALID_HANDLE_VALUE) {
+            status = nfs41_unmount(mount_tmp->authsys_session, pNetRootContext->nfs41d_version);
+            if (status)
+                print_error("nfs41_unmount AUTH_SYS failed with %d\n", status);
         }
-    }
-    if (pNetRootContext->gss_session) {
-        status = nfs41_unmount(pNetRootContext->gss_session, pNetRootContext->nfs41d_version);
-        if (status) {
-            print_error("nfs41_mount AUTHGSS failed with %d\n", status);
-            goto out;
+        if (mount_tmp->gss_session != INVALID_HANDLE_VALUE) {
+            status = nfs41_unmount(mount_tmp->gss_session, pNetRootContext->nfs41d_version);
+            if (status)
+                print_error("nfs41_unmount RPCSEC_GSS_KRB5 failed with %d\n", status);
         }
-    }
+        if (mount_tmp->gssi_session != INVALID_HANDLE_VALUE) {
+            status = nfs41_unmount(mount_tmp->gssi_session, pNetRootContext->nfs41d_version);
+            if (status)
+                print_error("nfs41_unmount RPCSEC_GSS_KRB5I failed with %d\n", status);
+        }
+        if (mount_tmp->gssp_session != INVALID_HANDLE_VALUE) {
+            status = nfs41_unmount(mount_tmp->gssp_session, pNetRootContext->nfs41d_version);
+            if (status)
+                print_error("nfs41_unmount RPCSEC_GSS_KRB5P failed with %d\n", status);
+        }
+        nfs41_RemoveEntry(pNetRootContext->mountLock, pNetRootContext->mounts, mount_tmp);
+        RxFreePool(mount_tmp);
+    } while (1);
+    /* ignore any errors from unmount */
+    status = STATUS_SUCCESS;
+    RxFreePool(pNetRootContext->mounts);
+
     // check if there is anything waiting in the upcall or downcall queue
     do {
         nfs41_GetFirstEntry(upcallLock, upcall, tmp);
@@ -2925,7 +3095,7 @@ NTSTATUS nfs41_Create(
         goto out;
     }
     
-    if (pNetRootContext->auth_sys_session == NULL && pNetRootContext->gss_session == NULL) {
+    if (!pNetRootContext->mounts_init) {
         print_error("No valid session established\n");
         goto out;
     }
