@@ -206,7 +206,9 @@ static int getdomainname(char *domain)
 out_loop:
         if (!flag) {
             status = ERROR_INTERNAL_ERROR;
-            eprintf("getdomainname: unable to get a domain name\n");
+            eprintf("getdomainname: unable to get a domain name. "
+                "Set this machine's domain name:\n"
+                "System > ComputerName > Change > More > mydomain\n");
         }
         freeaddrinfo(result);
     } else {
