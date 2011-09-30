@@ -483,6 +483,14 @@ int nfs41_client_owner(
     DWORD length;
     const ULONGLONG time_created = GetTickCount64();
     int status;
+    char username[UNLEN + 1];
+    DWORD len = UNLEN + 1;
+
+    if (!GetUserNameA(username, &len)) {
+        status = GetLastError();
+        eprintf("GetUserName() failed with %d\n", status);
+        goto out;
+    }
 
     /* owner.verifier = "time created" */
     memcpy(owner->co_verifier, &time_created, sizeof(time_created));
@@ -501,6 +509,12 @@ int nfs41_client_owner(
     }
 
     if (!CryptHashData(hash, (const BYTE*)&sec_flavor, (DWORD)sizeof(sec_flavor), 0)) {
+        status = GetLastError();
+        eprintf("CryptHashData() failed with %d\n", status);
+        goto out_hash;
+    }
+
+    if (!CryptHashData(hash, (const BYTE*)username, (DWORD)strlen(username), 0)) {
         status = GetLastError();
         eprintf("CryptHashData() failed with %d\n", status);
         goto out_hash;
