@@ -174,7 +174,7 @@ int nfs41_rpc_clnt_create(
         needcb = 0;
 #endif
     rpc->needcb = needcb;
-    rpc->cond = CreateEvent(NULL, TRUE, FALSE, "rpc_recovery_cond");
+    rpc->cond = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (rpc->cond == NULL) {
         status = GetLastError();
         eprintf("CreateEvent failed %d\n", status);

@@ -40,14 +40,14 @@ static int init_slot_table(nfs41_slot_table *table)
     int i, status = 0;
 
     //initialize slot table lock
-    table->lock = CreateMutex(NULL, FALSE, "session_table_lock");
+    table->lock = CreateMutex(NULL, FALSE, NULL);
     if (table->lock == NULL) {
         status = GetLastError();
         eprintf("init_slot_table: CreateMutex failed %d\n", status);
         goto out;
     }
     //initialize condition variable for slots
-    table->cond = CreateEvent(NULL, TRUE, FALSE, "session_table_cond");
+    table->cond = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (table->cond == NULL) {
         status = GetLastError();
         eprintf("init_slot_table: CreateEvent failed %d\n", status);
