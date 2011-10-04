@@ -4653,7 +4653,7 @@ NTSTATUS nfs41_SetFileInformation (
             status = STATUS_NOT_SUPPORTED;
             goto out;
         }
-        DbgP("Attempting to rename to '%wZ'\n", dst);
+        DbgP("Attempting to rename to '%wZ'\n", &dst);
         nfs41_fcb->Flags = 0;
     }
     break;
@@ -4667,7 +4667,7 @@ NTSTATUS nfs41_SetFileInformation (
             status = STATUS_NOT_SUPPORTED;
             goto out;
         }
-        DbgP("Attempting to add link as '%wZ'\n", dst);
+        DbgP("Attempting to add link as '%wZ'\n", &dst);
         nfs41_fcb->Flags = 0;
     }
     break;
