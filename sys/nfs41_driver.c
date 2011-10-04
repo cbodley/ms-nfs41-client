@@ -345,7 +345,8 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     HANDLE                  session;
     BYTE                    FsAttrs[FS_ATTR_LEN];
     LONG                    FsAttrsLen;
-    DWORD                   sec_flavor;                    
+    DWORD                   sec_flavor;
+    BOOLEAN                 read_only;
 } NFS41_V_NET_ROOT_EXTENSION, *PNFS41_V_NET_ROOT_EXTENSION;
 #define NFS41GetVNetRootExtension(pVNetRoot)      \
         (((pVNetRoot) == NULL) ? NULL :           \
@@ -2658,6 +2659,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             &Config);
         if (status != STATUS_SUCCESS)
             goto out;
+        pVNetRootContext->read_only = Config.ReadOnly; 
     } else {
         /* use the SRV_CALL name (without leading \) as the hostname */
         Config.SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
@@ -3100,6 +3102,14 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
+    if (pVNetRootContext->read_only && 
+            ((params.DesiredAccess & FILE_WRITE_DATA) ||
+            (params.DesiredAccess & FILE_APPEND_DATA))) {
+        DbgP("Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
     status = nfs41_UpcallCreate(NFS41_OPEN, NULL, pVNetRootContext->session, 
         INVALID_HANDLE_VALUE, pNetRootContext->nfs41d_version, &entry);
     if (status)
@@ -3289,7 +3299,7 @@ NTSTATUS nfs41_Create(
             SrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
     }
 
-    if (params.CreateOptions & FILE_DELETE_ON_CLOSE) {
+    if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) && !pVNetRootContext->read_only) {
         DbgP("We need to delete this file on close\n");
         nfs41_fcb->StandardInfo.DeletePending = TRUE;
     }
@@ -3964,6 +3974,12 @@ NTSTATUS nfs41_SetEaInformation (
     print_debug_header(RxContext);
     print_ea_info(1, eainfo);
 
+    if (pVNetRootContext->read_only) {
+        DbgP("Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
     status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, &entry);
@@ -4304,6 +4320,12 @@ NTSTATUS nfs41_SetSecurityInformation (
     print_debug_header(RxContext);
     print_acl_args(info_class);
 
+    if (pVNetRootContext->read_only) {
+        DbgP("Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
     /* check that ACL is present */
     if (info_class & DACL_SECURITY_INFORMATION) {
         PACL acl;
@@ -4600,6 +4622,13 @@ NTSTATUS nfs41_SetFileInformation (
 
     DbgEn();
     print_setfile_args(RxContext);
+
+    if (pVNetRootContext->read_only) {
+        DbgP("Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
     /* http://msdn.microsoft.com/en-us/library/ff469355(v=PROT.10).aspx
      * http://msdn.microsoft.com/en-us/library/ff469424(v=PROT.10).aspx
      * If Open.GrantedAccess does not contain FILE_WRITE_DATA, the operation 
@@ -4956,6 +4985,12 @@ NTSTATUS nfs41_Write (
 
     DbgEn();
     print_readwrite_args(RxContext);
+
+    if (pVNetRootContext->read_only) {
+        DbgP("Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
 
     status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
