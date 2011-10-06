@@ -686,6 +686,7 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.ReadWrite.offset, sizeof(entry->u.ReadWrite.offset));
     tmp += sizeof(entry->u.ReadWrite.offset);
     __try {
+        entry->u.ReadWrite.MdlAddress->MdlFlags |= MDL_MAPPING_CAN_FAIL;
         entry->u.ReadWrite.buf = 
             MmMapLockedPagesSpecifyCache(entry->u.ReadWrite.MdlAddress, 
                 UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
@@ -876,7 +877,6 @@ NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry,
     RtlCopyMemory(tmp, &entry->u.QueryFile.return_single, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
     __try {
-        MmProbeAndLockPages(entry->u.QueryFile.mdl, KernelMode, IoModifyAccess);
         entry->u.QueryFile.mdl_buf = 
             MmMapLockedPagesSpecifyCache(entry->u.QueryFile.mdl, 
                 UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
@@ -1524,6 +1524,7 @@ nfs41_downcall (
     while (pEntry != NULL) {
         cur = (nfs41_updowncall_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_updowncall_entry, next);
+        DbgP("nfs41_downcall: comparing %d %d\n", cur->xid, tmp->xid);
         if (cur->xid == tmp->xid) {
             found = 1;
             break;
@@ -1619,7 +1620,6 @@ nfs41_downcall (
             buf += sizeof(ULONG);
             __try {
                 MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, cur->u.QueryFile.mdl);
-                MmUnlockPages(cur->u.QueryFile.mdl);
             } __except(EXCEPTION_EXECUTE_HANDLER) { 
                 NTSTATUS code; 
                 code = GetExceptionCode(); 
@@ -3658,6 +3658,8 @@ NTSTATUS nfs41_QueryDirectory (
         RxFreePool(entry);
         goto out;
     }
+    entry->u.QueryFile.mdl->MdlFlags |= MDL_MAPPING_CAN_FAIL;
+    MmProbeAndLockPages(entry->u.QueryFile.mdl, KernelMode, IoModifyAccess);
 
     entry->u.QueryFile.filter = Filter;
     entry->u.QueryFile.initial_query = RxContext->QueryDirectory.InitialQuery;
@@ -3668,6 +3670,7 @@ NTSTATUS nfs41_QueryDirectory (
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
+    MmUnlockPages(entry->u.QueryFile.mdl);
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
         print_error("ERROR: buffer too small provided %d need %d\n", 
