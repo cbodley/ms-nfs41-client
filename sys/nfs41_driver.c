@@ -1521,6 +1521,7 @@ nfs41_downcall (
 
     ExAcquireFastMutex(&downcallLock); 
     pEntry = &downcall->head;
+    pEntry = pEntry->Flink;
     while (pEntry != NULL) {
         cur = (nfs41_updowncall_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_updowncall_entry, next);
@@ -2696,6 +2697,7 @@ NTSTATUS nfs41_CreateVNetRoot(
 
         ExAcquireFastMutex(&pNetRootContext->mountLock); 
         pEntry = &pNetRootContext->mounts->head;
+        pEntry = pEntry->Flink;
         while (pEntry != NULL) {
             existing_mount = (nfs41_mount_entry *)CONTAINING_RECORD(pEntry, 
                     nfs41_mount_entry, next);
