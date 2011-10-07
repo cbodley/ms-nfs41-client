@@ -34,6 +34,10 @@
 #include "util.h"
 
 
+/* number of times to retry on write/commit verifier mismatch */
+#define MAX_WRITE_RETRIES 6
+
+
 const stateid4 special_read_stateid = {0xffffffff, 
     {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
 
@@ -184,6 +188,8 @@ static int write_to_mds(
     const uint32_t maxwritesize = max_write_size(session, &file->fh);
     uint32_t to_send, reloffset, len;
     int status = 0;
+    /* on write verifier mismatch, retry N times before failing */
+    uint32_t retries = MAX_WRITE_RETRIES;
 
 retry_write:
     p = args->buffer;
@@ -212,8 +218,10 @@ retry_write:
             status = 0;
             break;
         }
-        if (!verify_write(&verf, &committed))
-            goto retry_write;
+        if (!verify_write(&verf, &committed)) {
+            if (retries--) goto retry_write;
+            goto out_verify_failed;
+        }
     }
     if (committed == UNSTABLE4) {
         dprintf(1, "sending COMMIT for offset=%d and len=%d\n", args->offset, len);
@@ -221,12 +229,19 @@ retry_write:
         if (status)
             goto out;
 
-        if (!verify_commit(&verf))
-            goto retry_write;
+        if (!verify_commit(&verf)) {
+            if (retries--) goto retry_write;
+            goto out_verify_failed;
+        }
     }
 out:
     args->out_len = len;
     return nfs_to_windows_error(status, ERROR_NET_WRITE_FAULT);
+
+out_verify_failed:
+    len = 0;
+    status = NFS4ERR_IO;
+    goto out;
 }
 
 static int write_to_pnfs(
