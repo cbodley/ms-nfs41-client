@@ -139,6 +139,8 @@ typedef struct _updowncall_entry {
             PUNICODE_STRING srv_name;
             PUNICODE_STRING root;
             DWORD sec_flavor;
+            DWORD rsize;
+            DWORD wsize;
         } Mount;
         struct {                       
             PMDL MdlAddress;
@@ -307,8 +309,8 @@ DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5P_NAME, L"krb5p");
 #define SERVER_NAME_BUFFER_SIZE     1024
 
 #define MOUNT_CONFIG_RW_SIZE_MIN        1024
-#define MOUNT_CONFIG_RW_SIZE_DEFAULT    32768
-#define MOUNT_CONFIG_RW_SIZE_MAX        65536
+#define MOUNT_CONFIG_RW_SIZE_DEFAULT    1048576
+#define MOUNT_CONFIG_RW_SIZE_MAX        1048576
 #define MAX_SEC_FLAVOR_LEN 12
 
 typedef struct _NFS41_MOUNT_CONFIG {
@@ -569,7 +571,7 @@ NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
         goto out;
     }
     header_len = *len + length_as_ansi(entry->u.Mount.srv_name) +
-        length_as_ansi(entry->u.Mount.root) + sizeof(entry->u.Mount.sec_flavor);
+        length_as_ansi(entry->u.Mount.root) + 3 * sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -578,13 +580,18 @@ NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
     if (status) goto out;
     status = marshall_unicode_as_ansi(&tmp, entry->u.Mount.root);
     if (status) goto out;
-    RtlCopyMemory(tmp, &entry->u.Mount.sec_flavor, sizeof(entry->u.Mount.sec_flavor));
+    RtlCopyMemory(tmp, &entry->u.Mount.sec_flavor, sizeof(DWORD));
+    tmp += sizeof(DWORD);
+    RtlCopyMemory(tmp, &entry->u.Mount.rsize, sizeof(DWORD));
+    tmp += sizeof(DWORD);
+    RtlCopyMemory(tmp, &entry->u.Mount.wsize, sizeof(DWORD));
 
     *len = header_len;
 
-    DbgP("marshal_nfs41_mount: server name=%wZ mount point=%wZ sec_flavor=%s\n", 
-            entry->u.Mount.srv_name, entry->u.Mount.root, 
-            secflavorop2name(entry->u.Mount.sec_flavor));
+    DbgP("marshal_nfs41_mount: server name=%wZ mount point=%wZ sec_flavor=%s"
+         "rsize=%d wsize=%d\n", entry->u.Mount.srv_name, entry->u.Mount.root, 
+         secflavorop2name(entry->u.Mount.sec_flavor), entry->u.Mount.rsize,
+         entry->u.Mount.wsize);
 out:
     DbgEx();
     return status;
@@ -2354,8 +2361,8 @@ static NTSTATUS map_mount_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root, 
-                     DWORD sec_flavor, PHANDLE session, DWORD *version)
+NTSTATUS nfs41_mount(PNFS41_MOUNT_CONFIG config, DWORD sec_flavor, 
+    PHANDLE session, DWORD *version)
 {
     NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
@@ -2365,8 +2372,10 @@ NTSTATUS nfs41_mount(PUNICODE_STRING srv_name, PUNICODE_STRING root,
         INVALID_HANDLE_VALUE, *version, &entry);
     if (status)
         goto out;
-    entry->u.Mount.srv_name = srv_name;
-    entry->u.Mount.root = root;
+    entry->u.Mount.srv_name = &config->SrvName;
+    entry->u.Mount.root = &config->MntPt;
+    entry->u.Mount.rsize = config->ReadSize;
+    entry->u.Mount.wsize = config->WriteSize;
     entry->u.Mount.sec_flavor = sec_flavor;
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
@@ -2442,11 +2451,13 @@ static NTSTATUS nfs41_MountConfig_ParseDword(
         status = RtlUnicodeStringToInteger(usValue, 0, Value);
         if (status == STATUS_SUCCESS)
         {
+#ifdef IMPOSE_MINMAX_RWSIZES
             if (*Value < Minimum)
                 *Value = Minimum;
             if (*Value > Maximum)
                 *Value = Maximum;
             DbgP("    '%ls' -> '%wZ' -> %lu\n", Name, *usValue, *Value);
+#endif
         }
         else
             print_error("Failed to convert %s='%wZ' to unsigned long.\n",
@@ -2743,7 +2754,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         /* send the mount upcall */
         DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
             &Config.SrvName, &Config.MntPt, &Config.SecFlavor);
-        status = nfs41_mount(&Config.SrvName, &Config.MntPt, pVNetRootContext->sec_flavor,
+        status = nfs41_mount(&Config, pVNetRootContext->sec_flavor,
             &pVNetRootContext->session, &nfs41d_version);
         if (status != STATUS_SUCCESS) {
             if (!found_existing_mount) {

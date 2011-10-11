@@ -46,9 +46,14 @@ static int parse_mount(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
     if(status) goto out;
     status = safe_read(&buffer, &length, &args->sec_flavor, sizeof(DWORD));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->rsize, sizeof(DWORD));
+    if (status) goto out;
+    status = safe_read(&buffer, &length, &args->wsize, sizeof(DWORD));
+    if (status) goto out;
 
-    dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s sec_flavor=%s\n",
-        args->hostname, args->path, secflavorop2name(args->sec_flavor));
+    dprintf(1, "parsing NFS14_MOUNT: srv_name=%s root=%s sec_flavor=%s "
+        "rsize=%d wsize=%d\n", args->hostname, args->path, 
+        secflavorop2name(args->sec_flavor), args->rsize, args->wsize);
 out:
     return status;
 }
@@ -70,8 +75,7 @@ static int handle_mount(nfs41_upcall *upcall)
     }
     // create root
     status = nfs41_root_create(args->hostname, args->sec_flavor,
-        NFS41_MAX_FILEIO_SIZE + WRITE_OVERHEAD,
-        NFS41_MAX_FILEIO_SIZE + READ_OVERHEAD, &root);
+        args->wsize + WRITE_OVERHEAD, args->rsize + READ_OVERHEAD, &root);
     if (status) {
         eprintf("nfs41_root_create() failed %d\n", status);
         goto out;

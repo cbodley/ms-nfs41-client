@@ -37,6 +37,8 @@ typedef struct __mount_upcall_args {
     const char *hostname;
     const char *path;
     DWORD       sec_flavor;
+    DWORD       rsize;
+    DWORD       wsize;
 } mount_upcall_args;
 
 typedef struct __open_upcall_args {
