@@ -753,7 +753,7 @@ int nfs41_delegation_getattr(
     if (status)
         goto out;
 
-    ZeroMemory(&info, sizeof(nfs41_file_info));
+    ZeroMemory(info, sizeof(nfs41_file_info));
 
     /* find attributes for the given fileid */
     status = nfs41_attr_cache_lookup(
