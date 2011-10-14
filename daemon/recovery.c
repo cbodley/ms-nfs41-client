@@ -389,6 +389,33 @@ out:
     return status;
 }
 
+static int recover_delegation(
+    IN nfs41_session *session,
+    IN nfs41_delegation_state *deleg,
+    IN OUT bool_t *grace,
+    IN OUT bool_t *want_supported)
+{
+    int status;
+
+    /* 10.2.1. Delegation Recovery
+     * When a client needs to reclaim a delegation and there is no
+     * associated open, the client may use the CLAIM_PREVIOUS variant
+     * of the WANT_DELEGATION operation.  However, since the server is
+     * not required to support this operation, an alternative is to
+     * reclaim via a dummy OPEN together with the delegation using an
+     * OPEN of type CLAIM_PREVIOUS. */
+    if (*want_supported)
+        status = recover_delegation_want(session, deleg, grace);
+    else
+        status = NFS4ERR_NOTSUPP;
+
+    if (status == NFS4ERR_NOTSUPP) {
+        *want_supported = FALSE;
+        status = recover_delegation_open(session, deleg, grace);
+    }
+    return status;
+}
+
 int nfs41_recover_client_state(
     IN nfs41_session *session,
     IN nfs41_client *client)
@@ -426,24 +453,9 @@ int nfs41_recover_client_state(
     /* recover delegations that weren't associated with any opens */
     list_for_each(entry, &state->delegations) {
         deleg = list_container(entry, nfs41_delegation_state, client_entry);
-
-        /* 10.2.1. Delegation Recovery
-         * When a client needs to reclaim a delegation and there is no
-         * associated open, the client may use the CLAIM_PREVIOUS variant
-         * of the WANT_DELEGATION operation.  However, since the server is
-         * not required to support this operation, an alternative is to
-         * reclaim via a dummy OPEN together with the delegation using an
-         * OPEN of type CLAIM_PREVIOUS. */
         if (deleg->revoked) {
-            if (want_supported)
-                status = recover_delegation_want(session, deleg, &grace);
-            else
-                status = NFS4ERR_NOTSUPP;
-
-            if (status == NFS4ERR_NOTSUPP) {
-                want_supported = FALSE;
-                status = recover_delegation_open(session, deleg, &grace);
-            }
+            status = recover_delegation(session,
+                deleg, &grace, &want_supported);
             if (status == NFS4ERR_BADSESSION)
                 goto unlock;
         }
@@ -466,6 +478,153 @@ unlock:
     }
     return status;
 }
+
+static uint32_t stateid_array(
+    IN struct list_entry *delegations,
+    IN struct list_entry *opens,
+    OUT stateid_arg **stateids_out,
+    OUT uint32_t **statuses_out)
+{
+    struct list_entry *entry;
+    nfs41_open_state *open;
+    nfs41_delegation_state *deleg;
+    stateid_arg *stateids = NULL;
+    uint32_t *statuses = NULL;
+    uint32_t i = 0, count = 0;
+
+    /* count how many stateids the client needs to test */
+    list_for_each(entry, delegations)
+        count++;
+    list_for_each(entry, opens)
+        count += 3; /* open and potentially lock and layout */
+
+    if (count == 0)
+        goto out;
+
+    /* allocate the stateid and status arrays */
+    stateids = calloc(count, sizeof(stateid_arg));
+    if (stateids == NULL)
+        goto out_err;
+    statuses = calloc(count, sizeof(uint32_t));
+    if (statuses == NULL)
+        goto out_err;
+    memset(statuses, NFS4ERR_BAD_STATEID, count * sizeof(uint32_t));
+
+    /* copy stateids into the array */
+    list_for_each(entry, delegations) {
+        deleg = list_container(entry, nfs41_delegation_state, client_entry);
+        AcquireSRWLockShared(&deleg->lock);
+        /* delegation stateid */
+        memcpy(&stateids[i].stateid, &deleg->state.stateid, sizeof(stateid4));
+        stateids[i].type = STATEID_DELEG_FILE;
+        stateids[i].delegation = deleg;
+        i++;
+        ReleaseSRWLockShared(&deleg->lock);
+    }
+
+    list_for_each(entry, opens) {
+        open = list_container(entry, nfs41_open_state, client_entry);
+
+        AcquireSRWLockShared(&open->lock);
+        /* open stateid */
+        memcpy(&stateids[i].stateid, &open->stateid, sizeof(stateid4));
+        stateids[i].type = STATEID_OPEN;
+        stateids[i].open = open;
+        i++;
+
+        if (open->locks.stateid.seqid) { /* lock stateid? */
+            memcpy(&stateids[i].stateid, &open->locks.stateid, sizeof(stateid4));
+            stateids[i].type = STATEID_LOCK;
+            stateids[i].open = open;
+            i++;
+        }
+
+        if (open->layout) { /* layout stateid? */
+            AcquireSRWLockShared(&open->layout->lock);
+            if (open->layout->status & PNFS_LAYOUT_GRANTED) {
+                memcpy(&stateids[i].stateid, &open->layout->stateid, sizeof(stateid4));
+                stateids[i].type = STATEID_LAYOUT;
+                stateids[i].open = open;
+                i++;
+            }
+            ReleaseSRWLockShared(&open->layout->lock);
+        }
+        ReleaseSRWLockShared(&open->lock);
+    }
+
+    count = i;
+    *stateids_out = stateids;
+    *statuses_out = statuses;
+out:
+    return count;
+
+out_err:
+    free(stateids);
+    free(statuses);
+    count = 0;
+    goto out;
+}
+
+void nfs41_client_state_revoked(
+    IN nfs41_session *session,
+    IN nfs41_client *client,
+    IN uint32_t revoked)
+{
+    const struct cb_layoutrecall_args recall = { PNFS_LAYOUTTYPE_FILE,
+        PNFS_IOMODE_ANY, TRUE, { PNFS_RETURN_ALL } };
+    struct client_state *clientstate = &session->client->state;
+    stateid_arg *stateids = NULL;
+    uint32_t *statuses = NULL;
+    uint32_t i, count;
+    bool_t grace = TRUE;
+    bool_t want_supported = TRUE;
+
+    EnterCriticalSection(&clientstate->lock);
+
+    /* get an array of the client's stateids */
+    count = stateid_array(&clientstate->delegations,
+        &clientstate->opens, &stateids, &statuses);
+    if (count == 0)
+        goto out;
+
+    /* determine which stateids were revoked with TEST_STATEID */
+    if ((revoked & SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED) == 0)
+        nfs41_test_stateid(session, stateids, count, statuses);
+
+    /* free all revoked stateids with FREE_STATEID */
+    for (i = 0; i < count; i++)
+        if (statuses[i])
+            nfs41_free_stateid(session, &stateids[i].stateid);
+
+    /* revoke all of the client's layouts */
+    pnfs_file_layout_recall(client, &recall);
+
+    /* recover the revoked stateids */
+    for (i = 0; i < count; i++) {
+        if (statuses[i]) {
+            if (stateids[i].type == STATEID_DELEG_FILE)
+                stateids[i].delegation->revoked = TRUE;
+            else if (stateids[i].type == STATEID_OPEN)
+                recover_open(session, stateids[i].open, &grace);
+            else if (stateids[i].type == STATEID_LOCK)
+                recover_locks(session, stateids[i].open, &grace);
+        }
+    }
+    for (i = 0; i < count; i++) {
+        /* delegations that weren't recovered by recover_open() */
+        if (statuses[i] && stateids[i].type == STATEID_DELEG_FILE
+            && stateids[i].delegation->revoked)
+            recover_delegation(session, stateids[i].delegation,
+                &grace, &want_supported);
+    }
+
+    nfs41_client_delegation_recovery(client);
+out:
+    LeaveCriticalSection(&clientstate->lock);
+    free(stateids);
+    free(statuses);
+}
+
 
 static bool_t recover_stateid_open(
     IN nfs_argop4 *argop,

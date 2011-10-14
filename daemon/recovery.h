@@ -42,6 +42,11 @@ int nfs41_recover_client_state(
     IN nfs41_session *session,
     IN nfs41_client *client);
 
+void nfs41_client_state_revoked(
+    IN nfs41_session *session,
+    IN nfs41_client *client,
+    IN uint32_t revoked);
+
 struct __nfs_argop4;
 bool_t nfs41_recover_stateid(
     IN nfs41_session *session,
