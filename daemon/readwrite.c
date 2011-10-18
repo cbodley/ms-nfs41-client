@@ -271,16 +271,13 @@ static int handle_write(nfs41_upcall *upcall)
 {
     readwrite_upcall_args *args = &upcall->args.rw;
     stateid_arg stateid;
-    ULONG pnfs_bytes_written = 0;
+    uint32_t pnfs_bytes_written = 0;
     int status;
 
     nfs41_open_stateid_arg(upcall->state_ref, &stateid);
 
 #ifdef PNFS_ENABLE_WRITE
     status = write_to_pnfs(upcall, &stateid);
-    if (status == NO_ERROR)
-        goto out;
-
     if (args->out_len) {
         pnfs_bytes_written = args->out_len;
         args->out_len = 0;
@@ -288,6 +285,9 @@ static int handle_write(nfs41_upcall *upcall)
         args->offset += pnfs_bytes_written;
         args->buffer += pnfs_bytes_written;
         args->len -= pnfs_bytes_written;
+
+        if (args->len == 0)
+            goto out;
     }
 #endif
 
