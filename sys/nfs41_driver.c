@@ -1845,15 +1845,14 @@ NTSTATUS nfs41_Stop(
     return status;
 }
 
-HANDLE
+NTSTATUS
 GetConnectionHandle(
     IN PUNICODE_STRING ConnectionName,
     IN PVOID EaBuffer,
-    IN ULONG EaLength
-    )
+    IN ULONG EaLength,
+    OUT PHANDLE Handle)
 {
     NTSTATUS status;
-    HANDLE Handle = INVALID_HANDLE_VALUE;
     IO_STATUS_BLOCK IoStatusBlock;
     OBJECT_ATTRIBUTES ObjectAttributes;
 
@@ -1861,19 +1860,17 @@ GetConnectionHandle(
     InitializeObjectAttributes(&ObjectAttributes, ConnectionName,
         OBJ_CASE_INSENSITIVE|OBJ_KERNEL_HANDLE, NULL, NULL);
 
-    status = ZwCreateFile(&Handle, SYNCHRONIZE, &ObjectAttributes,
+    status = ZwCreateFile(Handle, SYNCHRONIZE, &ObjectAttributes,
         &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         FILE_OPEN_IF,
         FILE_CREATE_TREE_CONNECTION | FILE_SYNCHRONOUS_IO_NONALERT,
         EaBuffer, EaLength);
-    if (!NT_SUCCESS(status))
-        Handle = INVALID_HANDLE_VALUE;
-    else
-        DbgP("created handle %p\n", &Handle);
+    if (NT_SUCCESS(status))
+        DbgP("created handle %p\n", Handle);
 
     DbgEx();
-    return Handle;
+    return status;
 }
 
 NTSTATUS nfs41_GetConnectionInfoFromBuffer(
@@ -1972,9 +1969,7 @@ nfs41_CreateConnection (
     if (status != STATUS_SUCCESS)
         goto out;
 
-    Handle = GetConnectionHandle(&FileName, EaBuffer, EaLength);
-    if (Handle == INVALID_HANDLE_VALUE)
-        status = STATUS_BAD_NETWORK_NAME;
+    status = GetConnectionHandle(&FileName, EaBuffer, EaLength, &Handle);
 out:
     DbgEx();
     return status;
@@ -2062,8 +2057,8 @@ nfs41_DeleteConnection (
     FileName.Length = (USHORT) ConnectNameLen - sizeof(WCHAR);
     FileName.MaximumLength = (USHORT) ConnectNameLen;
 
-    Handle = GetConnectionHandle(&FileName, NULL, 0);
-    if (Handle == INVALID_HANDLE_VALUE)
+    status = GetConnectionHandle(&FileName, NULL, 0, &Handle);
+    if (status != STATUS_SUCCESS)
         goto out;
 
     DbgP("GetConnectionHandle returned success\n");
@@ -2352,8 +2347,9 @@ static NTSTATUS map_mount_errors(DWORD status)
 {
     switch (status) {
     case NO_ERROR:              return STATUS_SUCCESS;
-    case ERROR_NETWORK_UNREACHABLE:
+    case ERROR_NETWORK_UNREACHABLE: return STATUS_NETWORK_UNREACHABLE;
     case ERROR_BAD_NET_RESP:    return STATUS_UNEXPECTED_NETWORK_ERROR;
+    case ERROR_BAD_NET_NAME:    return STATUS_BAD_NETWORK_NAME;
     case ERROR_BAD_NETPATH:     return STATUS_BAD_NETWORK_PATH;
     default:
         print_error("failed to map windows error %d to NTSTATUS; "

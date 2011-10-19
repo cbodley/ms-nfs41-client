@@ -524,7 +524,6 @@ NPAddConnection3(
         NULL, &CopyBytes );
     if (Status) {
         DbgP(( L"[aglo] SendTo_NFS41Driver failed with %d\n", Status));
-        Status = WN_BAD_NETNAME;
         goto out;
     }
 
