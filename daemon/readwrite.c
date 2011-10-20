@@ -196,8 +196,8 @@ retry_write:
     to_send = args->len;
     reloffset = 0;
     len = 0;
-    stable = to_send <= maxwritesize ? DATA_SYNC4 : UNSTABLE4;
-    committed = DATA_SYNC4;
+    stable = to_send <= maxwritesize ? FILE_SYNC4 : UNSTABLE4;
+    committed = FILE_SYNC4;
 
     if (to_send > maxwritesize)
         dprintf(1, "handle_nfs41_write: writing %d in chunks of %d\n",
@@ -223,7 +223,7 @@ retry_write:
             goto out_verify_failed;
         }
     }
-    if (committed == UNSTABLE4) {
+    if (committed != FILE_SYNC4) {
         dprintf(1, "sending COMMIT for offset=%d and len=%d\n", args->offset, len);
         status = nfs41_commit(session, file, args->offset, len, 1, &verf);
         if (status)
