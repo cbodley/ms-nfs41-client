@@ -571,6 +571,12 @@ enum pnfs_status pnfs_write(
     } else if (stable == DATA_SYNC4) {
         /* send LAYOUTCOMMIT to sync the metadata */
         status = layout_commit(state, layout, offset, *len_out);
+    } else {
+        /* send a GETATTR to update the cached size */
+        nfs41_file_info info = { 0 };
+        bitmap4 attr_request;
+        init_getattr_request(&attr_request);
+        nfs41_getattr(state->session, &state->file, &attr_request, &info);
     }
 out_free_pattern:
     pattern_free(&pattern);
