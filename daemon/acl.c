@@ -227,7 +227,8 @@ static int convert_nfs4acl_2_dacl(nfsacl41 *acl, int file_type,
         for (i = 0; i < acl->count; i++) {
             // nfs4 acemask should be exactly the same as file access mask
             mask = acl->aces[i].acemask;
-            dprintf(1, "access mask %x\n", mask);
+            dprintf(1, "access mask %x ace type %s\n", mask, 
+                acl->aces[i].acetype?"DENIED ACE":"ALLOWED ACE");
             if (acl->aces[i].acetype == ACE4_ACCESS_ALLOWED_ACE_TYPE) {
                 status = AddAccessAllowedAce(dacl, ACL_REVISION, mask, sids[i]);
                 if (!status) {
@@ -497,7 +498,7 @@ static void map_aceflags(BYTE win_aceflags, uint32_t *nfs4_aceflags)
     if (win_aceflags & OBJECT_INHERIT_ACE)
         *nfs4_aceflags |= ACE4_FILE_INHERIT_ACE;
     if (win_aceflags & CONTAINER_INHERIT_ACE)
-        *nfs4_aceflags |= ACE4_FILE_INHERIT_ACE;
+        *nfs4_aceflags |= ACE4_DIRECTORY_INHERIT_ACE;
     if (win_aceflags & NO_PROPAGATE_INHERIT_ACE)
         *nfs4_aceflags |= ACE4_NO_PROPAGATE_INHERIT_ACE;
     if (win_aceflags & INHERIT_ONLY_ACE)
