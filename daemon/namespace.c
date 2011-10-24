@@ -190,9 +190,6 @@ static int cl_exid_compare(
     /* match any of the desired roles */
     if ((info->roles & client->roles) == 0)
         goto out;
-    /* match clientid */
-    if (info->exchangeid->clientid != client->clnt_id)
-        goto out;
     /* match server_owner.major_id */
     if (strncmp(info->exchangeid->server_owner.so_major_id,
         client->server->owner, NFS4_OPAQUE_LIMIT) != 0)
