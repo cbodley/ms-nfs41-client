@@ -1362,9 +1362,10 @@ NTSTATUS nfs41_UpcallCreate(
         sec_qos.ImpersonationLevel = SecurityImpersonation;
         sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
         sec_qos.EffectiveOnly = 0;
-        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &entry->sec_ctx);
+        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, 
+            &entry->sec_ctx);
         if (status != STATUS_SUCCESS) {
-            print_error("SeCreateClientSecurityFromSubjectContext "
+            print_error("nfs41_UpcallCreate: SeCreateClientSecurityFromSubjectContext "
                 "failed with %x\n", status);
             RxFreePool(entry);
         } else
@@ -2595,7 +2596,7 @@ NTSTATUS nfs41_GetLUID(PLUID id)
     sec_qos.EffectiveOnly = 0;
     status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &clnt_sec_ctx);
     if (status) {
-        DbgP("SeCreateClientSecurityFromSubjectContext failed %x\n", status);
+        DbgP("nfs41_GetLUID: SeCreateClientSecurityFromSubjectContext failed %x\n", status);
         goto release_sec_ctx;
     }
     status = SeQueryAuthenticationIdToken(clnt_sec_ctx.ClientToken, id);
@@ -3231,7 +3232,7 @@ NTSTATUS nfs41_Create(
         sec_qos.EffectiveOnly = 0;
         status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &nfs41_fobx->sec_ctx);
         if (status != STATUS_SUCCESS) {
-            print_error("SeCreateClientSecurityFromSubjectContext "
+            print_error("nfs41_Create: SeCreateClientSecurityFromSubjectContext "
                 "failed with %x\n", status);
             RxFreePool(entry);
         }
