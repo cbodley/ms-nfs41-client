@@ -258,6 +258,7 @@ static int convert_nfs4acl_2_dacl(nfsacl41 *acl, int file_type,
         eprintf("convert_nfs4acl_2_dacl: InitializeAcl failed with %d\n", status);
         goto out_free_dacl;
     }
+    status = ERROR_SUCCESS;
     *sids_out = sids;
     *dacl_out = dacl;
 out:
