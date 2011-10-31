@@ -143,7 +143,7 @@ static int recover_open(
     IN OUT bool_t *grace)
 {
     open_delegation4 delegation = { 0 };
-    stateid4 stateid;
+    stateid4 stateid = { 0 };
     enum open_delegation_type4 delegate_type = OPEN_DELEGATE_NONE;
     int status = NFS4ERR_BADHANDLE;
 

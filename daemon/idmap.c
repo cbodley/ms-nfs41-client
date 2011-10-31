@@ -91,7 +91,7 @@ struct idmap_config {
     char base[VAL_LEN];
 
     /* caching configuration */
-    UINT cache_ttl;
+    INT cache_ttl;
 };
 
 
@@ -597,7 +597,7 @@ static int idmap_query_attrs(
     const unsigned attributes,
     const unsigned optional,
     PCHAR *values[],
-    const size_t len)
+    const int len)
 {
     char filter[FILTER_LEN];
     struct idmap_config *config = &context->config;

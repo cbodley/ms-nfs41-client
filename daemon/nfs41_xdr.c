@@ -2604,7 +2604,7 @@ static bool_t encode_file_attrs(
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_OWNER) {
             char *ptr = &info->owner[0];
-            uint32_t owner_len = strlen(info->owner);
+            uint32_t owner_len = (uint32_t)strlen(info->owner);
             if (!xdr_bytes(&localxdr, &ptr, &owner_len, 
                             NFS4_OPAQUE_LIMIT))
                 return FALSE;
@@ -2612,7 +2612,7 @@ static bool_t encode_file_attrs(
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_OWNER_GROUP) {
             char *ptr = &info->owner_group[0];
-            uint32_t owner_group_len = strlen(info->owner_group);
+            uint32_t owner_group_len = (uint32_t)strlen(info->owner_group);
             if (!xdr_bytes(&localxdr, &ptr, &owner_group_len, 
                             NFS4_OPAQUE_LIMIT))
                 return FALSE;

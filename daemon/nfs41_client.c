@@ -184,8 +184,7 @@ static int getdomainname(char *domain)
                 if (status)
                     dprintf(1, "getnameinfo failed %d\n", WSAGetLastError());
                 else {
-                    int i = 0;
-                    size_t len = strlen(hostname);
+                    size_t i, len = strlen(hostname);
                     char *p = hostname;
                     dprintf(1, "getdomainname: hostname %s %d\n", hostname, len);
                     for(i = 0; i < len; i++)

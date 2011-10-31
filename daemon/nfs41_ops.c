@@ -128,7 +128,7 @@ int nfs41_create_session(nfs41_client *clnt, nfs41_session *session, bool_t try_
     req.csa_cb_secparams[0].type = 0; /* AUTH_NONE */
     req.csa_cb_secparams[1].type = 1; /* AUTH_SYS */
     req.csa_cb_secparams[1].u.auth_sys.machinename = clnt->rpc->server_name;
-    req.csa_cb_secparams[1].u.auth_sys.stamp = time(NULL);
+    req.csa_cb_secparams[1].u.auth_sys.stamp = (uint32_t)time(NULL);
 
     // ca_maxrequests should be gotten from the rpc layer
     set_fore_channel_attrs(clnt->rpc,
@@ -419,6 +419,7 @@ int nfs41_open(
     case CLAIM_FH:
     case CLAIM_DELEG_CUR_FH:
     case CLAIM_DELEG_PREV_FH:
+    default:
         /* CURRENT_FH: file being opened */
         current_fh_is_dir = FALSE;
         /* SEQUENCE; PUTFH(file); OPEN; GETATTR(file); PUTFH(dir); GETATTR */
@@ -708,7 +709,7 @@ int nfs41_write(
     nfs41_getattr_args getattr_args;
     nfs41_getattr_res getattr_res = {0};
     bitmap4 attr_request;
-    nfs41_file_info info;
+    nfs41_file_info info = { 0 };
 
     init_getattr_request(&attr_request);
 
