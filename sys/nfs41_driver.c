@@ -1945,7 +1945,7 @@ nfs41_CreateConnection (
     )
 {
     NTSTATUS    status = STATUS_SUCCESS;
-    HANDLE      Handle;
+    HANDLE      Handle = INVALID_HANDLE_VALUE;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
     PVOID       Buffer = LowIoContext->ParamsFor.IoCtl.pInputBuffer;
     ULONG       BufferLen = LowIoContext->ParamsFor.IoCtl.InputBufferLength;
@@ -1970,6 +1970,8 @@ nfs41_CreateConnection (
         goto out;
 
     status = GetConnectionHandle(&FileName, EaBuffer, EaLength, &Handle);
+    if (!status && Handle != INVALID_HANDLE_VALUE)
+        ZwClose(Handle);
 out:
     DbgEx();
     return status;
