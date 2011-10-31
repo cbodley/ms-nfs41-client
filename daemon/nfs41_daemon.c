@@ -43,6 +43,8 @@
 #define MAX_NUM_THREADS 128
 DWORD NFS41D_VERSION = 0;
 
+static const char FILE_NETCONFIG[] = "C:\\etc\\netconfig";
+
 #ifndef STANDALONE_NFSD //make sure to define it in "sources" not here
 #include "service.h"
 HANDLE  stop_event = NULL;
@@ -158,6 +160,19 @@ typedef struct _nfsd_args {
     int debug_level;
 } nfsd_args;
 
+static bool_t check_for_files()
+{
+    FILE *fd;
+     
+    fd = fopen(FILE_NETCONFIG, "r");
+    if (fd == NULL) {
+        fprintf(stderr,"nfsd() failed to open file '%s'\n", FILE_NETCONFIG);
+        return FALSE;
+    }
+    fclose(fd);
+    return TRUE;
+}
+
 static void PrintUsage()
 {
     fprintf(stderr, "Usage: nfsd.exe -d <debug_level> --noldap\n");
@@ -198,6 +213,8 @@ static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
     return TRUE;
 }
 
+
+
 #ifdef STANDALONE_NFSD
 void __cdecl _tmain(int argc, TCHAR *argv[])
 #else
@@ -212,6 +229,8 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
     int i;
     nfsd_args cmd_args;
 
+    if (!check_for_files())
+        exit(0);
     if (!parse_cmdlineargs(argc, argv, &cmd_args)) 
         exit(0);
     set_debug_level(cmd_args.debug_level);
