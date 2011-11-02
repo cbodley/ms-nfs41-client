@@ -72,6 +72,7 @@ static void file_device_free(
 {
     free(device->servers.arr);
     free(device->stripes.arr);
+    DeleteCriticalSection(&device->device.lock);
     free(device);
 }
 
@@ -156,7 +157,7 @@ void pnfs_file_device_list_free(
         file_device_free(device_entry(entry));
 
     LeaveCriticalSection(&devices->lock);
-
+    DeleteCriticalSection(&devices->lock);
     free(devices);
 }
 

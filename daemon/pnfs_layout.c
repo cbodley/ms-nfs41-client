@@ -129,7 +129,7 @@ void pnfs_layout_list_free(
         layout_state_free(state_entry(entry));
 
     LeaveCriticalSection(&layouts->lock);
-
+    DeleteCriticalSection(&layouts->lock);
     free(layouts);
 }
 

@@ -88,6 +88,7 @@ static void root_free(
     /* free clients */
     list_for_each_tmp(entry, tmp, &root->clients)
         nfs41_client_free(client_entry(entry));
+    DeleteCriticalSection(&root->lock);
     free(root);
 
     dprintf(NSLVL, "<-- nfs41_root_free()\n");

@@ -337,6 +337,8 @@ void nfs41_client_free(
     nfs41_rpc_clnt_free(client->rpc);
     if (client->layouts) pnfs_layout_list_free(client->layouts);
     if (client->devices) pnfs_file_device_list_free(client->devices);
+    DeleteCriticalSection(&client->state.lock);
+    DeleteCriticalSection(&client->recovery.lock);
     free(client);
 }
 
