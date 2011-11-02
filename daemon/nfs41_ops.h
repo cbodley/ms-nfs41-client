@@ -229,7 +229,6 @@ typedef struct __nfs41_destroy_clientid_res {
 } nfs41_destroy_clientid_res;
 
 
-
 /* OP_SEQUENCE */
 typedef struct __nfs41_sequence_args {
     unsigned char           *sa_sessionid;
@@ -816,6 +815,29 @@ typedef struct __nfs41_want_delegation_res {
     /* case NFS4_OK: */
     open_delegation4        *delegation;
 } nfs41_want_delegation_res;
+/* OP_FREE_STATEID */
+typedef struct __nfs41_free_stateid_args {
+    stateid4                *stateid;
+} nfs41_free_stateid_args;
+
+typedef struct __nfs41_free_stateid_res {
+    uint32_t                status;
+} nfs41_free_stateid_res;
+
+
+/* OP_TEST_STATEID */
+typedef struct __nfs41_test_stateid_args {
+    uint32_t                count;
+    stateid_arg             *stateids; // caller-allocated array
+} nfs41_test_stateid_args;
+
+typedef struct __nfs41_test_stateid_res {
+    uint32_t                status;
+    struct {
+        uint32_t            count;
+        uint32_t            *status; // caller-allocated array
+    } resok;
+} nfs41_test_stateid_res;
 
 
 /* OP_WRITE */
@@ -1206,6 +1228,16 @@ int nfs41_secinfo_noname(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
     OUT nfs41_secinfo_info *secinfo);
+
+enum nfsstat4 nfs41_free_stateid(
+    IN nfs41_session *session,
+    IN stateid4 *stateid);
+
+enum nfsstat4 nfs41_test_stateid(
+    IN nfs41_session *session,
+    IN stateid_arg *stateid_array,
+    IN uint32_t count,
+    OUT uint32_t *status_array);
 
 enum nfsstat4 pnfs_rpc_layoutget(
     IN nfs41_session *session,

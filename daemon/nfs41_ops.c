@@ -1851,6 +1851,75 @@ out:
     return status;
 }
 
+enum nfsstat4 nfs41_free_stateid(
+    IN nfs41_session *session,
+    IN stateid4 *stateid)
+{
+    enum nfsstat4 status;
+    nfs41_compound compound;
+    nfs_argop4 argops[2];
+    nfs_resop4 resops[2];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_free_stateid_args freestateid_args;
+    nfs41_free_stateid_res freestateid_res;
+
+    compound_init(&compound, argops, resops, "free_stateid");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 0);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_FREE_STATEID, &freestateid_args, &freestateid_res);
+    freestateid_args.stateid = stateid;
+
+    status = compound_encode_send_decode(session, &compound, FALSE);
+    if (status)
+        goto out;
+
+    compound_error(status = compound.res.status);
+out:
+    return status;
+}
+
+enum nfsstat4 nfs41_test_stateid(
+    IN nfs41_session *session,
+    IN stateid_arg *stateid_array,
+    IN uint32_t count,
+    OUT uint32_t *status_array)
+{
+    enum nfsstat4 status;
+    nfs41_compound compound;
+    nfs_argop4 argops[2];
+    nfs_resop4 resops[2];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_test_stateid_args teststateid_args;
+    nfs41_test_stateid_res teststateid_res;
+
+    compound_init(&compound, argops, resops, "test_stateid");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 0);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_TEST_STATEID, &teststateid_args, &teststateid_res);
+    teststateid_args.stateids = stateid_array;
+    teststateid_args.count = count;
+    teststateid_res.resok.status = status_array;
+    teststateid_res.resok.count = count;
+
+    status = compound_encode_send_decode(session, &compound, FALSE);
+    if (status)
+        goto out;
+
+    compound_error(status = compound.res.status);
+out:
+    return status;
+}
+
 enum nfsstat4 pnfs_rpc_layoutget(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,

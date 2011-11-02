@@ -2739,6 +2739,70 @@ static bool_t decode_op_want_delegation(
 
 
 /*
+ * OP_FREE_STATEID
+ */
+static bool_t encode_op_free_stateid(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_free_stateid_args *args = (nfs41_free_stateid_args*)argop->arg;
+
+    if (unexpected_op(argop->op, OP_FREE_STATEID))
+        return FALSE;
+
+    return xdr_stateid4(xdr, args->stateid);
+}
+
+static bool_t decode_op_free_stateid(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_free_stateid_res *res = (nfs41_free_stateid_res*)resop->res;
+
+    if (unexpected_op(resop->op, OP_FREE_STATEID))
+        return FALSE;
+
+    return xdr_u_int32_t(xdr, &res->status);
+}
+
+
+/*
+ * OP_TEST_STATEID
+ */
+static bool_t encode_op_test_stateid(
+    XDR *xdr,
+    nfs_argop4 *argop)
+{
+    nfs41_test_stateid_args *args = (nfs41_test_stateid_args*)argop->arg;
+
+    if (unexpected_op(argop->op, OP_TEST_STATEID))
+        return FALSE;
+
+    return xdr_array(xdr, (char**)&args->stateids, &args->count,
+        args->count, sizeof(stateid_arg), (xdrproc_t)xdr_stateid4);
+}
+
+static bool_t decode_op_test_stateid(
+    XDR *xdr,
+    nfs_resop4 *resop)
+{
+    nfs41_test_stateid_res *res = (nfs41_test_stateid_res*)resop->res;
+
+    if (unexpected_op(resop->op, OP_TEST_STATEID))
+        return FALSE;
+
+    if (!xdr_u_int32_t(xdr, &res->status))
+        return FALSE;
+
+    if (res->status == NFS4_OK) {
+        return xdr_array(xdr, (char**)&res->resok.status, &res->resok.count,
+            res->resok.count, sizeof(uint32_t), (xdrproc_t)xdr_u_int32_t);
+    }
+    return TRUE;
+}
+
+
+/*
  * OP_WRITE
  */
 static bool_t encode_op_write(
@@ -3472,7 +3536,7 @@ static const op_table_entry g_op_table[] = {
     { encode_op_exchange_id, decode_op_exchange_id }, /* OP_EXCHANGE_ID = 42 */
     { encode_op_create_session, decode_op_create_session }, /* OP_CREATE_SESSION = 43 */
     { encode_op_destroy_session, decode_op_destroy_session }, /* OP_DESTROY_SESSION = 44 */
-    { NULL, NULL }, /* OP_FREE_STATEID = 45 */
+    { encode_op_free_stateid, decode_op_free_stateid }, /* OP_FREE_STATEID = 45 */
     { NULL, NULL }, /* OP_GET_DIR_DELEGATION = 46 */
     { encode_op_getdeviceinfo, decode_op_getdeviceinfo }, /* OP_GETDEVICEINFO = 47 */
     { NULL, NULL }, /* OP_GETDEVICELIST = 48 */
@@ -3482,7 +3546,7 @@ static const op_table_entry g_op_table[] = {
     { encode_op_secinfo_noname, decode_op_secinfo_noname }, /* OP_SECINFO_NO_NAME = 52 */
     { encode_op_sequence, decode_op_sequence }, /* OP_SEQUENCE = 53 */
     { NULL, NULL }, /* OP_SET_SSV = 54 */
-    { NULL, NULL }, /* OP_TEST_STATEID = 55 */
+    { encode_op_test_stateid, decode_op_test_stateid }, /* OP_TEST_STATEID = 55 */
     { encode_op_want_delegation, decode_op_want_delegation }, /* OP_WANT_DELEGATION = 56 */
     { encode_op_destroy_clientid, decode_op_destroy_clientid }, /* OP_DESTROY_CLIENTID = 57 */
     { encode_op_reclaim_complete, decode_op_reclaim_complete }, /* OP_RECLAIM_COMPLETE = 58 */
