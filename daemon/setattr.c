@@ -141,7 +141,7 @@ static int handle_nfs41_remove(setattr_upcall_args *args)
         OPEN_DELEGATE_WRITE, TRUE);
 
     status = nfs41_remove(state->session, &state->parent,
-        &state->file.name);
+        &state->file.name, state->file.fh.fileid);
     if (status)
         dprintf(1, "nfs41_remove() failed with error %s.\n",
             nfs_error_string(status));
@@ -401,7 +401,7 @@ static int handle_nfs41_link(setattr_upcall_args *args)
 
         /* redo the lookup until it doesn't return REPARSE */
         status = nfs41_lookup(args->root, dst_session,
-            &dst_path, &dst_dir, NULL, NULL, &dst_session);
+            &dst_path, &dst_dir, &dst, NULL, &dst_session);
     }
 
     /* get the components after lookup in case a referral changed its path */
@@ -434,7 +434,8 @@ static int handle_nfs41_link(setattr_upcall_args *args)
 
         /* LINK will return NFS4ERR_EXIST if the target file exists,
          * so we have to remove it ourselves */
-        status = nfs41_remove(state->session, &dst_dir, &dst_name);
+        status = nfs41_remove(state->session,
+            &dst_dir, &dst_name, dst.fh.fileid);
         if (status) {
             dprintf(1, "nfs41_remove() failed with error %s.\n",
                 nfs_error_string(status));

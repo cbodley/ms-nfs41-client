@@ -676,7 +676,8 @@ static void cancel_open(IN nfs41_upcall *upcall)
         /* break any delegations and truncate before REMOVE */
         nfs41_delegation_return(state->session, &state->file,
             OPEN_DELEGATE_WRITE, TRUE);
-        status = nfs41_remove(state->session, &state->parent, name);
+        status = nfs41_remove(state->session, &state->parent,
+            name, state->file.fh.fileid);
         if (status)
             dprintf(1, "cancel_open: nfs41_remove() failed with %s\n",
                 nfs_error_string(status));
@@ -735,7 +736,8 @@ static int handle_close(nfs41_upcall *upcall)
             OPEN_DELEGATE_WRITE, TRUE);
 
         dprintf(1, "calling nfs41_remove for %s\n", name->name);
-        rm_status = nfs41_remove(state->session, &state->parent, name);
+        rm_status = nfs41_remove(state->session, &state->parent,
+            name, state->file.fh.fileid);
         if (rm_status) {
             dprintf(1, "nfs41_remove() failed with error %s.\n",
                 nfs_error_string(rm_status));

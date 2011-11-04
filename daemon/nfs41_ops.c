@@ -1140,7 +1140,8 @@ out:
 int nfs41_remove(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
-    IN const nfs41_component *target)
+    IN const nfs41_component *target,
+    IN uint64_t fileid)
 {
     int status;
     nfs41_compound compound;
@@ -1194,7 +1195,7 @@ int nfs41_remove(
     /* remove the target file from the cache */
     AcquireSRWLockShared(&parent->path->lock);
     nfs41_name_cache_remove(session_name_cache(session),
-        parent->path->path, target, &remove_res.cinfo);
+        parent->path->path, target, fileid, &remove_res.cinfo);
     ReleaseSRWLockShared(&parent->path->lock);
 
     nfs41_superblock_space_changed(parent->fh.superblock);

@@ -91,6 +91,7 @@ int nfs41_name_cache_remove(
     IN struct nfs41_name_cache *cache,
     IN const char *path,
     IN const nfs41_component *name,
+    IN uint64_t fileid,
     IN const change_info4 *cinfo);
 
 int nfs41_name_cache_rename(

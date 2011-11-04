@@ -1041,9 +1041,11 @@ int nfs41_name_cache_remove(
     IN struct nfs41_name_cache *cache,
     IN const char *path,
     IN const nfs41_component *name,
+    IN uint64_t fileid,
     IN const change_info4 *cinfo)
 {
     struct name_cache_entry *parent, *target;
+    struct attr_cache_entry *attributes = NULL;
     int status;
 
     dprintf(NCLVL1, "--> nfs41_name_cache_remove('%s')\n", path);
@@ -1058,15 +1060,15 @@ int nfs41_name_cache_remove(
     status = name_cache_lookup(cache, 0, path,
         name->name + name->len, NULL, &parent, &target, NULL);
     if (status == ERROR_PATH_NOT_FOUND)
-        goto out_unlock;
+        goto out_attributes;
 
     if (cinfo && name_cache_entry_changed(cache, parent, cinfo)) {
         name_cache_entry_invalidate(cache, parent);
-        goto out_unlock;
+        goto out_attributes;
     }
 
     if (status == ERROR_FILE_NOT_FOUND)
-        goto out_unlock;
+        goto out_attributes;
 
     if (target->attributes)
         target->attributes->numlinks--;
@@ -1080,6 +1082,14 @@ out_unlock:
 
     dprintf(NCLVL1, "<-- nfs41_name_cache_remove() returning %d\n", status);
     return status;
+
+out_attributes:
+    /* in the presence of other links, we need to update numlinks
+     * regardless of a failure to find the target entry */
+    attributes = attr_cache_search(&cache->attributes, fileid);
+    if (attributes)
+        attributes->numlinks--;
+    goto out_unlock;
 }
 
 int nfs41_name_cache_rename(

@@ -1147,7 +1147,8 @@ int nfs41_cached_getattr(
 int nfs41_remove(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
-    IN const nfs41_component *target);
+    IN const nfs41_component *target,
+    IN uint64_t fileid);
 
 int nfs41_rename(
     IN nfs41_session *session,

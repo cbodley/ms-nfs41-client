@@ -240,7 +240,8 @@ static int handle_symlink(nfs41_upcall *upcall)
             eprintf("handle_symlink: attempting to create a symlink when "
                 "the file=%s was already created on open; sending REMOVE "
                 "first\n", state->file.path->path);
-            nfs41_remove(state->session, &state->parent, &state->file.name);
+            nfs41_remove(state->session, &state->parent,
+                &state->file.name, state->file.fh.fileid);
         }
 
         /* create the symlink */
