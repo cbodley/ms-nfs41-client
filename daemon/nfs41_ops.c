@@ -306,7 +306,8 @@ out:
 static void open_delegation_return(
     IN nfs41_session *session,
     IN nfs41_path_fh *file,
-    IN open_delegation4 *delegation)
+    IN open_delegation4 *delegation,
+    IN bool_t try_recovery)
 {
     stateid_arg stateid;
     int status;
@@ -321,7 +322,7 @@ static void open_delegation_return(
     stateid.type = STATEID_DELEG_FILE;
     memcpy(&stateid.stateid, &delegation->stateid, sizeof(stateid4));
 
-    status = nfs41_delegreturn(session, file, &stateid, TRUE);
+    status = nfs41_delegreturn(session, file, &stateid, try_recovery);
 
     /* clear the delegation type returned by nfs41_open() */
     delegation->type = OPEN_DELEGATE_NONE;
@@ -331,14 +332,18 @@ static void open_update_cache(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
     IN nfs41_path_fh *file,
+    IN bool_t try_recovery,
     IN open_delegation4 *delegation,
+    IN bool_t already_delegated,
     IN change_info4 *changeinfo,
     IN nfs41_getattr_res *dir_attrs,
     IN nfs41_getattr_res *file_attrs)
 {
     struct nfs41_name_cache *cache = session_name_cache(session);
+    enum open_delegation_type4 delegation_type =
+        already_delegated ? OPEN_DELEGATE_NONE : delegation->type;
     uint32_t status;
-    
+
     /* update the attributes of the parent directory */
     memcpy(&dir_attrs->info->attrmask, &dir_attrs->obj_attributes.attrmask,
         sizeof(bitmap4));
@@ -350,7 +355,7 @@ static void open_update_cache(
 retry_cache_insert:
     AcquireSRWLockShared(&file->path->lock);
     status = nfs41_name_cache_insert(cache, file->path->path, &file->name,
-        &file->fh, file_attrs->info, changeinfo, delegation->type);
+        &file->fh, file_attrs->info, changeinfo, delegation_type);
     ReleaseSRWLockShared(&file->path->lock);
 
     if (status == ERROR_TOO_MANY_OPEN_FILES) {
@@ -364,7 +369,7 @@ retry_cache_insert:
     if (status && delegation->type != OPEN_DELEGATE_NONE) {
         /* if we can't make room in the cache, return this
          * delegation immediately to free resources on the server */
-        open_delegation_return(session, file, delegation);
+        open_delegation_return(session, file, delegation, try_recovery);
         goto retry_cache_insert;
     }
 }
@@ -403,6 +408,8 @@ int nfs41_open(
     nfs41_restorefh_res restorefh_res;
     nfs41_file_info tmp_info, dir_info;
     bool_t current_fh_is_dir;
+    bool_t already_delegated = delegation->type == OPEN_DELEGATE_READ
+        || delegation->type == OPEN_DELEGATE_WRITE;
 
     /* depending on the claim type, OPEN expects CURRENT_FH set
      * to either the parent directory, or to the file itself */
@@ -522,8 +529,8 @@ int nfs41_open(
         nfs41_superblock_space_changed(file->fh.superblock);
 
     /* update the name/attr cache with the results */
-    open_update_cache(session, parent, file, delegation,
-        &open_res.resok4.cinfo, &pgetattr_res, &getattr_res);
+    open_update_cache(session, parent, file, try_recovery, delegation,
+        already_delegated, &open_res.resok4.cinfo, &pgetattr_res, &getattr_res);
 out:
     return status;
 }
