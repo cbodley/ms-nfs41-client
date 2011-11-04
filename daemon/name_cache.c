@@ -1115,18 +1115,31 @@ int nfs41_name_cache_rename(
         goto out_unlock;
     }
 
+    /* look up dst_parent */
+    status = name_cache_lookup(cache, 0, dst_path,
+        dst_name->name, NULL, NULL, &dst_parent, NULL);
+    /* we can't create the dst entry without a parent */
+    if (status || dst_parent->attributes == NULL) {
+        /* if src exists, make it negative */
+        status = name_cache_lookup(cache, 0, src_path,
+            src_name->name + src_name->len, NULL, NULL, &src, NULL);
+        if (status == NO_ERROR) {
+            name_cache_entry_update(cache, src, NULL, NULL, OPEN_DELEGATE_NONE);
+            name_cache_unlink_children_recursive(cache, src);
+        }
+        status = ERROR_PATH_NOT_FOUND;
+        goto out_unlock;
+    }
+
     /* look up src_parent and src */
     status = name_cache_lookup(cache, 0, src_path,
         src_name->name + src_name->len, NULL, &src_parent, &src, NULL);
     /* we can't create the dst entry without valid attributes */
-    if (status || src->attributes == NULL)
-        goto out_unlock;
-
-    /* look up dst_parent */
-    status = name_cache_lookup(cache, 0, dst_path,
-        dst_name->name, NULL, NULL, &dst_parent, NULL);
-    if (status) {
-        status = ERROR_PATH_NOT_FOUND;
+    if (status || src->attributes == NULL) {
+        /* remove dst if it exists */
+        struct name_cache_entry *dst;
+        dst = name_cache_search(cache, dst_parent, dst_name);
+        if (dst) name_cache_unlink(cache, dst);
         goto out_unlock;
     }
 
