@@ -1086,6 +1086,7 @@ out_unlock:
 out_attributes:
     /* in the presence of other links, we need to update numlinks
      * regardless of a failure to find the target entry */
+    dprintf(NCLVL1, "nfs41_name_cache_remove: need to find attributes for %s\n", path);
     attributes = attr_cache_search(&cache->attributes, fileid);
     if (attributes)
         attributes->numlinks--;
@@ -1121,6 +1122,8 @@ int nfs41_name_cache_rename(
     /* we can't create the dst entry without a parent */
     if (status || dst_parent->attributes == NULL) {
         /* if src exists, make it negative */
+        dprintf(NCLVL1, "nfs41_name_cache_rename: adding negative cache "
+            "entry for %.*s\n", src_name->len, src_name->name);
         status = name_cache_lookup(cache, 0, src_path,
             src_name->name + src_name->len, NULL, NULL, &src, NULL);
         if (status == NO_ERROR) {
@@ -1138,6 +1141,8 @@ int nfs41_name_cache_rename(
     if (status || src->attributes == NULL) {
         /* remove dst if it exists */
         struct name_cache_entry *dst;
+        dprintf(NCLVL1, "nfs41_name_cache_rename: removing negative cache "
+            "entry for %.*s\n", dst_name->len, dst_name->name);
         dst = name_cache_search(cache, dst_parent, dst_name);
         if (dst) name_cache_unlink(cache, dst);
         goto out_unlock;

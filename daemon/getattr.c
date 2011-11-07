@@ -73,8 +73,9 @@ static int parse_getattr(unsigned char *buffer, uint32_t length, nfs41_upcall *u
     status = safe_read(&buffer, &length, &args->buf_len, sizeof(args->buf_len));
     if (status) goto out;
 
-    dprintf(1, "parsing NFS41_FILE_QUERY: info_class=%d buf_len=%d\n",
-        args->query_class, args->buf_len);
+    dprintf(1, "parsing NFS41_FILE_QUERY: info_class=%d buf_len=%d file=%.*s\n",
+        args->query_class, args->buf_len, upcall->state_ref->path.len, 
+        upcall->state_ref->path.path);
 out:
     return status;
 }

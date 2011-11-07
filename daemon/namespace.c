@@ -99,7 +99,7 @@ void nfs41_root_ref(
 {
     const LONG count = InterlockedIncrement(&root->ref_count);
 
-    dprintf(2, "nfs41_root_ref() count %d\n", count);
+    dprintf(NSLVL, "nfs41_root_ref() count %d\n", count);
 }
 
 void nfs41_root_deref(
@@ -107,7 +107,7 @@ void nfs41_root_deref(
 {
     const LONG count = InterlockedDecrement(&root->ref_count);
 
-    dprintf(2, "nfs41_root_deref() count %d\n", count);
+    dprintf(NSLVL, "nfs41_root_deref() count %d\n", count);
     if (count == 0)
         root_free(root);
 }
