@@ -2811,7 +2811,8 @@ NTSTATUS nfs41_CreateVNetRoot(
 out:
     /* AGLO do we need to worry about handling new netroot vs using existing one */
     pCreateNetRootContext->VirtualNetRootStatus = status;
-    pCreateNetRootContext->NetRootStatus = status;
+    if (pNetRoot->Context == NULL)
+        pCreateNetRootContext->NetRootStatus = status;
     DbgP("initiating net root callback with status %08lx\n", status);
     pCreateNetRootContext->Callback(pCreateNetRootContext);
 
