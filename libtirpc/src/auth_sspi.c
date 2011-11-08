@@ -465,7 +465,7 @@ authsspi_refresh(AUTH *auth, void *tmp)
 			if (call_stat != RPC_SUCCESS ||
 			    (gr.gr_major != SEC_E_OK &&
 			     gr.gr_major != SEC_I_CONTINUE_NEEDED))
-				return FALSE;
+				break;
 
 			if (gr.gr_ctx.length != 0) {
 #if 0
@@ -567,6 +567,7 @@ authsspi_destroy_context(AUTH *auth)
 	log_debug("in authgss_destroy_context()");
 
 	gd = AUTH_PRIVATE(auth);
+    if (gd == NULL) return;
 
 	if (SecIsValidHandle(&gd->ctx)) {
 		if (gd->established) {
@@ -601,6 +602,7 @@ authsspi_destroy(AUTH *auth)
 	log_debug("in authgss_destroy()");
 
 	gd = AUTH_PRIVATE(auth);
+    if (gd == NULL) return;
 
 	authsspi_destroy_context(auth);
 
