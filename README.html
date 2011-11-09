@@ -49,7 +49,7 @@
 <ul><li>WinDDK does not include the ldap library, so we build the rpc library and nfs client daemon with Visual Studio 2010.</li></ul>
 <ol>
     <li>Open Windows Explorer and navigate to <strong>ms-nfs41-client\build.vc10</strong>.</li>
-    <li>Make a copy of <strong>env.props.example</strong>, and rename it to <strong>env.props</strong>.
+    <li>Make a copy of <strong>env.props.example</strong>, and rename it to <strong>env.props</strong>.</li>
     <li>Open <strong>env.props</strong> in a text editor, and verify that the value in <code>&lt;WDKPATH&gt;C:\WinDDK\7600.16385.0&lt;/WDKPATH&gt;</code> points to your WinDDK installation.</li>
     <li>Open the solution file <strong>ms-nfs41-client.sln</strong> in Visual Studio 2010.</li>
     <li>Select the desired configuration and platform (accessible via Build->Configuration Manager).</li>
@@ -60,23 +60,27 @@
     <li>From the Start menu, open the WinDDK 'Checked Build Environment' for the target platform.</li>
     <li>Change directory to <strong>ms-nfs41-client</strong> and type <code>build</code>. All projects should build without errors.</li>
 </ol>
+<h3>Signing the driver</h3>
+<ol>
+    <li>Open a WinDDK 'Checked Build Environment' as Administrator in this directory (right click and 'Run as administrator').</li>
+    <li>Create a certificate for test-signing the driver (<a href="http://msdn.microsoft.com/en-us/library/ff540213%28VS.85%29.aspx" title="msdn.microsoft.com">Creating Test Certificates</a>):
+    <br/><code>&gt; makecert /pe /ss PrivateCertStore /n CN=nfs41_driver nfs41_driver.cer</code></li>
+    <li>Use the certificate to sign <strong>nfs41_driver.sys</strong> (<a href="http://msdn.microsoft.com/en-us/library/ff553467%28VS.85%29.aspx" title="msdn.microsoft.com">Test-Signing a Driver File</a>):
+    <br/><code>&gt; signtool sign /v /s PrivateCertStore /n nfs41_driver /t http://timestamp.verisign.com/scripts/timestamp.dll path\to\nfs41_driver.sys</code></li>
+</ol>
 <h2>2. <a name="install">Installing Binaries</a></h2>
 <h3>Requirements</h3>
 <ul>
     <li>ms-nfs41-client binaries: <strong>nfs41_driver.sys</strong>, <strong>nfs41_np.dll</strong>, <strong>libtirpc.dll</strong>, <strong>nfs_install.exe</strong>, <strong>nfsd.exe</strong>, <strong>nfs_mount.exe</strong></li>
-    <li>ms-nfs41-client configuration files: <strong>nfs41rdr.inf</strong>, <strong>install.bat</strong>, <strong>uninstall.bat</strong>, <strong>etc_netconfig</strong>, <strong>ms-nfs41-idmap.conf</strong></li>
+    <li>ms-nfs41-client configuration files: <strong>nfs41_driver.cer</strong>, <strong>nfs41rdr.inf</strong>, <strong>install.bat</strong>, <strong>uninstall.bat</strong>, <strong>etc_netconfig</strong>, <strong>ms-nfs41-idmap.conf</strong></li>
     <li>Microsoft Visual Studio 2010, or Microsoft Visual C++ 2010 Redistributable Libraries (<a href="https://www.microsoft.com/download/en/details.aspx?id=8328">x86</a> or <a href="https://www.microsoft.com/download/en/details.aspx?id=13523">x64</a>). An installer for the redistributable libraries are included with binary releases.</li>
 </ul>
 <h3>Instructions</h3>
 <ol>
     <li>Copy or extract all ms-nfs41-client binaries and configuration files into a directory that's convenient for testing.</li>
-    <li>Open a WinDDK 'Checked Build Environment' as Administrator in this directory (right click and 'Run as administrator').</li>
-    <li>Create a certificate for test-signing the driver (<a href="http://msdn.microsoft.com/en-us/library/ff540213%28VS.85%29.aspx" title="msdn.microsoft.com">Creating Test Certificates</a>):
-    <br/><code>&gt; makecert /pe /ss PrivateCertStore /n CN=nfs41_test nfs41_test.cer</code></li>
-    <li>Use the certificate to sign <strong>nfs41_driver.sys</strong> (<a href="http://msdn.microsoft.com/en-us/library/ff553467%28VS.85%29.aspx" title="msdn.microsoft.com">Test-Signing a Driver File</a>):
-    <br/><code>&gt; signtool sign /v /s PrivateCertStore /n nfs41_test /t http://timestamp.verisign.com/scripts/timestamp.dll nfs41_driver.sys</code></li>
-    <li>Install the certificate to the 'Trusted Root Certificate Authorities' store:
-    <br/><code>&gt; certmgr /add /c nfs41_test.cer /s /r localMachine root</code></li>
+    <li>Run <strong>vcredist_x*.exe</strong> to install the Visual C++ Redistributable Libraries.</li>
+    <li>Double-click on <strong>nfs41_driver.cer</strong> and select 'Install Certificate', then place it in the 'Trusted Root Certificate Authorities' store.</li>
+    <li>Open a command prompt as Administrator in this directory.</li>
     <li>Install the driver and update the registry:
     <br/><code>&gt; install.bat</code></li>
     <li>Copy configuration files:
@@ -102,11 +106,11 @@
 <ol>
     <li>From a Windows command prompt, run <strong>nfsd.exe</strong> to start the nfs client daemon. Leave this running in the background until all mapped drives are unmounted.
     <br/>Usage:
-    <br/><code>&gt; nfsd.exe -d &lt;debug level&gt; [--noldap]</code></li>
+    <br/><code>&gt; nfsd.exe -d &lt;debug level&gt; [--noldap]</code>
     <ul>
         <li><code>&lt;debug level&gt;</code> determines the log verbosity (1, 2, 3 or 0 to disable)</li>
         <li><code>--noldap</code> disables id mapping and uses a default uid=666 and gid=777</li>
-    </ul>
+    </ul></li>
 </ol>
 <h2>5. <a name="mount">Mounting</a></h2>
 <h3>Instructions</h3>
