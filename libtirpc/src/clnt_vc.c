@@ -625,8 +625,12 @@ call_again:
 		    }
             if (!xdr_getxiddir(xdrs, &ct->reply_msg)) {
 			    if (ct->ct_error.re_status == RPC_SUCCESS) {
-                    release_fd_lock(ct->ct_fd, mask);
-				    continue;
+#ifdef NO_CB_4_KRB5P
+                    if (cl->cb_thread != INVALID_HANDLE_VALUE)  
+#endif
+                        release_fd_lock(ct->ct_fd, mask);
+                    SwitchToThread();
+                    continue;
                 }
                 goto out;
             } 
@@ -656,7 +660,10 @@ call_again:
                 goto out;
             }
             ct->use_stored_reply_msg = TRUE;
-            release_fd_lock(ct->ct_fd, mask);
+#ifdef NO_CB_4_KRB5P
+            if (cl->cb_thread != INVALID_HANDLE_VALUE)  
+#endif
+                release_fd_lock(ct->ct_fd, mask);
             SwitchToThread();
         }
 	}
