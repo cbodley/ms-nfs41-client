@@ -60,7 +60,7 @@ ULONG __cdecl DbgP(IN PCCH fmt, ...)
             time_fields.Milliseconds, msg);
 #else
         DbgPrintEx(DPFLTR_IHVNETWORK_ID, DPFLTR_ERROR_LEVEL, 
-            "[%ld] %s", IoGetCurrentProcess(), msg);
+            "[%04x] %s", PsGetCurrentProcessId(), msg);
 #endif
     }
     va_end(args);
