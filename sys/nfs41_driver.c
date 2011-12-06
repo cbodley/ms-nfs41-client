@@ -35,6 +35,7 @@
 #include "nfs41_np.h"
 #include "nfs41_debug.h"
 
+#define USE_MOUNT_SEC_CONTEXT
 //#define DEBUG_CLOSE
 //#define ENABLE_TIMINGS
 //#define ENABLE_INDV_TIMINGS
@@ -349,6 +350,10 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     LONG                    FsAttrsLen;
     DWORD                   sec_flavor;
     BOOLEAN                 read_only;
+#define STORE_MOUNT_SEC_CONTEXT
+#ifdef STORE_MOUNT_SEC_CONTEXT
+    SECURITY_CLIENT_CONTEXT mount_sec_ctx;
+#endif
 } NFS41_V_NET_ROOT_EXTENSION, *PNFS41_V_NET_ROOT_EXTENSION;
 #define NFS41GetVNetRootExtension(pVNetRoot)      \
         (((pVNetRoot) == NULL) ? NULL :           \
@@ -2610,6 +2615,29 @@ release_sec_ctx:
     return status;
 }
 
+NTSTATUS nfs41_get_sec_ctx(
+    IN enum SECURITY_IMPERSONATION_LEVEL level,
+    OUT PSECURITY_CLIENT_CONTEXT out_ctx)
+{
+    NTSTATUS status;
+    SECURITY_SUBJECT_CONTEXT ctx;
+    SECURITY_QUALITY_OF_SERVICE sec_qos;
+    SeCaptureSubjectContext(&ctx);
+    sec_qos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
+    sec_qos.ImpersonationLevel = level;
+    sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    sec_qos.EffectiveOnly = 0;
+    status = SeCreateClientSecurityFromSubjectContext(&ctx, &sec_qos, 1, out_ctx);
+    if (status != STATUS_SUCCESS) {
+        print_error("SeCreateClientSecurityFromSubjectContext "
+            "failed with %x\n", status);
+    }
+    DbgP("Created client security token %p\n", out_ctx->ClientToken);
+    SeReleaseSubjectContext(&ctx);
+
+    return status;
+}
+
 NTSTATUS nfs41_CreateVNetRoot(
     IN OUT PMRX_CREATENETROOT_CONTEXT pCreateNetRootContext)
 {
@@ -2807,6 +2835,9 @@ NTSTATUS nfs41_CreateVNetRoot(
     }
     pNetRootContext->nfs41d_version = nfs41d_version;
     DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
+#ifdef STORE_MOUNT_SEC_CONTEXT
+    status = nfs41_get_sec_ctx(SecurityImpersonation, &pVNetRootContext->mount_sec_ctx);
+#endif
 
 out:
     /* AGLO do we need to worry about handling new netroot vs using existing one */
@@ -2983,11 +3014,17 @@ NTSTATUS nfs41_FinalizeVNetRoot(
     IN     PBOOLEAN ForceDisconnect)
 {
     NTSTATUS status = STATUS_SUCCESS;
+    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(pVNetRoot);
     DbgEn();
     print_v_net_root(1, pVNetRoot);
     if (pVNetRoot->pNetRoot->Type != NET_ROOT_DISK && 
             pVNetRoot->pNetRoot->Type != NET_ROOT_WILD)
         status = STATUS_NOT_SUPPORTED;
+
+#ifdef STORE_MOUNT_SEC_CONTEXT
+    SeDeleteClientSecurity(&pVNetRootContext->mount_sec_ctx);
+#endif
     DbgEx();
     return status;
 }
@@ -3123,8 +3160,13 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_OPEN, NULL, pVNetRootContext->session, 
-        INVALID_HANDLE_VALUE, pNetRootContext->nfs41d_version, &entry);
+#if defined(STORE_MOUNT_SEC_CONTEXT) && defined (USE_MOUNT_SEC_CONTEXT)
+    status = nfs41_UpcallCreate(NFS41_OPEN, &pVNetRootContext->mount_sec_ctx,
+#else
+    status = nfs41_UpcallCreate(NFS41_OPEN, NULL,
+#endif
+        pVNetRootContext->session, INVALID_HANDLE_VALUE, 
+        pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
     entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
@@ -3154,7 +3196,9 @@ NTSTATUS nfs41_Create(
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
+#ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&entry->sec_ctx);
+#endif
 
     if (entry->status == NO_ERROR && entry->errno == ERROR_REPARSE) {
         /* symbolic link handling. when attempting to open a symlink when the
@@ -3221,23 +3265,14 @@ NTSTATUS nfs41_Create(
     print_fobx(1, RxContext->pFobx);
     nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     nfs41_fobx->nfs41_open_state = entry->open_state;
-    {
-        SECURITY_SUBJECT_CONTEXT sec_ctx;
-        SECURITY_QUALITY_OF_SERVICE sec_qos;
-        SeCaptureSubjectContext(&sec_ctx);
-        sec_qos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
-        sec_qos.ImpersonationLevel = SecurityImpersonation;
-        sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
-        sec_qos.EffectiveOnly = 0;
-        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &nfs41_fobx->sec_ctx);
-        if (status != STATUS_SUCCESS) {
-            print_error("nfs41_Create: SeCreateClientSecurityFromSubjectContext "
-                "failed with %x\n", status);
-            RxFreePool(entry);
-        }
-        DbgP("Created client security token %p\n", nfs41_fobx->sec_ctx.ClientToken);
-        SeReleaseSubjectContext(&sec_ctx);
-    }
+#ifndef USE_MOUNT_SEC_CONTEXT
+    status = nfs41_get_sec_ctx(SecurityImpersonation, &nfs41_fobx->sec_ctx);
+    if (status)
+        goto out_free;
+#else
+    RtlCopyMemory(&nfs41_fobx->sec_ctx, &pVNetRootContext->mount_sec_ctx,
+        sizeof(nfs41_fobx->sec_ctx));
+#endif
 
     // we get attributes only for data access and file (not directories)
     if (Fcb->OpenCount > 0)
@@ -3487,7 +3522,7 @@ NTSTATUS nfs41_CloseSrvOpen (
     DbgEn();
     print_close_args(RxContext);
 
-    status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx, 
+    status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
         pNetRootContext->nfs41d_version, &entry);
     if (status)
@@ -3509,7 +3544,9 @@ NTSTATUS nfs41_CloseSrvOpen (
     /* map windows ERRORs to NTSTATUS */
     status = map_close_errors(entry->status);
     RxFreePool(entry);
+#ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&nfs41_fobx->sec_ctx);
+#endif
 out:
 #ifdef ENABLE_TIMINGS
     t2 = KeQueryPerformanceCounter(NULL);
@@ -3655,8 +3692,7 @@ NTSTATUS nfs41_QueryDirectory (
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
-
-    status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx, 
+    status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, &entry);
     if (status)
@@ -3835,8 +3871,7 @@ NTSTATUS nfs41_QueryVolumeInformation (
             status = STATUS_INVALID_PARAMETER;
             goto out;
     }
-
-    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx, 
+    status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
         pNetRootContext->nfs41d_version, &entry);
     if (status)
@@ -3996,7 +4031,7 @@ NTSTATUS nfs41_SetEaInformation (
         goto out;
     }
 
-    status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx, 
+    status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, &entry);
     if (status)
@@ -4125,9 +4160,9 @@ NTSTATUS nfs41_QueryEaInformation (
             RxContext->Info.LengthRemaining = LengthRequired;
             status = STATUS_SUCCESS;
             goto out;
-        } 
+        }
 
-        status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx, 
+        status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx,
             pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
             pNetRootContext->nfs41d_version, &entry);
         if (status)
