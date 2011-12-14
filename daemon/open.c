@@ -713,6 +713,25 @@ out:
     return status;
 }
 
+static int do_nfs41_close(nfs41_open_state *state)
+{
+    int status;
+    stateid_arg stateid;
+    stateid.open = state;
+    stateid.delegation = NULL;
+    stateid.type = STATEID_OPEN;
+    memcpy(&stateid.stateid, &state->stateid, sizeof(stateid4));
+
+    status = nfs41_close(state->session, &state->file, &stateid);
+    if (status) {
+        dprintf(1, "nfs41_close() failed with error %s.\n",
+            nfs_error_string(status));
+        status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
+    }
+
+    return status;
+}
+
 static int handle_close(nfs41_upcall *upcall)
 {
     int status = NFS4_OK, rm_status = NFS4_OK;
@@ -729,6 +748,11 @@ static int handle_close(nfs41_upcall *upcall)
         if (args->renamed) {
             dprintf(1, "removing a renamed file %s\n", name->name);
             create_silly_rename(&state->path, &state->file.fh, name);
+            status = do_nfs41_close(state);
+            if (status)
+                goto out;
+            else
+                state->do_close = 0;
         }
 
         /* break any delegations and truncate before REMOVE */
@@ -746,20 +770,9 @@ static int handle_close(nfs41_upcall *upcall)
     }
 
     if (state->do_close) {
-        stateid_arg stateid;
-        stateid.open = state;
-        stateid.delegation = NULL;
-        stateid.type = STATEID_OPEN;
-        memcpy(&stateid.stateid, &state->stateid, sizeof(stateid4));
-
-        status = nfs41_close(state->session, &state->file, &stateid);
-        if (status) {
-            dprintf(1, "nfs41_close() failed with error %s.\n",
-                nfs_error_string(status));
-            status = nfs_to_windows_error(status, ERROR_INTERNAL_ERROR);
-        }
+        status = do_nfs41_close(state);
     }
-
+out:
     /* remove from the client's list of state for recovery */
     client_state_remove(state);
 
