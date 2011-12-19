@@ -107,7 +107,8 @@ void nfs41_recover_sequence_flags(
     const uint32_t revoked = flags &
         (SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED
         | SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED
-        | SEQ4_STATUS_ADMIN_STATE_REVOKED);
+        | SEQ4_STATUS_ADMIN_STATE_REVOKED
+        | SEQ4_STATUS_RECALLABLE_STATE_REVOKED);
     const uint32_t restarted = flags &
         SEQ4_STATUS_RESTART_RECLAIM_NEEDED;
 
@@ -635,6 +636,7 @@ void nfs41_client_state_revoked(
 {
     const struct cb_layoutrecall_args recall = { PNFS_LAYOUTTYPE_FILE,
         PNFS_IOMODE_ANY, TRUE, { PNFS_RETURN_ALL } };
+    struct list_entry empty, *opens;
     struct client_state *clientstate = &session->client->state;
     stateid_arg *stateids = NULL;
     uint32_t *statuses = NULL;
@@ -644,9 +646,17 @@ void nfs41_client_state_revoked(
 
     EnterCriticalSection(&clientstate->lock);
 
+    if (revoked == SEQ4_STATUS_RECALLABLE_STATE_REVOKED) {
+        /* only delegations were revoked. use an empty list for opens */
+        list_init(&empty);
+        opens = &empty;
+    } else {
+        opens = &clientstate->opens;
+    }
+
     /* get an array of the client's stateids */
     count = stateid_array(&clientstate->delegations,
-        &clientstate->opens, &stateids, &statuses);
+        opens, &stateids, &statuses);
     if (count == 0)
         goto out;
 
