@@ -38,6 +38,11 @@ bool_t nfs41_recovery_start_or_wait(
 void nfs41_recovery_finish(
     IN nfs41_client *client);
 
+
+void nfs41_recover_sequence_flags(
+    IN nfs41_session *session,
+    IN uint32_t flags);
+
 int nfs41_recover_client_state(
     IN nfs41_session *session,
     IN nfs41_client *client);

@@ -191,19 +191,10 @@ retry:
             if (status)
                 goto out_free_slot;
 
-            if (try_recovery) {
-                /* check status flags for state revocation */
-                uint32_t revoked = seq->sr_resok4.sr_status_flags &
-                    (SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED
-                    | SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED
-                    | SEQ4_STATUS_ADMIN_STATE_REVOKED);
-
-                if (revoked && nfs41_recovery_start_or_wait(session->client)) {
-                    /* free stateids and attempt to recover them */
-                    nfs41_client_state_revoked(session, session->client, revoked);
-                    nfs41_recovery_finish(session->client);
-                }
-            }
+            /* check sequence status flags for state revocation */
+            if (try_recovery && seq->sr_resok4.sr_status_flags)
+                nfs41_recover_sequence_flags(session,
+                    seq->sr_resok4.sr_status_flags);
         }
     }
 

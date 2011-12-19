@@ -70,6 +70,28 @@ void nfs41_recovery_finish(
 }
 
 
+void nfs41_recover_sequence_flags(
+    IN nfs41_session *session,
+    IN uint32_t flags)
+{
+    const uint32_t revoked = flags &
+        (SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED
+        | SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED
+        | SEQ4_STATUS_ADMIN_STATE_REVOKED);
+
+    /* no state recovery needed */
+    if (revoked == 0)
+        return;
+
+    if (!nfs41_recovery_start_or_wait(session->client))
+        return;
+
+    /* free stateids and attempt to recover them */
+    nfs41_client_state_revoked(session, session->client, revoked);
+    nfs41_recovery_finish(session->client);
+}
+
+
 /* client state recovery for server reboot or lease expiration */
 static int recover_open_grace(
     IN nfs41_session *session,
