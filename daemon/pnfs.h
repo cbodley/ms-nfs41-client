@@ -42,7 +42,11 @@
 # endif
 
 # define PNFS_THREADING
-# define PNFS_THREAD_BY_SERVER
+
+/* XXX: the thread-by-server model breaks down when using dense layouts,
+ * because multiple stripes could be mapped to a single data server, and
+ * the per-data-server thread would have to send a COMMIT for each stripe */
+//# define PNFS_THREAD_BY_SERVER
 
 #endif
 
