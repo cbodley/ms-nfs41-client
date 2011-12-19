@@ -39,6 +39,10 @@ void nfs41_recovery_finish(
     IN nfs41_client *client);
 
 
+int nfs41_recover_session(
+    IN nfs41_session *session,
+    IN bool_t client_state_lost);
+
 void nfs41_recover_sequence_flags(
     IN nfs41_session *session,
     IN uint32_t flags);

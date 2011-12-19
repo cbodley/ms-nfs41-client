@@ -70,6 +70,36 @@ void nfs41_recovery_finish(
 }
 
 
+/* session/client/state recovery */
+int nfs41_recover_session(
+    IN nfs41_session *session,
+    IN bool_t client_state_lost)
+{
+    enum nfsstat4 status = NFS4_OK;
+
+restart_recovery:
+    /* recover the session */
+    status = nfs41_session_renew(session);
+
+    if (status == NFS4ERR_STALE_CLIENTID) {
+        /* recover the client */
+        client_state_lost = TRUE;
+        status = nfs41_client_renew(session->client);
+        if (status == NFS4_OK)
+            goto restart_recovery; /* resume session recovery */
+
+        eprintf("nfs41_client_renew() failed with %d\n", status);
+    } else if (status) {
+        eprintf("nfs41_session_renew() failed with %d\n", status);
+    } else if (client_state_lost) {
+        /* recover the client's state */
+        status = nfs41_recover_client_state(session, session->client);
+        if (status == NFS4ERR_BADSESSION)
+            goto restart_recovery;
+    }
+    return status;
+}
+
 void nfs41_recover_sequence_flags(
     IN nfs41_session *session,
     IN uint32_t flags)
@@ -78,16 +108,32 @@ void nfs41_recover_sequence_flags(
         (SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED
         | SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED
         | SEQ4_STATUS_ADMIN_STATE_REVOKED);
+    const uint32_t restarted = flags &
+        SEQ4_STATUS_RESTART_RECLAIM_NEEDED;
 
     /* no state recovery needed */
-    if (revoked == 0)
+    if (revoked == 0 && restarted == 0)
         return;
 
     if (!nfs41_recovery_start_or_wait(session->client))
         return;
 
-    /* free stateids and attempt to recover them */
-    nfs41_client_state_revoked(session, session->client, revoked);
+    if (revoked) {
+        /* free stateids and attempt to recover them */
+        nfs41_client_state_revoked(session, session->client, revoked);
+
+        /* if RESTART_RECLAIM_NEEDED is also set, just do RECLAIM_COMPLETE */
+        if (restarted) nfs41_reclaim_complete(session);
+
+    } else if (restarted) {
+        /* do server reboot state recovery */
+        uint32_t status = nfs41_recover_client_state(session, session->client);
+        if (status == NFS4ERR_BADSESSION) {
+            /* recover the session and finish state recovery */
+            nfs41_recover_session(session, TRUE);
+        }
+    }
+
     nfs41_recovery_finish(session->client);
 }
 

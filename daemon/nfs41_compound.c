@@ -150,7 +150,6 @@ int compound_encode_send_decode(
     int status, retry_count = 0, delayby = 0, secinfo_status;
     nfs41_sequence_args *args = (nfs41_sequence_args *)
         compound->args.argarray[0].arg;
-    bool_t client_state_lost = FALSE;
     uint32_t saved_sec_flavor;
     AUTH *saved_auth;
     int op1 = compound->args.argarray[0].op;
@@ -218,14 +217,13 @@ retry:
             goto out;
         if (!nfs41_recovery_start_or_wait(session->client))
             goto do_retry;
-        //try to create a new client
+        // try to create a new client
         status = nfs41_client_renew(session->client);
 
         nfs41_recovery_finish(session->client);
         if (status) {
-            eprintf("nfs41_exchange_id() failed with %d\n", status);
+            eprintf("nfs41_client_renew() failed with %d\n", status);
             status = ERROR_BAD_NET_RESP;
-
             goto out;
         }
         if (op1 == OP_CREATE_SESSION) {
@@ -243,31 +241,15 @@ retry:
             goto out;
         if (!nfs41_recovery_start_or_wait(session->client))
             goto do_retry;
-restart_recovery:
-        //try to create a new session
-        status = nfs41_session_renew(session);
-        if (status == NFS4ERR_STALE_CLIENTID) {
-            client_state_lost = TRUE;
-            status = nfs41_client_renew(session->client);
-            if (status) {
-                eprintf("nfs41_exchange_id() failed with %d\n", status);
-                status = ERROR_BAD_NET_RESP;
-                nfs41_recovery_finish(session->client);
-                goto out;
-            }
-            goto restart_recovery;
-        } else if (status) {
-            eprintf("nfs41_session_renew: failed with %d\n", status);
-            nfs41_recovery_finish(session->client);
+        // try to create a new session
+        status = nfs41_recover_session(session, FALSE);
+
+        nfs41_recovery_finish(session->client);
+        if (status) {
+            eprintf("nfs41_recover_session() failed with %d\n", status);
+            status = ERROR_BAD_NET_RESP;
             goto out;
         }
-        if (client_state_lost) {
-            /* do client state recovery */
-            status = nfs41_recover_client_state(session, session->client);
-            if (status == NFS4ERR_BADSESSION)
-                goto restart_recovery;
-        }
-        nfs41_recovery_finish(session->client);
         goto do_retry;
 
     case NFS4ERR_EXPIRED: /* revoked by lease expiration */
