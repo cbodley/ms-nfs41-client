@@ -31,7 +31,7 @@
 
 #include <devioctl.h>
 #include <lmcons.h> /* UNLEN for GetUserName() */
-
+#include <iphlpapi.h> /* for GetNetworkParam() */
 #include "nfs41_driver.h" /* for NFS41_USER_DEVICE_NAME_A */
 #include "nfs41_np.h" /* for NFS41NP_SHARED_MEMORY */
 
@@ -44,6 +44,9 @@
 DWORD NFS41D_VERSION = 0;
 
 static const char FILE_NETCONFIG[] = "C:\\etc\\netconfig";
+
+/* Globals */
+char localdomain_name[NFS41_HOSTNAME_LEN];
 
 #ifndef STANDALONE_NFSD //make sure to define it in "sources" not here
 #include "service.h"
@@ -213,7 +216,118 @@ static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
     return TRUE;
 }
 
+static void print_getaddrinfo(struct addrinfo *ptr)
+{
+    char ipstringbuffer[46];
+    DWORD ipbufferlength = 46;
 
+    dprintf(1, "getaddrinfo response flags: 0x%x\n", ptr->ai_flags);
+    switch (ptr->ai_family) {
+    case AF_UNSPEC: dprintf(1, "Family: Unspecified\n"); break;
+    case AF_INET:
+        dprintf(1, "Family: AF_INET IPv4 address %s\n",
+            inet_ntoa(((struct sockaddr_in *)ptr->ai_addr)->sin_addr));
+        break;
+    case AF_INET6:
+        if (WSAAddressToString((LPSOCKADDR)ptr->ai_addr, (DWORD)ptr->ai_addrlen, 
+                NULL, ipstringbuffer, &ipbufferlength))
+            dprintf(1, "WSAAddressToString failed with %u\n", WSAGetLastError());
+        else    
+            dprintf(1, "Family: AF_INET6 IPv6 address %s\n", ipstringbuffer);
+        break;
+    case AF_NETBIOS: dprintf(1, "AF_NETBIOS (NetBIOS)\n"); break;
+    default: dprintf(1, "Other %ld\n", ptr->ai_family); break;
+    }
+    dprintf(1, "Canonical name: %s\n", ptr->ai_canonname);
+}
+
+static int getdomainname()
+{
+    int status = 0;
+    PFIXED_INFO net_info = NULL;
+    DWORD size = 0;
+    BOOLEAN flag = FALSE;
+
+    status = GetNetworkParams(net_info, &size);
+    if (status != ERROR_BUFFER_OVERFLOW) {
+        eprintf("getdomainname: GetNetworkParams returned %d\n", status);
+        goto out;
+    }
+    net_info = calloc(1, size);
+    if (net_info == NULL) {
+        status = GetLastError();
+        goto out;
+    }
+    status = GetNetworkParams(net_info, &size);
+    if (status) {
+        eprintf("getdomainname: GetNetworkParams returned %d\n", status);
+        goto out_free;
+    }
+
+    if (net_info->DomainName[0] == '\0') {
+        struct addrinfo *result = NULL, *ptr = NULL, hints = { 0 };
+        char hostname[NI_MAXHOST], servInfo[NI_MAXSERV];
+
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_protocol = IPPROTO_TCP;
+
+        status = getaddrinfo(net_info->HostName, NULL, &hints, &result);
+        if (status) {
+            status = WSAGetLastError();
+            eprintf("getdomainname: getaddrinfo failed with %d\n", status);
+            goto out_free;
+        } 
+
+        for (ptr=result; ptr != NULL; ptr=ptr->ai_next) {
+            print_getaddrinfo(ptr);
+
+            switch (ptr->ai_family) {
+            case AF_INET6:
+            case AF_INET:
+                status = getnameinfo((struct sockaddr *)ptr->ai_addr,
+                            (socklen_t)ptr->ai_addrlen, hostname, NI_MAXHOST, 
+                            servInfo, NI_MAXSERV, NI_NAMEREQD);
+                if (status)
+                    dprintf(1, "getnameinfo failed %d\n", WSAGetLastError());
+                else {
+                    size_t i, len = strlen(hostname);
+                    char *p = hostname;
+                    dprintf(1, "getdomainname: hostname %s %d\n", hostname, len);
+                    for (i = 0; i < len; i++)
+                        if (p[i] == '.')
+                            break;
+                    if (i == len)
+                        break;
+                    flag = TRUE;
+                    memcpy(localdomain_name, &hostname[i+1], len-i);
+                    dprintf(1, "getdomainname: domainname %s %d\n", 
+                            localdomain_name, strlen(localdomain_name));
+                    goto out_loop;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+out_loop:
+        if (!flag) {
+            status = ERROR_INTERNAL_ERROR;
+            eprintf("getdomainname: unable to get a domain name. "
+                "Set this machine's domain name:\n"
+                "System > ComputerName > Change > More > mydomain\n");
+        }
+        freeaddrinfo(result);
+    } else {
+        dprintf(1, "domain name is %s\n", net_info->DomainName);
+        memcpy(localdomain_name, net_info->DomainName, 
+                strlen(net_info->DomainName));
+        localdomain_name[strlen(net_info->DomainName)] = '\0';
+    }
+out_free:
+    free(net_info);
+out:
+    return status;
+}
 
 #ifdef STANDALONE_NFSD
 void __cdecl _tmain(int argc, TCHAR *argv[])
@@ -247,9 +361,13 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
 #pragma warning (pop)
     dprintf(1, "debug mode. dumping memory leaks to stderr on exit.\n");
 #endif
+    /* acquire and store in global memory current dns domain name.
+     * needed for acls */
+    if (getdomainname())
+        exit(0);
 
     nfs41_server_list_init();
-
+    cmd_args.ldap_enable = 0;
     if (cmd_args.ldap_enable) {
         status = nfs41_idmap_create(&idmapper);
         if (status) {

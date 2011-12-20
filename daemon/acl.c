@@ -37,6 +37,8 @@
 //#define DEBUG_ACLS
 #define ACLLVL 2 /* dprintf level for acl logging */
 
+extern char *localdomain_name;
+
 static int parse_getacl(unsigned char *buffer, uint32_t length, 
                         nfs41_upcall *upcall)
 {
@@ -710,8 +712,7 @@ static int handle_setacl(nfs41_upcall *upcall)
             goto out;
         }
         info.owner = owner;
-        status = map_nfs4ace_who(sid, NULL, NULL, info.owner,
-                                 state->session->client->domain_name);
+        status = map_nfs4ace_who(sid, NULL, NULL, info.owner, localdomain_name);
         if (status)
             goto out;
         else {
@@ -729,8 +730,8 @@ static int handle_setacl(nfs41_upcall *upcall)
             goto out;
         }
         info.owner_group = group;
-        status = map_nfs4ace_who(sid, NULL, NULL, info.owner_group,
-                                 state->session->client->domain_name);
+        status = map_nfs4ace_who(sid, NULL, NULL, info.owner_group, 
+                                 localdomain_name);
         if (status)
             goto out;
         else {
@@ -762,7 +763,7 @@ static int handle_setacl(nfs41_upcall *upcall)
             goto out;
         }
         status = map_dacl_2_nfs4acl(acl, sid, gsid, &nfs4_acl, state->type, 
-                                    state->session->client->domain_name);
+                                    localdomain_name);
         if (status)
             goto out;
         else {
