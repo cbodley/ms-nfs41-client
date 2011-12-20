@@ -3039,9 +3039,9 @@ NTSTATUS nfs41_FinalizeVNetRoot(
     if (pVNetRoot->pNetRoot->Type != NET_ROOT_DISK && 
             pVNetRoot->pNetRoot->Type != NET_ROOT_WILD)
         status = STATUS_NOT_SUPPORTED;
-
 #ifdef STORE_MOUNT_SEC_CONTEXT
-    SeDeleteClientSecurity(&pVNetRootContext->mount_sec_ctx);
+    else
+        SeDeleteClientSecurity(&pVNetRootContext->mount_sec_ctx);
 #endif
     DbgEx();
     return status;
