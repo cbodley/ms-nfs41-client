@@ -71,7 +71,7 @@ FAST_MUTEX xidLock;
 FAST_MUTEX openOwnerLock;
 
 LONGLONG xid = 0;
-ULONG open_owner_id = 1;
+LONG open_owner_id = 1;
 
 #define DECLARE_CONST_ANSI_STRING(_var, _string) \
     const CHAR _var ## _buffer[] = _string; \
@@ -171,7 +171,7 @@ typedef struct _updowncall_entry {
             ULONG copts;
             ULONG disp;
             ULONG cattrs;
-            ULONG open_owner_id;
+            LONG open_owner_id;
             DWORD mode;
             LONGLONG changeattr;
             BOOLEAN symlink_embedded;
@@ -420,15 +420,6 @@ nfs41_start_driver_state nfs41_start_state = NFS41_START_DRIVER_STARTABLE;
 
 NTSTATUS map_readwrite_errors(DWORD status);
 
-ULONG get_next_open_owner() 
-{
-    ULONG x;
-    ExAcquireFastMutex(&openOwnerLock);
-    x = open_owner_id++;
-    ExReleaseFastMutex(&openOwnerLock);
-    return x; 
-}
-
 void print_debug_header(
     PRX_CONTEXT RxContext)
 {
@@ -617,7 +608,7 @@ NTSTATUS marshal_nfs41_open(
     else 
         tmp += *len;
     header_len = *len + length_as_ansi(entry->u.Open.filename) +
-        6 * sizeof(ULONG) + sizeof(DWORD);
+        5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -3197,7 +3188,7 @@ NTSTATUS nfs41_Create(
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
     if (isDataAccess(params.DesiredAccess))
-        entry->u.Open.open_owner_id = get_next_open_owner();
+        entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
     if (params.Disposition != FILE_OPEN && params.Disposition != FILE_OVERWRITE) {
         if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer) {

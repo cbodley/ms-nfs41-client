@@ -51,7 +51,7 @@ typedef struct __open_upcall_args {
     ULONG file_attrs;
     ULONG disposition;
     ULONG create_opts;
-    ULONG open_owner_id;
+    LONG open_owner_id;
     DWORD mode;
     LONGLONG changeattr;
     BOOLEAN created;

@@ -266,7 +266,7 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->disposition, sizeof(ULONG));
     if (status) goto out;
-    status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(ULONG));
+    status = safe_read(&buffer, &length, &args->open_owner_id, sizeof(LONG));
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(DWORD));
     if (status) goto out;
@@ -428,7 +428,7 @@ static int handle_open(nfs41_upcall *upcall)
 
     status = create_open_state(args->path, args->open_owner_id, &state);
     if (status) {
-        eprintf("create_open_state(%u) failed with %d\n",
+        eprintf("create_open_state(%d) failed with %d\n",
             args->open_owner_id, status);
         goto out;
     }
