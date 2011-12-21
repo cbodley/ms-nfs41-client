@@ -55,11 +55,7 @@ static enum pnfs_status pattern_init(
     if (status)
         goto out;
 
-#ifdef PNFS_THREAD_BY_SERVER
-    pattern->count = state->layout->device->servers.count;
-#else
     pattern->count = state->layout->device->stripes.count;
-#endif
     pattern->threads = calloc(pattern->count, sizeof(pnfs_io_thread));
     if (pattern->threads == NULL) {
         status = PNFSERR_RESOURCES;
@@ -122,11 +118,7 @@ static enum pnfs_status thread_next_unit(
         if (status)
             break;
 
-#ifdef PNFS_THREAD_BY_SERVER
-        if (io->serverid == thread->id) {
-#else
         if (io->stripeid == thread->id) {
-#endif
             status = PNFS_PENDING;
             break;
         }
@@ -143,11 +135,7 @@ static enum pnfs_status thread_data_server(
     OUT pnfs_data_server **server_out)
 {
     pnfs_file_device *device = thread->pattern->layout->device;
-#ifdef PNFS_THREAD_BY_SERVER
-    const uint32_t serverid = thread->id;
-#else
     const uint32_t serverid = data_server_index(device, thread->id);
-#endif
 
     if (serverid >= device->servers.count)
         return PNFSERR_INVALID_DS_INDEX;
