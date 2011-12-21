@@ -1540,14 +1540,14 @@ NTSTATUS nfs41_downcall(
         }
         pEntry = pEntry->Flink;
     }
-    ExReleaseFastMutex(&downcallLock); 
+    ExReleaseFastMutex(&downcallLock);
+    SeStopImpersonatingClient();
     if (!found) {
         print_error("Didn't find xid=%d entry\n", tmp->xid);
         goto out_free;
     }
 
-    ExAcquireFastMutex(&cur->lock);
-    SeStopImpersonatingClient();
+    ExAcquireFastMutex(&cur->lock);    
     if (cur->state == NFS41_NOT_WAITING) {
         print_error("[downcall] Nobody is waiting for this request!!!\n");
         ExReleaseFastMutex(&cur->lock);
