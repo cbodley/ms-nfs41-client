@@ -1550,6 +1550,17 @@ NTSTATUS nfs41_downcall(
     ExAcquireFastMutex(&cur->lock);    
     if (cur->state == NFS41_NOT_WAITING) {
         print_error("[downcall] Nobody is waiting for this request!!!\n");
+        switch(cur->opcode) {
+        case NFS41_WRITE:
+        case NFS41_READ:
+            MmUnmapLockedPages(cur->u.ReadWrite.buf, 
+                cur->u.ReadWrite.MdlAddress);
+            break;
+        case NFS41_DIR_QUERY:
+            MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, 
+                    cur->u.QueryFile.mdl);
+            IoFreeMdl(cur->u.QueryFile.mdl);
+        }
         ExReleaseFastMutex(&cur->lock);
         nfs41_RemoveEntry(downcallLock, downcall, cur);
         RxFreePool(cur);
