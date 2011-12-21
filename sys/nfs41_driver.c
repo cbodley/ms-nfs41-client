@@ -1715,7 +1715,7 @@ NTSTATUS nfs41_downcall(
                 tmp->u.Acl.buf_len, NFS41_MM_POOLTAG);
             if (cur->u.Acl.buf == NULL) {
                 cur->status = status = STATUS_INSUFFICIENT_RESOURCES;
-                goto out_free;
+                break;
             }
             RtlCopyMemory(cur->u.Acl.buf, buf, tmp->u.Acl.buf_len);
             if (tmp->u.Acl.buf_len > cur->u.Acl.buf_len)
