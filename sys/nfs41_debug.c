@@ -618,8 +618,19 @@ const char *opcode2string(int opcode)
     }
 }
 
+void print_acl_args(
+    SECURITY_INFORMATION info)
+{
+    DbgP("Security query: %s %s %s\n",
+        (info & OWNER_SECURITY_INFORMATION)?"OWNER":"",
+        (info & GROUP_SECURITY_INFORMATION)?"GROUP":"",
+        (info & DACL_SECURITY_INFORMATION)?"DACL":"",
+        (info & SACL_SECURITY_INFORMATION)?"SACL":"");
+}
+
 void print_open_error(int on, int status)
 {
+    if (!on) return;
     switch (status) {
     case STATUS_NETWORK_ACCESS_DENIED:
         DbgP("[ERROR] nfs41_Create: STATUS_NETWORK_ACCESS_DENIED\n");

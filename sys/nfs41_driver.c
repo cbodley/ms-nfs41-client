@@ -82,7 +82,7 @@ DECLARE_CONST_ANSI_STRING(NfsV3Attributes, "NfsV3Attributes");
 DECLARE_CONST_ANSI_STRING(NfsSymlinkTargetName, "NfsSymlinkTargetName");
 DECLARE_CONST_ANSI_STRING(NfsActOnLink, "NfsActOnLink");
 
-static INLINE BOOL AnsiStrEq(
+INLINE BOOL AnsiStrEq(
     IN const ANSI_STRING *lhs,
     IN const CHAR *rhs,
     IN const UCHAR rhs_len)
@@ -114,10 +114,10 @@ enum ftype3 {
 };
 
 typedef enum _nfs41_updowncall_state {
-   NFS41_WAITING_FOR_UPCALL,
-   NFS41_WAITING_FOR_DOWNCALL,
-   NFS41_DONE_PROCESSING,
-   NFS41_NOT_WAITING
+    NFS41_WAITING_FOR_UPCALL,
+    NFS41_WAITING_FOR_DOWNCALL,
+    NFS41_DONE_PROCESSING,
+    NFS41_NOT_WAITING
 } nfs41_updowncall_state;
 
 typedef struct _updowncall_entry {
@@ -259,11 +259,7 @@ typedef struct _nfs41_mount_list {
             ExAcquireFastMutex(&lock);                      \
             pEntry = (IsListEmpty(&pList->head)             \
             ? NULL                                          \
-            : RemoveHeadList(&pList->head));                 \
-            ExReleaseFastMutex(&lock);
-#define nfs41_RemoveLast(lock,pList,pEntry)                 \
-            ExAcquireFastMutex(&lock);                      \
-            pEntry = RemoveTailList(&pList->head);          \
+            : RemoveHeadList(&pList->head));                \
             ExReleaseFastMutex(&lock);
 #define nfs41_RemoveEntry(lock,pList,pEntry)                \
             ExAcquireFastMutex(&lock);                      \
@@ -282,22 +278,15 @@ typedef struct _nfs41_mount_list {
                                   nfs41_updowncall_entry,   \
                                   next)));                  \
             ExReleaseFastMutex(&lock);
-#define nfs41_GetFirstMountEntry(lock,pList,pEntry)              \
+#define nfs41_GetFirstMountEntry(lock,pList,pEntry)         \
             ExAcquireFastMutex(&lock);                      \
             pEntry = (IsListEmpty(&pList->head)             \
              ? NULL                                         \
-             : (nfs41_mount_entry *)                   \
+             : (nfs41_mount_entry *)                        \
                (CONTAINING_RECORD(pList->head.Flink,        \
-                                  nfs41_mount_entry,   \
+                                  nfs41_mount_entry,        \
                                   next)));                  \
             ExReleaseFastMutex(&lock);
-#define nfs41_GetNextEntry(pList,pEntry)                    \
-            ((pEntry->next.Flink == &pList->head)           \
-             ? NULL                                         \
-             : (nfs41_updowncall_entry *)                   \
-               (CONTAINING_RECORD(pEntry->next.Flink,       \
-                                  nfs41_updowncall_entry,   \
-                                  next)));
 
 /* In order to cooperate with other network providers,
  * we only claim paths of the format '\\server\nfs4\path' */
@@ -337,7 +326,8 @@ typedef struct _NFS41_NETROOT_EXTENSION {
     nfs41_mount_list        *mounts;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
-        (((pNetRoot) == NULL) ? NULL : (PNFS41_NETROOT_EXTENSION)((pNetRoot)->Context))
+        (((pNetRoot) == NULL) ? NULL :          \
+        (PNFS41_NETROOT_EXTENSION)((pNetRoot)->Context))
 
 /* FileSystemName as reported by FileFsAttributeInfo query */
 #define FS_NAME     L"NFS"
@@ -376,13 +366,6 @@ typedef struct _NFS41_FCB {
 #define NFS41GetFcbExtension(pFcb)      \
         (((pFcb) == NULL) ? NULL : (PNFS41_FCB)((pFcb)->Context))
 
-typedef struct _NFS41_SRV_OPEN {
-    NODE_TYPE_CODE          NodeTypeCode;
-    NODE_BYTE_SIZE          NodeByteSize;
-} NFS41_SRV_OPEN, *PNFS41_SRV_OPEN;
-#define NFS41GetSrvOpenExtension(pSrvOpen)  \
-        (((pSrvOpen) == NULL) ? NULL : (PNFS41_SRV_OPEN)((pSrvOpen)->Context))
-
 typedef struct _NFS41_FOBX {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
@@ -393,7 +376,7 @@ typedef struct _NFS41_FOBX {
     DWORD acl_len;
     LARGE_INTEGER time; 
 } NFS41_FOBX, *PNFS41_FOBX;
-#define NFS41GetFileObjectExtension(pFobx)  \
+#define NFS41GetFobxExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
 
 typedef struct _NFS41_SERVER_ENTRY {
@@ -435,9 +418,10 @@ typedef enum _NULMRX_STORAGE_TYPE_CODES {
 nfs41_init_driver_state nfs41_init_state = NFS41_INIT_DRIVER_STARTABLE;
 nfs41_start_driver_state nfs41_start_state = NFS41_START_DRIVER_STARTABLE;
 
-static NTSTATUS map_readwrite_errors(DWORD status);
+NTSTATUS map_readwrite_errors(DWORD status);
 
-ULONG get_next_xid() {
+ULONG get_next_xid() 
+{
     ULONG x;
     ExAcquireFastMutex(&xidLock);
     x = ++xid;
@@ -445,7 +429,8 @@ ULONG get_next_xid() {
     return x; 
 }
 
-ULONG get_next_open_owner() {
+ULONG get_next_open_owner() 
+{
     ULONG x;
     ExAcquireFastMutex(&openOwnerLock);
     x = open_owner_id++;
@@ -453,7 +438,8 @@ ULONG get_next_open_owner() {
     return x; 
 }
 
-void print_debug_header(PRX_CONTEXT RxContext)
+void print_debug_header(
+    PRX_CONTEXT RxContext)
 {
 
     PIO_STACK_LOCATION IrpSp = RxContext->CurrentIrpSp;
@@ -465,6 +451,7 @@ void print_debug_header(PRX_CONTEXT RxContext)
         DbgP("FileOject %p Filename %wZ %wZ\n", IrpSp->FileObject, 
                 &IrpSp->FileObject->FileName, SrvOpen->pAlreadyPrefixedName);
         print_file_object(0, IrpSp->FileObject);
+        print_irps_flags(1, RxContext->CurrentIrpSp);
     } else
         DbgP("Couldn't print FileObject IrpSp is NULL\n");
 
@@ -475,23 +462,21 @@ void print_debug_header(PRX_CONTEXT RxContext)
             DbgP("Session=0x%x OpenState=0x%x\n", pVNetRootContext->session, 
                 nfs41_fobx->nfs41_open_state);
     }
-    if (RxContext->CurrentIrpSp) 
-        print_irps_flags(1, RxContext->CurrentIrpSp);
     if (RxContext->CurrentIrp)
         print_irp_flags(1, RxContext->CurrentIrp);
 }
 
 /* convert strings from unicode -> ansi during marshalling to
  * save space in the upcall buffers and avoid extra copies */
-static INLINE ULONG length_as_ansi(
+INLINE ULONG length_as_ansi(
     PCUNICODE_STRING str)
 {
     return sizeof(str->MaximumLength) + RtlUnicodeStringToAnsiSize(str);
 }
 
-static NTSTATUS marshall_unicode_as_ansi(
-    unsigned char **pos,
-    PCUNICODE_STRING str)
+NTSTATUS marshall_unicode_as_ansi(
+    IN OUT unsigned char **pos,
+    IN PCUNICODE_STRING str)
 {
     ANSI_STRING ansi;
     NTSTATUS status;
@@ -511,10 +496,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_header(nfs41_updowncall_entry *entry,
-                              unsigned char *buf, 
-                              ULONG buf_len, 
-                              ULONG *len) 
+NTSTATUS marshal_nfs41_header(
+    nfs41_updowncall_entry *entry,
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -546,7 +532,8 @@ out:
     return status;
 }
 
-const char* secflavorop2name(DWORD sec_flavor)
+const char* secflavorop2name(
+    DWORD sec_flavor)
 {
     switch(sec_flavor) {
     case RPCSEC_AUTH_SYS:      return "AUTH_SYS";
@@ -557,10 +544,11 @@ const char* secflavorop2name(DWORD sec_flavor)
 
     return "UNKNOWN FLAVOR";
 }
-NTSTATUS marshal_nfs41_mount(nfs41_updowncall_entry *entry,
-                            unsigned char *buf,
-                            ULONG buf_len,
-                            ULONG *len) 
+NTSTATUS marshal_nfs41_mount(
+    nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -606,28 +594,25 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_unmount(nfs41_updowncall_entry *entry,
-                            unsigned char *buf,
-                            ULONG buf_len,
-                            ULONG *len) 
+NTSTATUS marshal_nfs41_unmount(
+    nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
 
     DbgEn();
-
     status = marshal_nfs41_header(entry, buf, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-
-out:
     DbgEx();
     return status;
 }
 
-NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
-                            unsigned char *buf,
-                            ULONG buf_len,
-                            ULONG *len) 
+NTSTATUS marshal_nfs41_open(
+    nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -648,9 +633,11 @@ NTSTATUS marshal_nfs41_open(nfs41_updowncall_entry *entry,
     }
     status = marshall_unicode_as_ansi(&tmp, entry->u.Open.filename);
     if (status) goto out;
-    RtlCopyMemory(tmp, &entry->u.Open.access_mask, sizeof(entry->u.Open.access_mask));
+    RtlCopyMemory(tmp, &entry->u.Open.access_mask, 
+        sizeof(entry->u.Open.access_mask));
     tmp += sizeof(entry->u.Open.access_mask);
-    RtlCopyMemory(tmp, &entry->u.Open.access_mode, sizeof(entry->u.Open.access_mode));
+    RtlCopyMemory(tmp, &entry->u.Open.access_mode, 
+        sizeof(entry->u.Open.access_mode));
     tmp += sizeof(entry->u.Open.access_mode);
     RtlCopyMemory(tmp, &entry->u.Open.attrs, sizeof(entry->u.Open.attrs));
     tmp += sizeof(entry->u.Open.attrs);
@@ -675,10 +662,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry, 
-                          unsigned char *buf, 
-                          ULONG buf_len,
-                          ULONG *len) 
+NTSTATUS marshal_nfs41_rw(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len,
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -699,7 +687,8 @@ NTSTATUS marshal_nfs41_rw(nfs41_updowncall_entry *entry,
 
     RtlCopyMemory(tmp, &entry->u.ReadWrite.len, sizeof(entry->u.ReadWrite.len));
     tmp += sizeof(entry->u.ReadWrite.len);
-    RtlCopyMemory(tmp, &entry->u.ReadWrite.offset, sizeof(entry->u.ReadWrite.offset));
+    RtlCopyMemory(tmp, &entry->u.ReadWrite.offset, 
+        sizeof(entry->u.ReadWrite.offset));
     tmp += sizeof(entry->u.ReadWrite.offset);
     __try {
         entry->u.ReadWrite.MdlAddress->MdlFlags |= MDL_MAPPING_CAN_FAIL;
@@ -730,10 +719,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_lock(nfs41_updowncall_entry *entry,
-                            unsigned char *buf,
-                            ULONG buf_len,
-                            PULONG len)
+NTSTATUS marshal_nfs41_lock(
+    nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len)
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -770,12 +760,13 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_unlock(nfs41_updowncall_entry *entry,
-                              unsigned char *buf,
-                              ULONG buf_len,
-                              PULONG len)
+NTSTATUS marshal_nfs41_unlock(
+    nfs41_updowncall_entry *entry,
+    unsigned char *buf,
+    ULONG buf_len,
+    ULONG *len)
 {
-    NTSTATUS status;
+    NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
     unsigned char *tmp = buf;
     PLOWIO_LOCK_LIST lock;
@@ -813,10 +804,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_close(nfs41_updowncall_entry *entry, 
-                             unsigned char *buf, 
-                             ULONG buf_len, 
-                             ULONG *len) 
+NTSTATUS marshal_nfs41_close(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -857,10 +849,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_dirquery(nfs41_updowncall_entry *entry, 
-                                unsigned char *buf, 
-                                ULONG buf_len, 
-                                ULONG *len) 
+NTSTATUS marshal_nfs41_dirquery(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -923,10 +916,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_filequery(nfs41_updowncall_entry *entry, 
-                                 unsigned char *buf, 
-                                 ULONG buf_len, 
-                                 ULONG *len) 
+NTSTATUS marshal_nfs41_filequery(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -959,10 +953,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_fileset(nfs41_updowncall_entry *entry, 
-                                 unsigned char *buf, 
-                                 ULONG buf_len, 
-                                 ULONG *len) 
+NTSTATUS marshal_nfs41_fileset(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -1000,10 +995,11 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_easet(nfs41_updowncall_entry *entry, 
-                                 unsigned char *buf, 
-                                 ULONG buf_len, 
-                                 ULONG *len) 
+NTSTATUS marshal_nfs41_easet(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
@@ -1039,7 +1035,8 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_eaget(nfs41_updowncall_entry *entry, 
+NTSTATUS marshal_nfs41_eaget(
+    nfs41_updowncall_entry *entry, 
     unsigned char *buf, 
     ULONG buf_len, 
     ULONG *len) 
@@ -1085,8 +1082,8 @@ out:
     return status;
 }
 
-
-NTSTATUS marshal_nfs41_symlink(nfs41_updowncall_entry *entry,
+NTSTATUS marshal_nfs41_symlink(
+    nfs41_updowncall_entry *entry,
     unsigned char *buf,
     ULONG buf_len,
     ULONG *len)
@@ -1126,7 +1123,8 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_volume(nfs41_updowncall_entry *entry,
+NTSTATUS marshal_nfs41_volume(
+    nfs41_updowncall_entry *entry,
     unsigned char *buf,
     ULONG buf_len,
     ULONG *len)
@@ -1156,7 +1154,8 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_getacl(nfs41_updowncall_entry *entry,
+NTSTATUS marshal_nfs41_getacl(
+    nfs41_updowncall_entry *entry,
     unsigned char *buf,
     ULONG buf_len,
     ULONG *len)
@@ -1186,7 +1185,8 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_setacl(nfs41_updowncall_entry *entry,
+NTSTATUS marshal_nfs41_setacl(
+    nfs41_updowncall_entry *entry,
     unsigned char *buf,
     ULONG buf_len,
     ULONG *len)
@@ -1222,40 +1222,33 @@ out:
     return status;
 }
 
-NTSTATUS marshal_nfs41_shutdown(nfs41_updowncall_entry *entry, 
-                             unsigned char *buf, 
-                             ULONG buf_len, 
-                             ULONG *len) 
+NTSTATUS marshal_nfs41_shutdown(
+    nfs41_updowncall_entry *entry, 
+    unsigned char *buf, 
+    ULONG buf_len, 
+    ULONG *len) 
 {
     NTSTATUS status = STATUS_SUCCESS;
-    unsigned char *tmp = buf;
 
     DbgEn();
-
-    status = marshal_nfs41_header(entry, tmp, buf_len, len);
-
+    status = marshal_nfs41_header(entry, buf, buf_len, len);
     DbgEx();
     return status;
 }
 
-NTSTATUS
-nfs41_invalidate_cache (
-    IN PRX_CONTEXT RxContext
-    )
+NTSTATUS nfs41_invalidate_cache (
+    IN PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_SUCCESS;
     DbgEn();
     DbgEx();
     return status;
-
 }
 
-NTSTATUS
-handle_upcall(
+NTSTATUS handle_upcall(
     IN PRX_CONTEXT RxContext,
     IN nfs41_updowncall_entry *entry,
-    OUT ULONG *len
-    )
+    OUT ULONG *len)
 {
     NTSTATUS status = STATUS_SUCCESS;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
@@ -1361,7 +1354,8 @@ NTSTATUS nfs41_UpcallCreate(
     entry->session = session;
     entry->open_state = open_state;
     entry->version = version;
-    /*XXX KeInitializeEvent will bugcheck under verifier if allocated from PagedPool? */
+    /*XXX KeInitializeEvent will bugcheck under verifier if allocated 
+     * from PagedPool? */
     KeInitializeEvent(&entry->cond, SynchronizationEvent, FALSE);
     ExInitializeFastMutex(&entry->lock);
 
@@ -1371,11 +1365,12 @@ NTSTATUS nfs41_UpcallCreate(
         sec_qos.ImpersonationLevel = SecurityImpersonation;
         sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
         sec_qos.EffectiveOnly = 0;
-        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, 
-            &entry->sec_ctx);
+        status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 
+                    1, &entry->sec_ctx);
         if (status != STATUS_SUCCESS) {
-            print_error("nfs41_UpcallCreate: SeCreateClientSecurityFromSubjectContext "
-                "failed with %x\n", status);
+            print_error("nfs41_UpcallCreate: "
+                "SeCreateClientSecurityFromSubjectContext failed with %x\n", 
+                status);
             RxFreePool(entry);
         } else
             entry->psec_ctx = &entry->sec_ctx;
@@ -1398,13 +1393,13 @@ NTSTATUS nfs41_UpcallWaitForReply(
     KeSetEvent(&upcallEvent, 0, FALSE);
     DbgP("@@@ Creating %s upcall entry=%p xid=%d\n", opstring, entry, entry->xid);
     if (!entry->async_op) {
-        /* 02/03/2011 AGLO: it is not clear what the "right" waiting design should be.
-         * Having non-interruptable waiting seems to be the right approach. However,
-         * when things go wrong, the only wait to proceed is a reboot (since "waits" 
-         * are not interruptable we can't stop a hung task. 
-         * Having interruptable wait causes issues with security context.
-         * For now, I'm making CLOSE non-interruptable but keeping the rest interruptable
-         * so that we don't have to reboot all the time
+        /* 02/03/2011 AGLO: it is not clear what the "right" waiting design 
+         * should be. Having non-interruptable waiting seems to be the right 
+         * approach. However, when things go wrong, the only wait to proceed 
+         * is a reboot (since "waits" are not interruptable we can't stop a 
+         * hung task. Having interruptable wait causes issues with security 
+         * context. For now, I'm making CLOSE non-interruptable but keeping 
+         * the rest interruptable so that we don't have to reboot all the time
          */
         /* 02/15/2011 cbodley: added NFS41_UNLOCK for the same reason. locking
          * tests were triggering an interrupted unlock, which led to a bugcheck
@@ -1423,12 +1418,11 @@ NTSTATUS nfs41_UpcallWaitForReply(
 #endif
         print_wait_status(1, "[downcall]", status, opcode2string(entry->opcode), 
             entry, entry->xid);
-    } else
+    } else 
         goto out;
 
     switch(status) {
-    case STATUS_SUCCESS:
-        break;
+    case STATUS_SUCCESS: break;
     case STATUS_USER_APC:
     case STATUS_ALERTED:
     default:
@@ -1450,12 +1444,10 @@ out:
     return status;
 }
 
-NTSTATUS
-nfs41_upcall (
-    IN PRX_CONTEXT RxContext
-    )
+NTSTATUS nfs41_upcall(
+    IN PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_SUCCESS; /* XXX */
+    NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry = NULL;
     ULONG len = 0;
     PLIST_ENTRY pEntry;
@@ -1488,12 +1480,10 @@ process_upcall:
             (PLARGE_INTEGER) NULL);
         print_wait_status(1, "[upcall]", status, NULL, NULL, 0);
         switch (status) {
-        case STATUS_SUCCESS: 
-            goto process_upcall;
+        case STATUS_SUCCESS: goto process_upcall;
         case STATUS_USER_APC:
         case STATUS_ALERTED:
-        default:
-            goto out;
+        default: goto out;
         }
     }
 out:
@@ -1501,28 +1491,25 @@ out:
     return status;
 }
 
-NTSTATUS
-nfs41_downcall (
-    IN PRX_CONTEXT RxContext
-    )
+NTSTATUS nfs41_downcall(
+    IN PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_SUCCESS; /* XXX */
+    NTSTATUS status = STATUS_SUCCESS;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
     ULONG in_len = LowIoContext->ParamsFor.IoCtl.InputBufferLength;
     unsigned char *buf = LowIoContext->ParamsFor.IoCtl.pInputBuffer;
     PLIST_ENTRY pEntry;
-    nfs41_updowncall_entry *tmp;
-    nfs41_updowncall_entry *cur= NULL;
-    DWORD found = 0;
+    nfs41_updowncall_entry *tmp, *cur= NULL;
+    BOOLEAN found = 0;
 
     DbgEn();
     print_hexbuf(0, (unsigned char *)"downcall buffer", buf, in_len);
 
     tmp = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
             NFS41_MM_POOLTAG);
-    if (tmp == NULL) {
+    if (tmp == NULL)
         goto out;
-    }
+
     RtlZeroMemory(tmp, sizeof(nfs41_updowncall_entry));
 
     RtlCopyMemory(&tmp->xid, buf, sizeof(tmp->xid));
@@ -1533,8 +1520,8 @@ nfs41_downcall (
     buf += sizeof(tmp->status);
     RtlCopyMemory(&tmp->errno, buf, sizeof(tmp->errno));
     buf += sizeof(tmp->errno);
-    DbgP("[downcall] xid=%d opcode=%d status=%d errno=%d\n", tmp->xid, tmp->opcode, 
-        tmp->status, tmp->errno);
+    DbgP("[downcall] xid=%d opcode=%d status=%d errno=%d\n", tmp->xid, 
+        tmp->opcode, tmp->status, tmp->errno);
 
     ExAcquireFastMutex(&downcallLock); 
     pEntry = &downcall->head;
@@ -1562,12 +1549,12 @@ nfs41_downcall (
     ExAcquireFastMutex(&cur->lock);
     SeStopImpersonatingClient();
     if (cur->state == NFS41_NOT_WAITING) {
-            print_error("[downcall] Nobody is waiting for this request!!!\n");
-            ExReleaseFastMutex(&cur->lock);
-            nfs41_RemoveEntry(downcallLock, downcall, cur);
-            RxFreePool(cur);
-            status = STATUS_UNSUCCESSFUL;
-            goto out_free;
+        print_error("[downcall] Nobody is waiting for this request!!!\n");
+        ExReleaseFastMutex(&cur->lock);
+        nfs41_RemoveEntry(downcallLock, downcall, cur);
+        RxFreePool(cur);
+        status = STATUS_UNSUCCESSFUL;
+        goto out_free;
     }
     cur->state = NFS41_DONE_PROCESSING;
     cur->status = tmp->status;
@@ -1580,19 +1567,23 @@ nfs41_downcall (
             RtlCopyMemory(&cur->session, buf, sizeof(HANDLE));
             buf += sizeof(HANDLE);
             RtlCopyMemory(&cur->version, buf, sizeof(DWORD));
-            DbgP("[mount] session pointer 0x%x version %d\n", cur->session, cur->version);
+            DbgP("[mount] session pointer 0x%x version %d\n", cur->session, 
+                cur->version);
             break;
         case NFS41_WRITE:
         case NFS41_READ:
-            RtlCopyMemory(&cur->u.ReadWrite.len, buf, sizeof(cur->u.ReadWrite.len));
+            RtlCopyMemory(&cur->u.ReadWrite.len, buf, 
+                sizeof(cur->u.ReadWrite.len));
             DbgP("[read/write] returned len %ld\n", cur->u.ReadWrite.len);
 #if 1
-            /* 08/27/2010: it looks like we really don't need to call MmUnmapLockedPages()
-             * eventhough we called MmMapLockedPagesSpecifyCache() as the MDL passed to us
+            /* 08/27/2010: it looks like we really don't need to call 
+             * MmUnmapLockedPages() eventhough we called 
+             * MmMapLockedPagesSpecifyCache() as the MDL passed to us
              * is already locked. 
              */
             __try {
-                MmUnmapLockedPages(cur->u.ReadWrite.buf, cur->u.ReadWrite.MdlAddress);
+                MmUnmapLockedPages(cur->u.ReadWrite.buf, 
+                    cur->u.ReadWrite.MdlAddress);
             } __except(EXCEPTION_EXECUTE_HANDLER) { 
                 NTSTATUS code; 
                 code = GetExceptionCode(); 
@@ -1603,9 +1594,11 @@ nfs41_downcall (
 #endif
             break;
         case NFS41_OPEN:
-            RtlCopyMemory(&cur->u.Open.binfo, buf, sizeof(FILE_BASIC_INFORMATION));
+            RtlCopyMemory(&cur->u.Open.binfo, buf, 
+                sizeof(FILE_BASIC_INFORMATION));
             buf += sizeof(FILE_BASIC_INFORMATION);
-            RtlCopyMemory(&cur->u.Open.sinfo, buf, sizeof(FILE_STANDARD_INFORMATION));
+            RtlCopyMemory(&cur->u.Open.sinfo, buf, 
+                sizeof(FILE_STANDARD_INFORMATION));
             buf += sizeof(FILE_STANDARD_INFORMATION);
             RtlCopyMemory(&cur->open_state, buf, sizeof(HANDLE));
             buf += sizeof(HANDLE);
@@ -1614,11 +1607,14 @@ nfs41_downcall (
             RtlCopyMemory(&cur->u.Open.changeattr, buf, sizeof(LONGLONG));
             buf += sizeof(LONGLONG);
             if (tmp->errno == ERROR_REPARSE) {
-                RtlCopyMemory(&cur->u.Open.symlink_embedded, buf, sizeof(BOOLEAN));
+                RtlCopyMemory(&cur->u.Open.symlink_embedded, buf, 
+                    sizeof(BOOLEAN));
                 buf += sizeof(BOOLEAN);
-                RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, buf, sizeof(USHORT));
+                RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, buf, 
+                    sizeof(USHORT));
                 buf += sizeof(USHORT);
-                cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength - sizeof(WCHAR);
+                cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength -
+                    sizeof(WCHAR);
                 cur->u.Open.symlink.Buffer = RxAllocatePoolWithTag(NonPagedPool, 
                     cur->u.Open.symlink.MaximumLength, NFS41_MM_POOLTAG);
                 if (cur->u.Open.symlink.Buffer == NULL) {
@@ -1626,7 +1622,8 @@ nfs41_downcall (
                     status = STATUS_UNSUCCESSFUL;
                     break;
                 }
-                RtlCopyMemory(cur->u.Open.symlink.Buffer, buf, cur->u.Open.symlink.MaximumLength);
+                RtlCopyMemory(cur->u.Open.symlink.Buffer, buf, 
+                    cur->u.Open.symlink.MaximumLength);
                 DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
             }
             DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
@@ -1637,7 +1634,8 @@ nfs41_downcall (
             DbgP("readdir reply size %d\n", tmp->u.QueryFile.buf_len);
             buf += sizeof(ULONG);
             __try {
-                MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, cur->u.QueryFile.mdl);
+                MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, 
+                    cur->u.QueryFile.mdl);
             } __except(EXCEPTION_EXECUTE_HANDLER) { 
                 NTSTATUS code; 
                 code = GetExceptionCode(); 
@@ -1679,7 +1677,8 @@ nfs41_downcall (
                 break;
             RtlCopyMemory(&cur->u.Symlink.target->Length, buf, sizeof(USHORT));
             buf += sizeof(USHORT);
-            if (cur->u.Symlink.target->Length > cur->u.Symlink.target->MaximumLength) {
+            if (cur->u.Symlink.target->Length > 
+                    cur->u.Symlink.target->MaximumLength) {
                 cur->status = STATUS_BUFFER_TOO_SMALL;
                 break;
             }
@@ -1719,9 +1718,11 @@ nfs41_downcall (
     if (cur->async_op) {
         if (cur->status == STATUS_SUCCESS) {
             cur->u.ReadWrite.rxcontext->StoredStatus = STATUS_SUCCESS;
-            cur->u.ReadWrite.rxcontext->InformationToReturn = cur->u.ReadWrite.len;
+            cur->u.ReadWrite.rxcontext->InformationToReturn = 
+                cur->u.ReadWrite.len;
         } else {
-            cur->u.ReadWrite.rxcontext->StoredStatus = map_readwrite_errors(cur->status);
+            cur->u.ReadWrite.rxcontext->StoredStatus = 
+                map_readwrite_errors(cur->status);
             cur->u.ReadWrite.rxcontext->InformationToReturn = 0;
         }
         nfs41_RemoveEntry(downcallLock, downcall, cur);
@@ -1736,7 +1737,8 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_shutdown_daemon(DWORD version)
+NTSTATUS nfs41_shutdown_daemon(
+    DWORD version)
 {
     NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry = NULL;
@@ -1758,7 +1760,7 @@ out:
     return status;
 }
 
-static NTSTATUS SharedMemoryInit(
+NTSTATUS SharedMemoryInit(
     OUT PHANDLE phSection)
 {
     NTSTATUS status;
@@ -1808,7 +1810,7 @@ out:
     return status;
 }
 
-static NTSTATUS SharedMemoryFree(
+NTSTATUS SharedMemoryFree(
     IN HANDLE hSection)
 {
     NTSTATUS status;
@@ -1819,7 +1821,7 @@ static NTSTATUS SharedMemoryFree(
 }
 
 NTSTATUS nfs41_Start(
-    IN OUT struct _RX_CONTEXT *RxContext, 
+    IN OUT PRX_CONTEXT RxContext, 
     IN OUT PRDBSS_DEVICE_OBJECT dev)
 {
     NTSTATUS status;
@@ -1843,7 +1845,7 @@ out:
 }
 
 NTSTATUS nfs41_Stop(
-    IN OUT struct _RX_CONTEXT * RxContext,
+    IN OUT PRX_CONTEXT RxContext,
     IN OUT PRDBSS_DEVICE_OBJECT dev)
 {
     NTSTATUS status;
@@ -1854,8 +1856,7 @@ NTSTATUS nfs41_Stop(
     return status;
 }
 
-NTSTATUS
-GetConnectionHandle(
+NTSTATUS GetConnectionHandle(
     IN PUNICODE_STRING ConnectionName,
     IN PVOID EaBuffer,
     IN ULONG EaLength,
@@ -1890,17 +1891,14 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     OUT PULONG pEaLength)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    USHORT NameLength;
-    USHORT EaPadding;
-    ULONG EaLength;
-    ULONG BufferLenExpected;
+    USHORT NameLength, EaPadding;
+    ULONG EaLength, BufferLenExpected;
     PBYTE ptr;
 
     DbgEn();
 
     /* make sure buffer is at least big enough for header */
-    if (BufferLen < sizeof(USHORT) + sizeof(USHORT) + sizeof(ULONG))
-    {
+    if (BufferLen < sizeof(USHORT) + sizeof(USHORT) + sizeof(ULONG)) {
         status = STATUS_BAD_NETWORK_NAME;
         print_error("Invalid input buffer.\n");
         pConnectionName->Length = pConnectionName->MaximumLength = 0;
@@ -1920,8 +1918,7 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     /* validate buffer length */
     BufferLenExpected = sizeof(USHORT) + sizeof(USHORT) + sizeof(ULONG) +
         NameLength + EaPadding + EaLength;
-    if (BufferLen != BufferLenExpected)
-    {
+    if (BufferLen != BufferLenExpected) {
         status = STATUS_BAD_NETWORK_NAME;
         print_error("Received buffer of length %lu, but expected %lu bytes.\n",
             BufferLen, BufferLenExpected);
@@ -1947,21 +1944,17 @@ out:
     return status;
 }
 
-NTSTATUS
-nfs41_CreateConnection (
+NTSTATUS nfs41_CreateConnection(
     IN PRX_CONTEXT RxContext,
-    OUT PBOOLEAN PostToFsp
-    )
+    OUT PBOOLEAN PostToFsp)
 {
-    NTSTATUS    status = STATUS_SUCCESS;
-    HANDLE      Handle = INVALID_HANDLE_VALUE;
+    NTSTATUS status = STATUS_SUCCESS;
+    HANDLE Handle = INVALID_HANDLE_VALUE;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
-    PVOID       Buffer = LowIoContext->ParamsFor.IoCtl.pInputBuffer;
-    ULONG       BufferLen = LowIoContext->ParamsFor.IoCtl.InputBufferLength;
+    PVOID Buffer = LowIoContext->ParamsFor.IoCtl.pInputBuffer, EaBuffer;
+    ULONG BufferLen = LowIoContext->ParamsFor.IoCtl.InputBufferLength, EaLength;
     UNICODE_STRING FileName;
-    PVOID       EaBuffer;
-    ULONG       EaLength;
-    BOOLEAN     Wait = BooleanFlagOn(RxContext->Flags, RX_CONTEXT_FLAG_WAIT);
+    BOOLEAN Wait = BooleanFlagOn(RxContext->Flags, RX_CONTEXT_FLAG_WAIT);
 
     DbgEn();
 
@@ -1987,7 +1980,9 @@ out:
 }
 
 #ifdef ENABLE_TIMINGS
-static void print_op_stat(const char *op_str, nfs41_timings *time, BOOLEAN clear) 
+void print_op_stat(
+    const char *op_str, 
+    nfs41_timings *time, BOOLEAN clear) 
 {
     DbgP("%-9s: num_ops=%-10d delta_ticks=%-10d size=%-10d\n", op_str, 
         time->tops, time->tops ? time->ticks/time->tops : 0,
@@ -2000,9 +1995,11 @@ static void print_op_stat(const char *op_str, nfs41_timings *time, BOOLEAN clear
     }
 }
 #endif
-NTSTATUS nfs41_unmount(HANDLE session, DWORD version)
+NTSTATUS nfs41_unmount(
+    HANDLE session, 
+    DWORD version)
 {
-    NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
+    NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
 
     DbgEn();
@@ -2039,11 +2036,9 @@ out:
     return status;
 }
 
-NTSTATUS
-nfs41_DeleteConnection (
+NTSTATUS nfs41_DeleteConnection (
     IN PRX_CONTEXT RxContext,
-    OUT PBOOLEAN PostToFsp
-    )
+    OUT PBOOLEAN PostToFsp)
 {
     NTSTATUS status = STATUS_INVALID_PARAMETER;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
@@ -2105,8 +2100,7 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
     UCHAR op = RxContext->MajorFunction;
     PLOWIO_CONTEXT io_ctx = &RxContext->LowIoContext;
-    ULONG fsop = io_ctx->ParamsFor.FsCtl.FsControlCode;
-    ULONG state;
+    ULONG fsop = io_ctx->ParamsFor.FsCtl.FsControlCode, state;
     ULONG in_len = io_ctx->ParamsFor.IoCtl.InputBufferLength;
     DWORD *buf = io_ctx->ParamsFor.IoCtl.pInputBuffer;
     NFS41GetDeviceExtension(RxContext, DevExt);
@@ -2147,8 +2141,7 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
         case IOCTL_NFS41_GETSTATE:
             state = RDR_NULL_STATE;
 
-            if (io_ctx->ParamsFor.IoCtl.OutputBufferLength >= 
-                    sizeof(ULONG) ) {
+            if (io_ctx->ParamsFor.IoCtl.OutputBufferLength >= sizeof(ULONG)) {
                 // map the states to control app's equivalents
                 print_driver_state(nfs41_start_state);
                 switch (nfs41_start_state) {
@@ -2173,8 +2166,10 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
             print_driver_state(nfs41_start_state);
             if (in_len >= sizeof(DWORD)) {
                 RtlCopyMemory(&nfs41d_version, buf, sizeof(DWORD));
-                DbgP("NFS41 Daemon sent start request with version %d\n", nfs41d_version);
-                DbgP("Currently used NFS41 Daemon version is %d\n", DevExt->nfs41d_version);
+                DbgP("NFS41 Daemon sent start request with version %d\n", 
+                    nfs41d_version);
+                DbgP("Currently used NFS41 Daemon version is %d\n", 
+                    DevExt->nfs41d_version);
                 DevExt->nfs41d_version = nfs41d_version;
             }
             switch(nfs41_start_state) {
@@ -2234,11 +2229,10 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
     return status;
 }
 
-NTSTATUS
-_nfs41_CreateSrvCall(
-      PMRX_SRVCALL_CALLBACK_CONTEXT  pCallbackContext)
+NTSTATUS _nfs41_CreateSrvCall(
+    PMRX_SRVCALL_CALLBACK_CONTEXT pCallbackContext)
 {
-    NTSTATUS    status = STATUS_SUCCESS;
+    NTSTATUS status = STATUS_SUCCESS;
     PMRX_SRVCALL_CALLBACK_CONTEXT SCCBC = pCallbackContext;
     PMRX_SRV_CALL pSrvCall;
     PMRX_SRVCALLDOWN_STRUCTURE SrvCalldownStructure =
@@ -2314,7 +2308,8 @@ NTSTATUS nfs41_CreateSrvCall(
         status = RxDispatchToWorkerThread(nfs41_dev, DelayedWorkQueue, 
             _nfs41_CreateSrvCall, pCallbackContext);
         if (status != STATUS_SUCCESS) {
-            print_error("RxDispatchToWorkerThread returned status %08lx\n", status);
+            print_error("RxDispatchToWorkerThread returned status %08lx\n", 
+                status);
             pCallbackContext->Status = status;
             pCallbackContext->SrvCalldownStructure->CallBack(pCallbackContext);
             status = STATUS_PENDING;
@@ -2347,14 +2342,15 @@ NTSTATUS nfs41_SrvCallWinnerNotify(
     }
 
     pSrvCall->Context = pServerEntry;
-    DbgP("This minirdr is the winner SrvCall context %p points to server entry %p\n", 
-        pSrvCall->Context, pServerEntry);
+    DbgP("This minirdr is the winner SrvCall context %p points to server "
+         "entry %p\n", pSrvCall->Context, pServerEntry);
 out:
     DbgEx();
     return status;
 }
 
-static NTSTATUS map_mount_errors(DWORD status)
+NTSTATUS map_mount_errors(
+    DWORD status)
 {
     switch (status) {
     case NO_ERROR:              return STATUS_SUCCESS;
@@ -2369,10 +2365,13 @@ static NTSTATUS map_mount_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_mount(PNFS41_MOUNT_CONFIG config, DWORD sec_flavor, 
-    PHANDLE session, DWORD *version)
+NTSTATUS nfs41_mount(
+    PNFS41_MOUNT_CONFIG config, 
+    DWORD sec_flavor, 
+    PHANDLE session, 
+    DWORD *version)
 {
-    NTSTATUS        status = STATUS_INSUFFICIENT_RESOURCES;
+    NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
 
     DbgEn();
@@ -2427,7 +2426,7 @@ void nfs41_MountConfig_InitDefaults(
     RtlCopyUnicodeString(&Config->SecFlavor, &AUTH_SYS_NAME);
 }
 
-static NTSTATUS nfs41_MountConfig_ParseBoolean(
+NTSTATUS nfs41_MountConfig_ParseBoolean(
     IN PFILE_FULL_EA_INFORMATION Option,
     IN PUNICODE_STRING usValue,
     OUT PBOOLEAN Value)
@@ -2446,21 +2445,19 @@ static NTSTATUS nfs41_MountConfig_ParseBoolean(
     return status;
 }
 
-static NTSTATUS nfs41_MountConfig_ParseDword(
+NTSTATUS nfs41_MountConfig_ParseDword(
     IN PFILE_FULL_EA_INFORMATION Option,
     IN PUNICODE_STRING usValue,
     OUT PDWORD Value,
     IN DWORD Minimum,
     IN DWORD Maximum)
 {
-    NTSTATUS status;
+    NTSTATUS status = STATUS_INVALID_PARAMETER;
     LPWSTR Name = (LPWSTR)Option->EaName;
 
-    if (Option->EaValueLength)
-    {
+    if (Option->EaValueLength) {
         status = RtlUnicodeStringToInteger(usValue, 0, Value);
-        if (status == STATUS_SUCCESS)
-        {
+        if (status == STATUS_SUCCESS) {
 #ifdef IMPOSE_MINMAX_RWSIZES
             if (*Value < Minimum)
                 *Value = Minimum;
@@ -2473,8 +2470,6 @@ static NTSTATUS nfs41_MountConfig_ParseDword(
             print_error("Failed to convert %s='%wZ' to unsigned long.\n",
                 Name, *usValue);
     }
-    else
-        status = STATUS_INVALID_PARAMETER;
 
     return status;
 }
@@ -2484,16 +2479,15 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
     IN ULONG EaLength,
     IN OUT PNFS41_MOUNT_CONFIG Config)
 {
-    NTSTATUS        status = STATUS_SUCCESS;
+    NTSTATUS  status = STATUS_SUCCESS;
     PFILE_FULL_EA_INFORMATION Option;
-    LPWSTR          Name;
-    size_t          NameLen;
+    LPWSTR Name;
+    size_t NameLen;
     UNICODE_STRING  usValue;
     DbgEn();
 
     Option = EaBuffer;
-    while (status == STATUS_SUCCESS)
-    {
+    while (status == STATUS_SUCCESS) {
         Name = (LPWSTR)Option->EaName;
         NameLen = Option->EaNameLength/sizeof(WCHAR);
 
@@ -2501,56 +2495,47 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
         usValue.Buffer = (PWCH)(Option->EaName +
             Option->EaNameLength + sizeof(WCHAR));
 
-        if (wcsncmp(L"ro", Name, NameLen) == 0)
-        {
+        if (wcsncmp(L"ro", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
                 &Config->ReadOnly);
         }
-        else if (wcsncmp(L"writethru", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"writethru", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
                 &Config->write_thru);
         }
-        else if (wcsncmp(L"nocache", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"nocache", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
                 &Config->nocache);
         }
-        else if (wcsncmp(L"rsize", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"rsize", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseDword(Option, &usValue,
                 &Config->ReadSize, MOUNT_CONFIG_RW_SIZE_MIN,
                 MOUNT_CONFIG_RW_SIZE_MAX);
         }
-        else if (wcsncmp(L"wsize", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"wsize", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseDword(Option, &usValue,
                 &Config->WriteSize, MOUNT_CONFIG_RW_SIZE_MIN,
                 MOUNT_CONFIG_RW_SIZE_MAX);
         }
-        else if (wcsncmp(L"srvname", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"srvname", Name, NameLen) == 0) {
             if (usValue.Length > Config->SrvName.MaximumLength)
                 status = STATUS_NAME_TOO_LONG;
             else
                 RtlCopyUnicodeString(&Config->SrvName, &usValue);
         }
-        else if (wcsncmp(L"mntpt", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"mntpt", Name, NameLen) == 0) {
             if (usValue.Length > Config->MntPt.MaximumLength)
                 status = STATUS_NAME_TOO_LONG;
             else
                 RtlCopyUnicodeString(&Config->MntPt, &usValue);
         }
-        else if (wcsncmp(L"sec", Name, NameLen) == 0)
-        {
+        else if (wcsncmp(L"sec", Name, NameLen) == 0) {
             if (usValue.Length > Config->SecFlavor.MaximumLength)
                 status = STATUS_NAME_TOO_LONG;
             else
                 RtlCopyUnicodeString(&Config->SecFlavor, &usValue);
         }
-        else
-        {
+        else {
             status = STATUS_INVALID_PARAMETER;
             print_error("Unrecognized option '%ls' -> '%wZ'\n",
                 Name, usValue);
@@ -2567,7 +2552,7 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
     return status;
 }
 
-static NTSTATUS has_nfs_prefix(
+NTSTATUS has_nfs_prefix(
     IN PUNICODE_STRING SrvCallName,
     IN PUNICODE_STRING NetRootName)
 {
@@ -2585,7 +2570,7 @@ static NTSTATUS has_nfs_prefix(
     return status;
 }
 
-static NTSTATUS map_sec_flavor(
+NTSTATUS map_sec_flavor(
     IN PUNICODE_STRING sec_flavor_name,
     OUT PDWORD sec_flavor)
 {
@@ -2601,7 +2586,8 @@ static NTSTATUS map_sec_flavor(
     return STATUS_SUCCESS;
 }
 
-NTSTATUS nfs41_GetLUID(PLUID id)
+NTSTATUS nfs41_GetLUID(
+    PLUID id)
 {
     NTSTATUS status = STATUS_SUCCESS;
     SECURITY_SUBJECT_CONTEXT sec_ctx;
@@ -2610,12 +2596,14 @@ NTSTATUS nfs41_GetLUID(PLUID id)
 
     SeCaptureSubjectContext(&sec_ctx);
     sec_qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
-    sec_qos.ImpersonationLevel = SecurityIdentification/*SecurityImpersonation*/;
+    sec_qos.ImpersonationLevel = SecurityIdentification;
     sec_qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
     sec_qos.EffectiveOnly = 0;
-    status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, &clnt_sec_ctx);
+    status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, 
+                &clnt_sec_ctx);
     if (status) {
-        DbgP("nfs41_GetLUID: SeCreateClientSecurityFromSubjectContext failed %x\n", status);
+        DbgP("nfs41_GetLUID: SeCreateClientSecurityFromSubjectContext "
+             "failed %x\n", status);
         goto release_sec_ctx;
     }
     status = SeQueryAuthenticationIdToken(clnt_sec_ctx.ClientToken, id);
@@ -2632,12 +2620,13 @@ release_sec_ctx:
 }
 
 NTSTATUS nfs41_get_sec_ctx(
-    IN enum SECURITY_IMPERSONATION_LEVEL level,
+    IN enum _SECURITY_IMPERSONATION_LEVEL level,
     OUT PSECURITY_CLIENT_CONTEXT out_ctx)
 {
     NTSTATUS status;
     SECURITY_SUBJECT_CONTEXT ctx;
     SECURITY_QUALITY_OF_SERVICE sec_qos;
+
     SeCaptureSubjectContext(&ctx);
     sec_qos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
     sec_qos.ImpersonationLevel = level;
@@ -2657,14 +2646,15 @@ NTSTATUS nfs41_get_sec_ctx(
 NTSTATUS nfs41_CreateVNetRoot(
     IN OUT PMRX_CREATENETROOT_CONTEXT pCreateNetRootContext)
 {
-    NTSTATUS        status = STATUS_SUCCESS;
+    NTSTATUS status = STATUS_SUCCESS;
     NFS41_MOUNT_CONFIG Config;
-    PMRX_V_NET_ROOT pVNetRoot = (PMRX_V_NET_ROOT)pCreateNetRootContext->pVNetRoot;
-    PMRX_NET_ROOT   pNetRoot = pVNetRoot->pNetRoot;
-    PMRX_SRV_CALL   pSrvCall = pNetRoot->pSrvCall;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PMRX_V_NET_ROOT pVNetRoot = (PMRX_V_NET_ROOT)
+        pCreateNetRootContext->pVNetRoot;
+    __notnull PMRX_NET_ROOT pNetRoot = pVNetRoot->pNetRoot;
+    __notnull PMRX_SRV_CALL pSrvCall = pNetRoot->pSrvCall;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(pVNetRoot);
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(pNetRoot);
     NFS41GetDeviceExtension(pCreateNetRootContext->RxContext,DevExt);
     DWORD nfs41d_version = DevExt->nfs41d_version;
@@ -2733,15 +2723,14 @@ NTSTATUS nfs41_CreateVNetRoot(
     }
 
     status = nfs41_GetLUID(&luid);
-    if (status) {
+    if (status)
         goto out;
-    }
 
     if (!pNetRootContext->mounts_init) {
         DbgP("Initializing mount array\n");
         ExInitializeFastMutex(&pNetRootContext->mountLock);
-        pNetRootContext->mounts = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_mount_list), 
-                    NFS41_MM_POOLTAG);
+        pNetRootContext->mounts = RxAllocatePoolWithTag(NonPagedPool, 
+            sizeof(nfs41_mount_list), NFS41_MM_POOLTAG);
         if (pNetRootContext->mounts == NULL) {
             status = STATUS_INSUFFICIENT_RESOURCES;
             goto out;
@@ -2765,7 +2754,8 @@ NTSTATUS nfs41_CreateVNetRoot(
                 switch(pVNetRootContext->sec_flavor) {
                 case RPCSEC_AUTH_SYS:
                     if (existing_mount->authsys_session != INVALID_HANDLE_VALUE)
-                        pVNetRootContext->session = existing_mount->authsys_session;
+                        pVNetRootContext->session = 
+                            existing_mount->authsys_session;
                     break;
                 case RPCSEC_AUTHGSS_KRB5:
                     if (existing_mount->gssi_session != INVALID_HANDLE_VALUE)
@@ -2854,11 +2844,11 @@ NTSTATUS nfs41_CreateVNetRoot(
     pNetRootContext->nfs41d_version = nfs41d_version;
     DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
 #ifdef STORE_MOUNT_SEC_CONTEXT
-    status = nfs41_get_sec_ctx(SecurityImpersonation, &pVNetRootContext->mount_sec_ctx);
+    status = nfs41_get_sec_ctx(SecurityImpersonation, 
+        &pVNetRootContext->mount_sec_ctx);
 #endif
 
 out:
-    /* AGLO do we need to worry about handling new netroot vs using existing one */
     pCreateNetRootContext->VirtualNetRootStatus = status;
     if (pNetRoot->Context == NULL)
         pCreateNetRootContext->NetRootStatus = status;
@@ -2875,7 +2865,7 @@ out:
 
 VOID nfs41_ExtractNetRootName(
     IN PUNICODE_STRING FilePathName,
-    IN PMRX_SRV_CALL   SrvCall,
+    IN PMRX_SRV_CALL SrvCall,
     OUT PUNICODE_STRING NetRootName,
     OUT PUNICODE_STRING RestOfName OPTIONAL)
 {
@@ -2912,8 +2902,8 @@ VOID nfs41_ExtractNetRootName(
 }
 
 NTSTATUS nfs41_FinalizeSrvCall(
-    PMRX_SRV_CALL    pSrvCall,
-    BOOLEAN    Force)
+    PMRX_SRV_CALL pSrvCall,
+    BOOLEAN Force)
 {
     NTSTATUS status = STATUS_SUCCESS;
     PNFS41_SERVER_ENTRY pServerEntry = (PNFS41_SERVER_ENTRY)(pSrvCall->Context);
@@ -2924,7 +2914,8 @@ NTSTATUS nfs41_FinalizeSrvCall(
     if (pSrvCall->Context == NULL)
         goto out;
 
-    InterlockedCompareExchangePointer(&pServerEntry->pRdbssSrvCall, NULL, pSrvCall);
+    InterlockedCompareExchangePointer(&pServerEntry->pRdbssSrvCall, 
+        NULL, pSrvCall);
     DbgP("freeing server name %wZ and server entry %p\n", 
         &pServerEntry->Name, pServerEntry);
     RxFreePool(pServerEntry);
@@ -2937,7 +2928,7 @@ out:
 
 NTSTATUS nfs41_FinalizeNetRoot(
     IN OUT PMRX_NET_ROOT pNetRoot,
-    IN     PBOOLEAN      ForceDisconnect)
+    IN PBOOLEAN ForceDisconnect)
 {
     NTSTATUS status = STATUS_SUCCESS;
     PNFS41_NETROOT_EXTENSION pNetRootContext =
@@ -2969,30 +2960,38 @@ NTSTATUS nfs41_FinalizeNetRoot(
             pNetRootContext->mounts, mount_tmp);
         if (mount_tmp == NULL)
             break;
-        DbgP("Removing entry luid %x.%x from mount list\n", mount_tmp->login_id.HighPart,
-            mount_tmp->login_id.LowPart);
+        DbgP("Removing entry luid %x.%x from mount list\n", 
+            mount_tmp->login_id.HighPart, mount_tmp->login_id.LowPart);
 
         if (mount_tmp->authsys_session != INVALID_HANDLE_VALUE) {
-            status = nfs41_unmount(mount_tmp->authsys_session, pNetRootContext->nfs41d_version);
+            status = nfs41_unmount(mount_tmp->authsys_session, 
+                        pNetRootContext->nfs41d_version);
             if (status)
                 print_error("nfs41_unmount AUTH_SYS failed with %d\n", status);
         }
         if (mount_tmp->gss_session != INVALID_HANDLE_VALUE) {
-            status = nfs41_unmount(mount_tmp->gss_session, pNetRootContext->nfs41d_version);
+            status = nfs41_unmount(mount_tmp->gss_session, 
+                        pNetRootContext->nfs41d_version);
             if (status)
-                print_error("nfs41_unmount RPCSEC_GSS_KRB5 failed with %d\n", status);
+                print_error("nfs41_unmount RPCSEC_GSS_KRB5 failed with %d\n", 
+                            status);
         }
         if (mount_tmp->gssi_session != INVALID_HANDLE_VALUE) {
-            status = nfs41_unmount(mount_tmp->gssi_session, pNetRootContext->nfs41d_version);
+            status = nfs41_unmount(mount_tmp->gssi_session, 
+                        pNetRootContext->nfs41d_version);
             if (status)
-                print_error("nfs41_unmount RPCSEC_GSS_KRB5I failed with %d\n", status);
+                print_error("nfs41_unmount RPCSEC_GSS_KRB5I failed with %d\n", 
+                            status);
         }
         if (mount_tmp->gssp_session != INVALID_HANDLE_VALUE) {
-            status = nfs41_unmount(mount_tmp->gssp_session, pNetRootContext->nfs41d_version);
+            status = nfs41_unmount(mount_tmp->gssp_session, 
+                        pNetRootContext->nfs41d_version);
             if (status)
-                print_error("nfs41_unmount RPCSEC_GSS_KRB5P failed with %d\n", status);
+                print_error("nfs41_unmount RPCSEC_GSS_KRB5P failed with %d\n", 
+                            status);
         }
-        nfs41_RemoveEntry(pNetRootContext->mountLock, pNetRootContext->mounts, mount_tmp);
+        nfs41_RemoveEntry(pNetRootContext->mountLock, pNetRootContext->mounts, 
+            mount_tmp);
         RxFreePool(mount_tmp);
     } while (1);
     /* ignore any errors from unmount */
@@ -3029,7 +3028,7 @@ out:
 
 NTSTATUS nfs41_FinalizeVNetRoot(
     IN OUT PMRX_V_NET_ROOT pVNetRoot,
-    IN     PBOOLEAN ForceDisconnect)
+    IN PBOOLEAN ForceDisconnect)
 {
     NTSTATUS status = STATUS_SUCCESS;
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
@@ -3047,7 +3046,8 @@ NTSTATUS nfs41_FinalizeVNetRoot(
     return status;
 }
 
-BOOLEAN isDataAccess(ACCESS_MASK mask) 
+BOOLEAN isDataAccess(
+    ACCESS_MASK mask) 
 {
     if ((mask & FILE_READ_DATA) ||
         (mask & FILE_WRITE_DATA) ||
@@ -3063,20 +3063,15 @@ BOOLEAN has_file_changed(
 {
     if (new_changeattr != nfs41_fcb->changeattr && nfs41_fcb->changeattr)
         return TRUE;
-    if (new_binfo->ChangeTime.QuadPart != nfs41_fcb->BasicInfo.ChangeTime.QuadPart)
+    if (new_binfo->ChangeTime.QuadPart != 
+            nfs41_fcb->BasicInfo.ChangeTime.QuadPart)
         return TRUE;
     return FALSE;
 }
 
-void print_open_args(PRX_CONTEXT RxContext)
-{
-    print_debug_header(RxContext);
-    //DbgP("RxContext->FsdUid %ld\n", RxContext->FsdUid);
-    //DbgP("RxInferFileType returns %d\n", RxInferFileType(RxContext));
-    print_nt_create_params(1, RxContext->Create.NtCreateParameters);
-}
-
-static NTSTATUS map_open_errors(DWORD status, int len)
+NTSTATUS map_open_errors(
+    DWORD status, 
+    USHORT len)
 {
     switch (status) {
     case NO_ERROR:                      return STATUS_SUCCESS;
@@ -3100,7 +3095,10 @@ static NTSTATUS map_open_errors(DWORD status, int len)
     case ERROR_OUTOFMEMORY:             return STATUS_INSUFFICIENT_RESOURCES;
     }
 }
-static DWORD map_disposition_to_create_retval(DWORD disposition, DWORD errno)
+
+DWORD map_disposition_to_create_retval(
+    DWORD disposition, 
+    DWORD errno)
 {
     switch(disposition) {
     case FILE_SUPERSEDE:
@@ -3125,21 +3123,21 @@ NTSTATUS nfs41_Create(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
-    __notnull PMRX_FCB Fcb = RxContext->pFcb;
-    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    nfs41_updowncall_entry *entry = NULL;
     FCB_INIT_PACKET InitPacket;
     RX_FILE_TYPE StorageType = 0;
     NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
-    nfs41_updowncall_entry *entry = NULL;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
-        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FOBX nfs41_fobx = NULL;
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)Fcb->Context;
     PFILE_FULL_EA_INFORMATION eainfo = NULL;
     nfs3_attrs *attrs = NULL;
     BOOLEAN file_changed = FALSE;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PMRX_FCB Fcb = RxContext->pFcb;
+    __notnull PNFS41_FCB nfs41_fcb = (PNFS41_FCB)Fcb->Context;
+    PNFS41_FOBX nfs41_fobx = NULL;
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -3148,7 +3146,9 @@ NTSTATUS nfs41_Create(
     ASSERT( NodeType(SrvOpen) == RDBSS_NTC_SRVOPEN );
 
     DbgEn();
-    print_open_args(RxContext);
+    print_debug_header(RxContext);
+    print_nt_create_params(1, RxContext->Create.NtCreateParameters);
+
     if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer)
         print_ea_info(1, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
 
@@ -3225,7 +3225,8 @@ NTSTATUS nfs41_Create(
          * and returning STATUS_REPARSE. the object manager will attempt to
          * open the new path, and return its handle for the original open */
         PRDBSS_DEVICE_OBJECT DeviceObject = RxContext->RxDeviceObject;
-        PV_NET_ROOT VNetRoot = (PV_NET_ROOT)RxContext->pRelevantSrvOpen->pVNetRoot;
+        PV_NET_ROOT VNetRoot = (PV_NET_ROOT)
+            RxContext->pRelevantSrvOpen->pVNetRoot;
         PUNICODE_STRING VNetRootPrefix = &VNetRoot->PrefixEntry.Prefix;
         UNICODE_STRING AbsPath;
         PCHAR buf;
@@ -3244,11 +3245,13 @@ NTSTATUS nfs41_Create(
         }
 
         buf = (PCHAR)AbsPath.Buffer;
-        RtlCopyMemory(buf, DeviceObject->DeviceName.Buffer, DeviceObject->DeviceName.Length);
+        RtlCopyMemory(buf, DeviceObject->DeviceName.Buffer, 
+            DeviceObject->DeviceName.Length);
         buf += DeviceObject->DeviceName.Length;
         RtlCopyMemory(buf, VNetRootPrefix->Buffer, VNetRootPrefix->Length);
         buf += VNetRootPrefix->Length;
-        RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, entry->u.Open.symlink.Length);
+        RtlCopyMemory(buf, entry->u.Open.symlink.Buffer, 
+            entry->u.Open.symlink.Length);
         RxFreePool(entry->u.Open.symlink.Buffer);
         buf += entry->u.Open.symlink.Length;
         *(PWCHAR)buf = UNICODE_NULL;
@@ -3264,8 +3267,9 @@ NTSTATUS nfs41_Create(
         goto out_free;
     }
 
-    status = map_open_errors(entry->status, SrvOpen->pAlreadyPrefixedName->Length);
-    if (status != STATUS_SUCCESS) {
+    status = map_open_errors(entry->status, 
+                SrvOpen->pAlreadyPrefixedName->Length);
+    if (status) {
         print_open_error(1, status);
         goto out_free;
     }
@@ -3276,8 +3280,8 @@ NTSTATUS nfs41_Create(
     }
 
     RxContext->pFobx = RxCreateNetFobx(RxContext, SrvOpen);
-    if( RxContext->pFobx == NULL ) {
-        status =  STATUS_INSUFFICIENT_RESOURCES;
+    if (RxContext->pFobx == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
         goto out_free;
     }
     print_fobx(1, RxContext->pFobx);
@@ -3337,7 +3341,8 @@ NTSTATUS nfs41_Create(
     if (file_changed && !nfs41_fcb->StandardInfo.Directory) {
         ULONG flag = DISABLE_CACHING;
         DbgP("file object %wZ changed\n", SrvOpen->pAlreadyPrefixedName);
-        RxIndicateChangeOfBufferingStateForSrvOpen(SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
+        RxIndicateChangeOfBufferingStateForSrvOpen(
+            SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
             SrvOpen, SrvOpen->Key, ULongToPtr(flag));
     } else if (!file_changed && !nfs41_fcb->StandardInfo.Directory) {
 #if 0
@@ -3349,17 +3354,20 @@ NTSTATUS nfs41_Create(
         else {
             if (params.DesiredAccess & FILE_READ_DATA)
                 SrvOpen->BufferingFlags |= 
-                    (FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED);
-            // turn on write caching only if the file opened for both reading and writing
-            // we current CANT turn on write-only caching because RDBSS translates a write
-            // into a read first which leads to a NFS4ERR_IO error from the server because 
-            // the file was opened read-only.
+                    (FCB_STATE_READBUFFERING_ENABLED | 
+                    FCB_STATE_READCACHING_ENABLED);
+            // turn on write caching only if the file opened for both reading 
+            // and writingwe current CANT turn on write-only caching because 
+            // RDBSS translates a write into a read first which leads to a 
+            // NFS4ERR_IO error from the server because the file was opened 
+            // read-only.
             if (/*(params.DesiredAccess & FILE_READ_DATA) && */
                     (params.DesiredAccess & FILE_WRITE_DATA || 
                     params.DesiredAccess & FILE_APPEND_DATA) && 
                     !pVNetRootContext->write_thru)
                 SrvOpen->BufferingFlags |= 
-                    (FCB_STATE_WRITECACHING_ENABLED | FCB_STATE_WRITEBUFFERING_ENABLED);
+                    (FCB_STATE_WRITECACHING_ENABLED | 
+                    FCB_STATE_WRITEBUFFERING_ENABLED);
         }
 #endif
     }
@@ -3370,7 +3378,8 @@ NTSTATUS nfs41_Create(
             SrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
     }
 
-    if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) && !pVNetRootContext->read_only) {
+    if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
+            !pVNetRootContext->read_only) {
         DbgP("We need to delete this file on close\n");
         nfs41_fcb->StandardInfo.DeletePending = TRUE;
     }
@@ -3396,15 +3405,15 @@ out:
         InterlockedIncrement(&open.tops); 
         InterlockedAdd64(&open.ticks, t2.QuadPart - t1.QuadPart);
 #ifdef ENABLE_INDV_TIMINGS
-    DbgP("nfs41_Create open delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart, 
-        open.tops, open.ticks);
+    DbgP("nfs41_Create open delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, open.tops, open.ticks);
 #endif
     } else {
         InterlockedIncrement(&lookup.tops); 
         InterlockedAdd64(&lookup.ticks, t2.QuadPart - t1.QuadPart);
 #ifdef ENABLE_INDV_TIMINGS
-    DbgP("nfs41_Create lookup delta = %d op=%d sum=%d\n", t2.QuadPart - t1.QuadPart, 
-        lookup.tops, lookup.ticks);
+    DbgP("nfs41_Create lookup delta = %d op=%d sum=%d\n", 
+        t2.QuadPart - t1.QuadPart, lookup.tops, lookup.ticks);
 #endif
     }
 #endif
@@ -3436,21 +3445,22 @@ NTSTATUS nfs41_ShouldTryToCollapseThisOpen(
 }
 
 ULONG nfs41_ExtendForCache(
-    IN OUT PRX_CONTEXT      RxContext,
-    IN     PLARGE_INTEGER   pNewFileSize,
-    OUT    PLARGE_INTEGER   pNewAllocationSize
-    )
+    IN OUT PRX_CONTEXT RxContext,
+    IN PLARGE_INTEGER pNewFileSize,
+    OUT PLARGE_INTEGER pNewAllocationSize)
 {
     NTSTATUS status = STATUS_SUCCESS;
     PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
 
     DbgEn();
     print_debug_header(RxContext);
     DbgP("input: byte count 0x%x filesize 0x%x alloc size 0x%x\n", 
-        LowIoContext->ParamsFor.ReadWrite.ByteCount, *pNewFileSize, *pNewAllocationSize);
+        LowIoContext->ParamsFor.ReadWrite.ByteCount, *pNewFileSize, 
+        *pNewAllocationSize);
     pNewAllocationSize->QuadPart = pNewFileSize->QuadPart + 8192;
-    nfs41_fcb->StandardInfo.AllocationSize.QuadPart = pNewAllocationSize->QuadPart;
+    nfs41_fcb->StandardInfo.AllocationSize.QuadPart = 
+        pNewAllocationSize->QuadPart;
     nfs41_fcb->StandardInfo.EndOfFile.QuadPart = pNewFileSize->QuadPart;
     DbgP("new filesize 0x%x new allocation size 0x%x\n", *pNewFileSize, 
         *pNewAllocationSize);
@@ -3459,12 +3469,10 @@ ULONG nfs41_ExtendForCache(
     return status;
 }
 
-
 ULONG nfs41_ExtendForNonCache(
-    IN OUT PRX_CONTEXT      RxContext,
-    IN     PLARGE_INTEGER   pNewFileSize,
-       OUT PLARGE_INTEGER   pNewAllocationSize
-    )
+    IN OUT PRX_CONTEXT RxContext,
+    IN PLARGE_INTEGER pNewFileSize,
+    OUT PLARGE_INTEGER pNewAllocationSize)
 {
     NTSTATUS status = STATUS_SUCCESS;
     DbgEn();
@@ -3472,46 +3480,8 @@ ULONG nfs41_ExtendForNonCache(
     return status;
 }
 
-NTSTATUS nfs41_Truncate (
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_ZeroExtend(
-    IN PRX_CONTEXT  RxContext
-    )
-{
-    NTSTATUS status = STATUS_NOT_IMPLEMENTED;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_CleanupFobx (
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_SUCCESS;
-#ifdef DEBUG_CLOSE
-    RxCaptureFcb;
-    RxCaptureFobx;
-    DbgEn();
-    print_fcb(1, capFcb);
-    print_fobx(1, capFobx);
-    DbgEx();
-#endif
-    return status;
-}
-
-void print_close_args(PRX_CONTEXT RxContext)
-{
-    print_debug_header(RxContext);
-}
-
-static NTSTATUS map_close_errors(DWORD status)
+NTSTATUS map_close_errors(
+    DWORD status)
 {
     switch (status) {
     case NO_ERROR:              return STATUS_SUCCESS;
@@ -3525,25 +3495,25 @@ static NTSTATUS map_close_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_CloseSrvOpen (
+NTSTATUS nfs41_CloseSrvOpen(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
     DbgEn();
-    print_close_args(RxContext);
+    print_debug_header(RxContext);
 
     status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
@@ -3553,10 +3523,13 @@ NTSTATUS nfs41_CloseSrvOpen (
     if (!RxContext->pFcb->OpenCount) {
         entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
         entry->u.Close.renamed = nfs41_fcb->Renamed;
-        entry->u.Close.filename = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-    } else if (nfs41_fcb->StandardInfo.DeletePending && nfs41_fcb->StandardInfo.Directory) {
+        entry->u.Close.filename = 
+            GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
+    } else if (nfs41_fcb->StandardInfo.DeletePending &&
+                nfs41_fcb->StandardInfo.Directory) {
         entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
-        entry->u.Close.filename = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
+        entry->u.Close.filename = 
+            GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     }
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
@@ -3593,58 +3566,23 @@ NTSTATUS nfs41_Flush(
     return status;
 }
 
-NTSTATUS nfs41_ForcedClose (
-    IN OUT PMRX_SRV_OPEN SrvOpen)
-{
-    NTSTATUS status = STATUS_SUCCESS;
-#ifdef DEBUG_CLOSE
-    DbgEn();
-    print_srv_open(1, SrvOpen);
-    print_fcb(1, SrvOpen->pFcb);
-    print_v_net_root(1, SrvOpen->pVNetRoot);
-#ifdef TESTING_CACHE_INVALIDATIO
-    if (SrvOpen == saved_srv_open) {
-        DbgP("closing saved SRV_OPEN\n");
-        saved_srv_open = NULL;
-        saved_srv_call = NULL;
-    }
-#endif
-    DbgEx();
-#endif
-    return status;
-}
-
-NTSTATUS nfs41_DeallocateForFcb (
+NTSTATUS nfs41_DeallocateForFcb(
     IN OUT PMRX_FCB pFcb)
 {
-    NTSTATUS status = STATUS_SUCCESS;
-#ifdef DEBUG_CLOSE
-    DbgEn();
-    print_fcb(1, pFcb);
-    print_net_root(1, pFcb->pNetRoot);
-    DbgEx();
-#endif
-    return status;
+    return STATUS_SUCCESS;
 }
 
-NTSTATUS nfs41_DeallocateForFobx (
+NTSTATUS nfs41_DeallocateForFobx(
     IN OUT PMRX_FOBX pFobx)
 {
-    NTSTATUS status = STATUS_SUCCESS;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)pFobx->Context;
-#ifdef DEBUG_CLOSE
-    DbgEn();
-    print_fobx(1, pFobx);
-    print_srv_open(1, pFobx->pSrvOpen);
-    DbgEx();
-#endif
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(pFobx);
     if (nfs41_fobx->acl)
         RxFreePool(nfs41_fobx->acl);
-
-    return status;
+    return STATUS_SUCCESS;
 }
 
-void print_debug_filedirquery_header(PRX_CONTEXT RxContext)
+void print_debug_filedirquery_header(
+    PRX_CONTEXT RxContext)
 {
     print_debug_header(RxContext);
     DbgP("FileName='%wZ', InfoClass = %s\n", 
@@ -3652,18 +3590,21 @@ void print_debug_filedirquery_header(PRX_CONTEXT RxContext)
         print_file_information_class(RxContext->Info.FileInformationClass));
 }
 
-void print_querydir_args(PRX_CONTEXT RxContext)
+void print_querydir_args(
+    PRX_CONTEXT RxContext)
 {
     print_debug_filedirquery_header(RxContext);
     DbgP("Filter='%wZ', Index=%d, Restart/Single/Specified/Init=%d/%d/%d/%d\n",
-        &RxContext->pFobx->UnicodeQueryTemplate, RxContext->QueryDirectory.FileIndex,
+        &RxContext->pFobx->UnicodeQueryTemplate, 
+        RxContext->QueryDirectory.FileIndex,
         RxContext->QueryDirectory.RestartScan,
         RxContext->QueryDirectory.ReturnSingleEntry,
         RxContext->QueryDirectory.IndexSpecified,
         RxContext->QueryDirectory.InitialQuery);
 }
 
-static NTSTATUS map_querydir_errors(DWORD status)
+NTSTATUS map_querydir_errors(
+    DWORD status)
 {
     switch (status) {
     case ERROR_ACCESS_DENIED:       return STATUS_ACCESS_DENIED;
@@ -3680,19 +3621,19 @@ static NTSTATUS map_querydir_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_QueryDirectory (
+NTSTATUS nfs41_QueryDirectory(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INVALID_PARAMETER;
     nfs41_updowncall_entry *entry;
     FILE_INFORMATION_CLASS InfoClass = RxContext->Info.FileInformationClass;
     PUNICODE_STRING Filter = &RxContext->pFobx->UnicodeQueryTemplate;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -3702,7 +3643,7 @@ NTSTATUS nfs41_QueryDirectory (
     print_querydir_args(RxContext);
 
     switch (InfoClass) {
-        /* classes handled in readdir_copy_entry() and readdir_size_for_entry() */
+    /* classes handled in readdir_copy_entry() and readdir_size_for_entry() */
     case FileNamesInformation:
     case FileDirectoryInformation:
     case FileFullDirectoryInformation:
@@ -3776,7 +3717,8 @@ out:
     return status;
 }
 
-void print_queryvolume_args(PRX_CONTEXT RxContext)
+void print_queryvolume_args(
+    PRX_CONTEXT RxContext)
 {
     print_debug_header(RxContext);
     DbgP("FileName='%wZ', InfoClass = %s BufferLen = %d\n", 
@@ -3785,7 +3727,8 @@ void print_queryvolume_args(PRX_CONTEXT RxContext)
         RxContext->Info.LengthRemaining);
 }
 
-static NTSTATUS map_volume_errors(DWORD status)
+NTSTATUS map_volume_errors(
+    DWORD status)
 {
     switch (status) {
     case ERROR_ACCESS_DENIED:       return STATUS_ACCESS_DENIED;
@@ -3800,20 +3743,19 @@ static NTSTATUS map_volume_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_QueryVolumeInformation (
+NTSTATUS nfs41_QueryVolumeInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INVALID_PARAMETER;
-    ULONG   RemainingLength = RxContext->Info.LengthRemaining;
-    FS_INFORMATION_CLASS InfoClass = RxContext->Info.FsInformationClass;
-    ULONG   SizeUsed;
-    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
-        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     nfs41_updowncall_entry *entry;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    ULONG RemainingLength = RxContext->Info.LengthRemaining, SizeUsed;
+    FS_INFORMATION_CLASS InfoClass = RxContext->Info.FsInformationClass;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -3823,76 +3765,78 @@ NTSTATUS nfs41_QueryVolumeInformation (
     print_queryvolume_args(RxContext);
 
     switch (InfoClass) {
-        case FileFsVolumeInformation:
-        {
-            PFILE_FS_VOLUME_INFORMATION pVolInfo = RxContext->Info.Buffer;
-            DECLARE_CONST_UNICODE_STRING(Label, L"PnfsVolume");
+    case FileFsVolumeInformation:
+    {
+        PFILE_FS_VOLUME_INFORMATION pVolInfo = RxContext->Info.Buffer;
+        DECLARE_CONST_UNICODE_STRING(Label, L"PnfsVolume");
 
-            if (RxContext->Info.LengthRemaining >= sizeof(FILE_FS_VOLUME_INFORMATION)) {
-                RtlZeroMemory(pVolInfo, sizeof(FILE_FS_VOLUME_INFORMATION));
-                pVolInfo->VolumeCreationTime.QuadPart = 0;
-                pVolInfo->VolumeSerialNumber = 0xBABAFACE;
-                pVolInfo->SupportsObjects = FALSE;
-                RxContext->Info.LengthRemaining -= sizeof(FILE_FS_VOLUME_INFORMATION);
-            } else {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = sizeof(FILE_FS_VOLUME_INFORMATION) + Label.Length;
-                goto out;
-            }
-            if (RxContext->Info.LengthRemaining < Label.Length) {
-                status = STATUS_BUFFER_OVERFLOW;
-                goto out;
-            } else {
-                pVolInfo->VolumeLabelLength = Label.Length;
-                RtlCopyMemory(&pVolInfo->VolumeLabel[0], (PVOID)Label.Buffer, Label.Length);
-                RxContext->Info.LengthRemaining -= Label.Length;
-                status = STATUS_SUCCESS;
-                goto out;
-            }
+        if (RxContext->Info.LengthRemaining >= sizeof(FILE_FS_VOLUME_INFORMATION)) {
+            RtlZeroMemory(pVolInfo, sizeof(FILE_FS_VOLUME_INFORMATION));
+            pVolInfo->VolumeCreationTime.QuadPart = 0;
+            pVolInfo->VolumeSerialNumber = 0xBABAFACE;
+            pVolInfo->SupportsObjects = FALSE;
+            RxContext->Info.LengthRemaining -= sizeof(FILE_FS_VOLUME_INFORMATION);
+        } else {
+            status = STATUS_BUFFER_TOO_SMALL;
+            RxContext->InformationToReturn = 
+                sizeof(FILE_FS_VOLUME_INFORMATION) + Label.Length;
+            goto out;
         }
-
-        case FileFsDeviceInformation:
-        {
-            PFILE_FS_DEVICE_INFORMATION pDevInfo = RxContext->Info.Buffer;
-
-            SizeUsed = sizeof(FILE_FS_DEVICE_INFORMATION);
-            if (RemainingLength < SizeUsed) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = SizeUsed;
-                goto out;
-            }
-            RtlZeroMemory(pDevInfo, SizeUsed);
-            pDevInfo->DeviceType = RxContext->pFcb->pNetRoot->DeviceType;
-            pDevInfo->Characteristics = FILE_REMOTE_DEVICE | FILE_DEVICE_IS_MOUNTED;
-            RxContext->Info.LengthRemaining -= SizeUsed;
+        if (RxContext->Info.LengthRemaining < Label.Length) {
+            status = STATUS_BUFFER_OVERFLOW;
+            goto out;
+        } else {
+            pVolInfo->VolumeLabelLength = Label.Length;
+            RtlCopyMemory(&pVolInfo->VolumeLabel[0], (PVOID)Label.Buffer, 
+                Label.Length);
+            RxContext->Info.LengthRemaining -= Label.Length;
             status = STATUS_SUCCESS;
             goto out;
         }
+    }
 
-        case FileFsAttributeInformation:
-            /* used cached fs attributes if available */
-            if (pVNetRootContext->FsAttrsLen) {
-                const LONG len = pVNetRootContext->FsAttrsLen;
-                if (RxContext->Info.LengthRemaining < len) {
-                    RxContext->InformationToReturn = len;
-                    status = STATUS_BUFFER_TOO_SMALL;
-                    goto out;
-                }
-                RtlCopyMemory(RxContext->Info.Buffer,
-                    pVNetRootContext->FsAttrs, len);
-                RxContext->Info.LengthRemaining -= len;
-                status = STATUS_SUCCESS;
+    case FileFsDeviceInformation:
+    {
+        PFILE_FS_DEVICE_INFORMATION pDevInfo = RxContext->Info.Buffer;
+
+        SizeUsed = sizeof(FILE_FS_DEVICE_INFORMATION);
+        if (RemainingLength < SizeUsed) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            RxContext->InformationToReturn = SizeUsed;
+            goto out;
+        }
+        RtlZeroMemory(pDevInfo, SizeUsed);
+        pDevInfo->DeviceType = RxContext->pFcb->pNetRoot->DeviceType;
+        pDevInfo->Characteristics = FILE_REMOTE_DEVICE | FILE_DEVICE_IS_MOUNTED;
+        RxContext->Info.LengthRemaining -= SizeUsed;
+        status = STATUS_SUCCESS;
+        goto out;
+    }
+
+    case FileFsAttributeInformation:
+        /* used cached fs attributes if available */
+        if (pVNetRootContext->FsAttrsLen) {
+            const LONG len = pVNetRootContext->FsAttrsLen;
+            if (RxContext->Info.LengthRemaining < len) {
+                RxContext->InformationToReturn = len;
+                status = STATUS_BUFFER_TOO_SMALL;
                 goto out;
             }
-            /* else fall through and send the upcall */
-        case FileFsSizeInformation:
-        case FileFsFullSizeInformation:
-            break;
-
-        default:
-            print_error("unhandled fs query class %d\n", InfoClass);
-            status = STATUS_INVALID_PARAMETER;
+            RtlCopyMemory(RxContext->Info.Buffer,
+                pVNetRootContext->FsAttrs, len);
+            RxContext->Info.LengthRemaining -= len;
+            status = STATUS_SUCCESS;
             goto out;
+        }
+        /* else fall through and send the upcall */
+    case FileFsSizeInformation:
+    case FileFsFullSizeInformation:
+        break;
+
+    default:
+        print_error("unhandled fs query class %d\n", InfoClass);
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
     }
     status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
@@ -3958,16 +3902,8 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_SetVolumeInformation (
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-void print_nfs3_attrs(nfs3_attrs *attrs)
+void print_nfs3_attrs(
+    nfs3_attrs *attrs)
 {
     DbgP("type=%d mode=%o nlink=%d size=%d atime=%x mtime=%x ctime=%x\n",
         attrs->type, attrs->mode, attrs->nlink, attrs->size, attrs->atime,
@@ -3983,7 +3919,9 @@ void file_time_to_nfs_time(
     *nfs_time = diff.QuadPart / 10000000;
 }
 
-void create_nfs3_attrs(nfs3_attrs *attrs, PNFS41_FCB nfs41_fcb)
+void create_nfs3_attrs(
+    nfs3_attrs *attrs, 
+    PNFS41_FCB nfs41_fcb)
 {
     RtlZeroMemory(attrs, sizeof(nfs3_attrs));
     if (nfs41_fcb->BasicInfo.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
@@ -4002,7 +3940,8 @@ void create_nfs3_attrs(nfs3_attrs *attrs, PNFS41_FCB nfs41_fcb)
 }
 
 
-static NTSTATUS map_setea_error(DWORD error)
+NTSTATUS map_setea_error(
+    DWORD error)
 {
     switch (error) {
     case NO_ERROR:                      return STATUS_SUCCESS;
@@ -4022,23 +3961,23 @@ static NTSTATUS map_setea_error(DWORD error)
     }
 }
 
-NTSTATUS nfs41_SetEaInformation (
-    IN OUT struct _RX_CONTEXT *RxContext)
+NTSTATUS nfs41_SetEaInformation(
+    IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
-    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
-        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
     PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-    PFILE_FULL_EA_INFORMATION eainfo = 
+    __notnull PFILE_FULL_EA_INFORMATION eainfo = 
         (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;        
     nfs3_attrs *attrs = NULL;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
-        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     ULONG buflen = RxContext->CurrentIrpSp->Parameters.SetEa.Length, error_offset;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -4076,9 +4015,6 @@ NTSTATUS nfs41_SetEaInformation (
     entry->u.SetEa.buf = eainfo;
     entry->u.SetEa.buf_len = buflen;
     entry->u.SetEa.filename = FileName;
-    DbgP("FULL_EA_INFO: FileName=%wZ total_EA_len=%d EaNameLen=%d ExValueLen=%d\n",
-        entry->u.SetEa.filename, buflen, eainfo->EaNameLength, 
-        eainfo->EaValueLength);
      
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4106,23 +4042,24 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_QueryEaInformation (
+NTSTATUS nfs41_QueryEaInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
-    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
-            NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
-            NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    nfs41_updowncall_entry *entry;
     PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)
             RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
-    PFILE_FULL_EA_INFORMATION info;
+    __notnull PFILE_FULL_EA_INFORMATION info = 
+        (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;        
     PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-    nfs41_updowncall_entry *entry;
     ULONG buflen = RxContext->CurrentIrpSp->Parameters.QueryEa.Length;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+            NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+            NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -4130,95 +4067,96 @@ NTSTATUS nfs41_QueryEaInformation (
 
     DbgEn();
     print_debug_header(RxContext);
-    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList) {
-        DbgP("Looking for a specific EA?\n");
-        print_get_ea(1, query);
+    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList == NULL)
+        goto out;
 
-        if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
-            nfs3_attrs attrs;
+    DbgP("Looking for a specific EA?\n");
+    print_get_ea(1, query);
 
-            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
-                NfsV3Attributes.Length + sizeof(nfs3_attrs) - sizeof(CHAR);
-            if (LengthRequired > RxContext->Info.LengthRemaining) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = LengthRequired;
-                goto out;
-            }
+    if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
+        nfs3_attrs attrs;
 
-            create_nfs3_attrs(&attrs, nfs41_fcb);
-            DbgP("returning fake v3attrs EA\n");
-            print_nfs3_attrs(&attrs);
-
-            info = RxContext->Info.Buffer;
-            info->NextEntryOffset = 0;
-            info->Flags = 0;
-            info->EaNameLength = (UCHAR)NfsV3Attributes.Length;
-            info->EaValueLength = sizeof(nfs3_attrs);
-            RtlCopyMemory(info->EaName, NfsV3Attributes.Buffer, NfsV3Attributes.Length);
-            RtlCopyMemory(info->EaName + info->EaNameLength + 1, &attrs, 
-                sizeof(nfs3_attrs));
-            RxContext->Info.LengthRemaining = LengthRequired;
-            status = STATUS_SUCCESS;
-            goto out;
-        } 
-        
-        if (AnsiStrEq(&NfsActOnLink, query->EaName, query->EaNameLength) || 
-                AnsiStrEq(&NfsSymlinkTargetName, query->EaName, query->EaNameLength)) {
-
-            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
-                NfsActOnLink.Length - sizeof(CHAR);
-            if (LengthRequired > RxContext->Info.LengthRemaining) {
-                status = STATUS_BUFFER_TOO_SMALL;
-                RxContext->InformationToReturn = LengthRequired;
-                goto out;
-            }
-
-            DbgP("returning fake link EA\n");
-            info = RxContext->Info.Buffer;
-            info->NextEntryOffset = 0;
-            info->Flags = 0;
-            info->EaNameLength = (UCHAR)NfsActOnLink.Length;
-            info->EaValueLength = 0;
-            RtlCopyMemory(info->EaName, NfsActOnLink.Buffer, NfsActOnLink.Length);
-            RxContext->Info.LengthRemaining = LengthRequired;
-            status = STATUS_SUCCESS;
-            goto out;
-        }
-
-        status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx,
-            pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-            pNetRootContext->nfs41d_version, &entry);
-        if (status)
-            goto out; 
-        entry->u.QueryEa.filename = FileName;  
-        entry->u.QueryEa.buf_len = buflen; 
-        entry->u.QueryEa.buf = RxContext->Info.Buffer; 
-        entry->u.QueryEa.EaList = query;
-        entry->u.QueryEa.EaListLength = RxContext->QueryEa.UserEaListLength;
-        entry->u.QueryEa.EaIndex = RxContext->QueryEa.UserEaIndex;
-        entry->u.QueryEa.RestartScan = RxContext->QueryEa.RestartScan;
-        entry->u.QueryEa.ReturnSingleEntry = RxContext->QueryEa.ReturnSingleEntry;
-
-        if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-            status = STATUS_INTERNAL_ERROR;
-            goto out;
-        }
-
-        if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-            RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
+        const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
+            NfsV3Attributes.Length + sizeof(nfs3_attrs) - sizeof(CHAR);
+        if (LengthRequired > RxContext->Info.LengthRemaining) {
             status = STATUS_BUFFER_TOO_SMALL;
-        } else if (entry->status == STATUS_SUCCESS) {
-            RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
-            RxContext->IoStatusBlock.Status = STATUS_SUCCESS; 
-#ifdef ENABLE_TIMINGS
-            InterlockedIncrement(&getexattr.sops); 
-            InterlockedAdd64(&getexattr.size, entry->u.QueryEa.buf_len);
-#endif
-        } else {
-            status = map_setea_error(entry->status);
+            RxContext->InformationToReturn = LengthRequired;
+            goto out;
         }
-        RxFreePool(entry);        
+
+        create_nfs3_attrs(&attrs, nfs41_fcb);
+        DbgP("returning fake v3attrs EA\n");
+        print_nfs3_attrs(&attrs);
+
+        info->NextEntryOffset = 0;
+        info->Flags = 0;
+        info->EaNameLength = (UCHAR)NfsV3Attributes.Length;
+        info->EaValueLength = sizeof(nfs3_attrs);
+        RtlCopyMemory(info->EaName, NfsV3Attributes.Buffer, 
+            NfsV3Attributes.Length);
+        RtlCopyMemory(info->EaName + info->EaNameLength + 1, &attrs, 
+            sizeof(nfs3_attrs));
+        RxContext->Info.LengthRemaining = LengthRequired;
+        status = STATUS_SUCCESS;
+        goto out;
+    } 
+        
+    if (AnsiStrEq(&NfsActOnLink, query->EaName, query->EaNameLength) || 
+            AnsiStrEq(&NfsSymlinkTargetName, query->EaName, 
+                query->EaNameLength)) {
+
+        const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
+            NfsActOnLink.Length - sizeof(CHAR);
+        if (LengthRequired > RxContext->Info.LengthRemaining) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            RxContext->InformationToReturn = LengthRequired;
+            goto out;
+        }
+
+        DbgP("returning fake link EA\n");
+        info->NextEntryOffset = 0;
+        info->Flags = 0;
+        info->EaNameLength = (UCHAR)NfsActOnLink.Length;
+        info->EaValueLength = 0;
+        RtlCopyMemory(info->EaName, NfsActOnLink.Buffer, NfsActOnLink.Length);
+        RxContext->Info.LengthRemaining = LengthRequired;
+        status = STATUS_SUCCESS;
+        goto out;
     }
+
+    status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx,
+        pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
+        pNetRootContext->nfs41d_version, &entry);
+    if (status)
+        goto out; 
+    entry->u.QueryEa.filename = FileName;  
+    entry->u.QueryEa.buf_len = buflen; 
+    entry->u.QueryEa.buf = RxContext->Info.Buffer; 
+    entry->u.QueryEa.EaList = query;
+    entry->u.QueryEa.EaListLength = RxContext->QueryEa.UserEaListLength;
+    entry->u.QueryEa.EaIndex = RxContext->QueryEa.UserEaIndex;
+    entry->u.QueryEa.RestartScan = RxContext->QueryEa.RestartScan;
+    entry->u.QueryEa.ReturnSingleEntry = RxContext->QueryEa.ReturnSingleEntry;
+
+    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+        status = STATUS_INTERNAL_ERROR;
+        goto out;
+    }
+
+    if (entry->status == STATUS_BUFFER_TOO_SMALL) {
+        RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
+        status = STATUS_BUFFER_TOO_SMALL;
+    } else if (entry->status == STATUS_SUCCESS) {
+        RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
+        RxContext->IoStatusBlock.Status = STATUS_SUCCESS; 
+#ifdef ENABLE_TIMINGS
+        InterlockedIncrement(&getexattr.sops); 
+        InterlockedAdd64(&getexattr.size, entry->u.QueryEa.buf_len);
+#endif
+    } else {
+        status = map_setea_error(entry->status);
+    }
+    RxFreePool(entry);        
 out:
 #ifdef ENABLE_TIMINGS
     t2 = KeQueryPerformanceCounter(NULL);
@@ -4232,16 +4170,9 @@ out:
     DbgEx();
     return status;
 }
-static void print_acl_args(SECURITY_INFORMATION info)
-{
-    DbgP("Security query: %s %s %s\n",
-        (info & OWNER_SECURITY_INFORMATION)?"OWNER":"",
-        (info & GROUP_SECURITY_INFORMATION)?"GROUP":"",
-        (info & DACL_SECURITY_INFORMATION)?"DACL":"",
-        (info & SACL_SECURITY_INFORMATION)?"SACL":"");
-}
 
-static NTSTATUS map_query_acl_error(DWORD error)
+NTSTATUS map_query_acl_error(
+    DWORD error)
 {
     switch (error) {
     case NO_ERROR:                  return STATUS_SUCCESS;
@@ -4256,16 +4187,16 @@ static NTSTATUS map_query_acl_error(DWORD error)
     }
 }
 
-NTSTATUS nfs41_QuerySecurityInformation (
+NTSTATUS nfs41_QuerySecurityInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
+    NTSTATUS status = STATUS_NOT_SUPPORTED;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     SECURITY_INFORMATION info_class =
         RxContext->CurrentIrpSp->Parameters.QuerySecurity.SecurityInformation;
@@ -4325,9 +4256,10 @@ NTSTATUS nfs41_QuerySecurityInformation (
     }
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        DbgP("nfs41_QuerySecurityInformation: provided buffer size=%d but we need %d\n",
-                RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, 
-                entry->u.Acl.buf_len);
+        DbgP("nfs41_QuerySecurityInformation: provided buffer size=%d but we "
+             "need %d\n", 
+             RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, 
+             entry->u.Acl.buf_len);
         status = STATUS_BUFFER_OVERFLOW;
         RxContext->InformationToReturn = entry->u.Acl.buf_len;
 
@@ -4371,18 +4303,19 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_SetSecurityInformation (
-    IN OUT struct _RX_CONTEXT *RxContext)
+NTSTATUS nfs41_SetSecurityInformation(
+    IN OUT PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
+    NTSTATUS status = STATUS_NOT_SUPPORTED;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
-    PSECURITY_DESCRIPTOR sec_desc = RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityDescriptor;
+    __notnull PSECURITY_DESCRIPTOR sec_desc = 
+        RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityDescriptor;
     SECURITY_INFORMATION info_class = 
         RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityInformation;
 #ifdef ENABLE_TIMINGS
@@ -4404,7 +4337,8 @@ NTSTATUS nfs41_SetSecurityInformation (
     if (info_class & DACL_SECURITY_INFORMATION) {
         PACL acl;
         BOOLEAN present, dacl_default;
-        status = RtlGetDaclSecurityDescriptor(sec_desc, &present, &acl, &dacl_default);
+        status = RtlGetDaclSecurityDescriptor(sec_desc, &present, &acl, 
+                    &dacl_default);
         if (status) {
             DbgP("RtlGetDaclSecurityDescriptor failed %x\n", status);
             goto out;
@@ -4453,39 +4387,8 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_QueryQuotaInformation (
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_SetQuotaInformation (
-    IN OUT struct _RX_CONTEXT *RxContext)
-{
-    NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_SetVolumeInfo (
-    IN OUT struct _RX_CONTEXT *RxContext)
-{
-    NTSTATUS status = STATUS_NOT_SUPPORTED; //STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-void print_queryfile_args(PRX_CONTEXT RxContext)
-{
-    print_debug_filedirquery_header(RxContext);
-}
-
-static NTSTATUS map_queryfile_error(DWORD error)
+NTSTATUS map_queryfile_error(
+    DWORD error)
 {
     switch (error) {
     case ERROR_ACCESS_DENIED:       return STATUS_ACCESS_DENIED;
@@ -4498,19 +4401,19 @@ static NTSTATUS map_queryfile_error(DWORD error)
     }
 }
 
-NTSTATUS nfs41_QueryFileInformation (
+NTSTATUS nfs41_QueryFileInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_OBJECT_NAME_NOT_FOUND;
     FILE_INFORMATION_CLASS InfoClass = RxContext->Info.FileInformationClass;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -4558,7 +4461,7 @@ NTSTATUS nfs41_QueryFileInformation (
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
-    print_queryfile_args(RxContext);
+    print_debug_filedirquery_header(RxContext);
 
     status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
@@ -4647,12 +4550,8 @@ out:
     return status;
 }
 
-void print_setfile_args(PRX_CONTEXT RxContext)
-{
-    print_debug_filedirquery_header(RxContext);
-}
-
-static NTSTATUS map_setfile_error(DWORD error)
+NTSTATUS map_setfile_error(
+    DWORD error)
 {
     switch (error) {
     case NO_ERROR:                      return STATUS_SUCCESS;
@@ -4674,28 +4573,28 @@ static NTSTATUS map_setfile_error(DWORD error)
     }
 }
 
-NTSTATUS nfs41_SetFileInformation (
+NTSTATUS nfs41_SetFileInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INVALID_PARAMETER;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     FILE_INFORMATION_CLASS InfoClass = RxContext->Info.FileInformationClass;
+    FILE_RENAME_INFORMATION rinfo;
     PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    FILE_RENAME_INFORMATION rinfo;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
     DbgEn();
-    print_setfile_args(RxContext);
+    print_debug_filedirquery_header(RxContext);
 
     if (pVNetRootContext->read_only) {
         DbgP("Read-only mount\n");
@@ -4796,7 +4695,7 @@ NTSTATUS nfs41_SetFileInformation (
     entry->u.SetFile.InfoClass = InfoClass;
 
     if (RxContext->Info.FileInformationClass == FileDispositionInformation && 
-        InfoClass == FileRenameInformation) {
+            InfoClass == FileRenameInformation) {
         entry->u.SetFile.buf = &rinfo;
         entry->u.SetFile.buf_len = sizeof(rinfo);
     } else {
@@ -4849,22 +4748,10 @@ NTSTATUS nfs41_IsValidDirectory (
     return status;
 }
 
-NTSTATUS nfs41_PreparseName(
-    IN OUT PRX_CONTEXT  RxContext,
-    IN PUNICODE_STRING  Name
-    )
-{
-    NTSTATUS status = STATUS_SUCCESS;
-
-    //DbgEn();
-    //DbgEx();
-    return status;
-}
-
 NTSTATUS nfs41_ComputeNewBufferingState(
     IN OUT PMRX_SRV_OPEN pSrvOpen,
-    IN     PVOID         pMRxContext,
-       OUT ULONG         *pNewBufferingState)
+    IN PVOID pMRxContext,
+    OUT ULONG *pNewBufferingState)
 {
     NTSTATUS status = STATUS_SUCCESS;
     ULONG flag;
@@ -4876,11 +4763,13 @@ NTSTATUS nfs41_ComputeNewBufferingState(
         if (pSrvOpen->BufferingFlags & 
             (FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED))
             pSrvOpen->BufferingFlags &= 
-                ~(FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED);
+                ~(FCB_STATE_READBUFFERING_ENABLED | 
+                  FCB_STATE_READCACHING_ENABLED);
         if (pSrvOpen->BufferingFlags & 
             (FCB_STATE_WRITECACHING_ENABLED | FCB_STATE_WRITEBUFFERING_ENABLED))
             pSrvOpen->BufferingFlags &= 
-                ~(FCB_STATE_WRITECACHING_ENABLED | FCB_STATE_WRITEBUFFERING_ENABLED);
+                ~(FCB_STATE_WRITECACHING_ENABLED | 
+                  FCB_STATE_WRITEBUFFERING_ENABLED);
         pSrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
         break;
     case ENABLE_READ_CACHING:
@@ -4903,7 +4792,8 @@ NTSTATUS nfs41_ComputeNewBufferingState(
     return status;
 }
 
-void print_readwrite_args(PRX_CONTEXT RxContext)
+void print_readwrite_args(
+    PRX_CONTEXT RxContext)
 {
     PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
     PIO_STACK_LOCATION IrpSp = RxContext->CurrentIrpSp;
@@ -4920,7 +4810,8 @@ void print_readwrite_args(PRX_CONTEXT RxContext)
         LowIoContext->ParamsFor.ReadWrite.Buffer);
 }
 
-void enable_caching(PMRX_SRV_OPEN SrvOpen)
+void enable_caching(
+    PMRX_SRV_OPEN SrvOpen)
 {
     ULONG flag = 0;
     if (SrvOpen->DesiredAccess & FILE_READ_DATA)
@@ -4936,11 +4827,13 @@ void enable_caching(PMRX_SRV_OPEN SrvOpen)
     if (!flag)
         return;
 
-    RxIndicateChangeOfBufferingStateForSrvOpen(SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
+    RxIndicateChangeOfBufferingStateForSrvOpen(
+        SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
         SrvOpen, SrvOpen->Key, ULongToPtr(flag));
 }
 
-static NTSTATUS map_readwrite_errors(DWORD status)
+NTSTATUS map_readwrite_errors(
+    DWORD status)
 {
     switch (status) {
     case ERROR_ACCESS_DENIED:           return STATUS_ACCESS_DENIED;
@@ -4957,20 +4850,20 @@ static NTSTATUS map_readwrite_errors(DWORD status)
     }
 }
 
-NTSTATUS nfs41_Read (
+NTSTATUS nfs41_Read(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
+    BOOLEAN async = FALSE;
     PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    BOOLEAN async = FALSE;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -4987,7 +4880,8 @@ NTSTATUS nfs41_Read (
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
-    if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) == FALSE) {
+    if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, 
+            FO_SYNCHRONOUS_IO) == FALSE) {
         entry->u.ReadWrite.rxcontext = RxContext;
         async = entry->async_op = TRUE;
     }
@@ -5017,7 +4911,8 @@ NTSTATUS nfs41_Read (
                 (SrvOpen->DesiredAccess & FILE_READ_DATA) &&
                 !pVNetRootContext->nocache &&
                 !(SrvOpen->BufferingFlags & 
-                (FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED)))
+                (FCB_STATE_READBUFFERING_ENABLED | 
+                 FCB_STATE_READCACHING_ENABLED)))
             enable_caching(SrvOpen);
     } else {
         status = map_readwrite_errors(entry->status);
@@ -5039,20 +4934,20 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_Write (
+NTSTATUS nfs41_Write(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
+    BOOLEAN async = FALSE;
     PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_FCB nfs41_fcb = (PNFS41_FCB)(RxContext->pFcb)->Context;
-    BOOLEAN async = FALSE;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -5076,7 +4971,8 @@ NTSTATUS nfs41_Write (
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
 
-    if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) == FALSE) {
+    if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, 
+            FO_SYNCHRONOUS_IO) == FALSE) {
         entry->u.ReadWrite.rxcontext = RxContext;
         async = entry->async_op = TRUE;
     }
@@ -5111,7 +5007,8 @@ NTSTATUS nfs41_Write (
                 !pVNetRootContext->write_thru &&
                 !pVNetRootContext->nocache &&
                 !(SrvOpen->BufferingFlags & 
-                (FCB_STATE_WRITEBUFFERING_ENABLED | FCB_STATE_WRITECACHING_ENABLED)))
+                (FCB_STATE_WRITEBUFFERING_ENABLED | 
+                 FCB_STATE_WRITECACHING_ENABLED)))
             enable_caching(SrvOpen);
     } else {
         status = map_readwrite_errors(entry->status);
@@ -5133,7 +5030,7 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_IsLockRealizable (
+NTSTATUS nfs41_IsLockRealizable(
     IN OUT PMRX_FCB pFcb,
     IN PLARGE_INTEGER  ByteOffset,
     IN PLARGE_INTEGER  Length,
@@ -5154,7 +5051,8 @@ NTSTATUS nfs41_IsLockRealizable (
     return status;
 }
 
-static NTSTATUS map_lock_errors(DWORD status)
+NTSTATUS map_lock_errors(
+    DWORD status)
 {
     switch (status) {
     case NO_ERROR:                  return STATUS_SUCCESS;
@@ -5175,7 +5073,8 @@ static NTSTATUS map_lock_errors(DWORD status)
     }
 }
 
-static void print_lock_args(PRX_CONTEXT RxContext)
+void print_lock_args(
+    PRX_CONTEXT RxContext)
 {
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
     const ULONG flags = LowIoContext->ParamsFor.Locks.Flags;
@@ -5193,7 +5092,7 @@ static void print_lock_args(PRX_CONTEXT RxContext)
 #define MIN_LOCK_POLL_WAIT      (500 * MSEC_TO_RELATIVE_WAIT) /* 500ms */
 #define MAX_LOCK_POLL_WAIT      (30000 * MSEC_TO_RELATIVE_WAIT) /* 30s */
 
-static void denied_lock_backoff(
+void denied_lock_backoff(
     IN OUT PLARGE_INTEGER delay)
 {
     if (delay->QuadPart == 0)
@@ -5210,15 +5109,15 @@ NTSTATUS nfs41_Lock(
 {
     NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     const ULONG flags = LowIoContext->ParamsFor.Locks.Flags;
     LARGE_INTEGER poll_delay = {0};
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
-        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -5274,7 +5173,8 @@ out:
     return status;
 }
 
-static void print_unlock_args(PRX_CONTEXT RxContext)
+void print_unlock_args(
+    PRX_CONTEXT RxContext)
 {
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
     print_debug_header(RxContext);
@@ -5293,7 +5193,8 @@ static void print_unlock_args(PRX_CONTEXT RxContext)
     }
 }
 
-static __inline ULONG unlock_list_count(PLOWIO_LOCK_LIST lock)
+__inline ULONG unlock_list_count(
+    PLOWIO_LOCK_LIST lock)
 {
     ULONG count = 0;
     while (lock) {
@@ -5308,12 +5209,12 @@ NTSTATUS nfs41_Unlock(
 {
     NTSTATUS status = STATUS_SUCCESS;
     nfs41_updowncall_entry *entry;
-    PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
@@ -5368,7 +5269,8 @@ out:
     return status;
 }
 
-static NTSTATUS map_symlink_errors(NTSTATUS status)
+NTSTATUS map_symlink_errors(
+    NTSTATUS status)
 {
     switch (status) {
     case NO_ERROR:                  return STATUS_SUCCESS;
@@ -5385,17 +5287,23 @@ static NTSTATUS map_symlink_errors(NTSTATUS status)
     }
 }
 
-static void print_reparse_buffer(PREPARSE_DATA_BUFFER Reparse)
+void print_reparse_buffer(
+    PREPARSE_DATA_BUFFER Reparse)
 {
     UNICODE_STRING name;
     DbgP("ReparseTag:           %08X\n", Reparse->ReparseTag);
     DbgP("ReparseDataLength:    %8u\n", Reparse->ReparseDataLength);
     DbgP("Reserved:             %8u\n", Reparse->Reserved);
-    DbgP("SubstituteNameOffset: %8u\n", Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset);
-    DbgP("SubstituteNameLength: %8u\n", Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength);
-    DbgP("PrintNameOffset:      %8u\n", Reparse->SymbolicLinkReparseBuffer.PrintNameOffset);
-    DbgP("PrintNameLength:      %8u\n", Reparse->SymbolicLinkReparseBuffer.PrintNameLength);
-    DbgP("Flags:                %08X\n", Reparse->SymbolicLinkReparseBuffer.Flags);
+    DbgP("SubstituteNameOffset: %8u\n", 
+         Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset);
+    DbgP("SubstituteNameLength: %8u\n", 
+         Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength);
+    DbgP("PrintNameOffset:      %8u\n", 
+         Reparse->SymbolicLinkReparseBuffer.PrintNameOffset);
+    DbgP("PrintNameLength:      %8u\n", 
+         Reparse->SymbolicLinkReparseBuffer.PrintNameLength);
+    DbgP("Flags:                %08X\n", 
+         Reparse->SymbolicLinkReparseBuffer.Flags);
 
     name.Buffer = &Reparse->SymbolicLinkReparseBuffer.PathBuffer[
         Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset/sizeof(WCHAR)];
@@ -5410,19 +5318,20 @@ static void print_reparse_buffer(PREPARSE_DATA_BUFFER Reparse)
     DbgP("PrintName:            %wZ\n", &name);
 }
 
-static NTSTATUS nfs41_SetReparsePoint(
+NTSTATUS nfs41_SetReparsePoint(
     IN OUT PRX_CONTEXT RxContext)
 {
-    UNICODE_STRING TargetName;
-    XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
-    PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pInputBuffer;
-    PNFS41_FOBX Fobx = NFS41GetFileObjectExtension(RxContext->pFobx);
-    PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION VNetRoot = NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    nfs41_updowncall_entry *entry;
     NTSTATUS status;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
+    UNICODE_STRING TargetName;
+    __notnull XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
+    __notnull PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pInputBuffer;
+    __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRoot = 
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    nfs41_updowncall_entry *entry;
 
     DbgEn();
     print_reparse_buffer(Reparse);
@@ -5458,20 +5367,21 @@ out:
     return status;
 }
 
-static NTSTATUS nfs41_GetReparsePoint(
+NTSTATUS nfs41_GetReparsePoint(
     IN OUT PRX_CONTEXT RxContext)
 {
+    NTSTATUS status;
     UNICODE_STRING TargetName;
     XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
-    PNFS41_FOBX Fobx = NFS41GetFileObjectExtension(RxContext->pFobx);
-    PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    PNFS41_V_NET_ROOT_EXTENSION VNetRoot = NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRoot = 
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     nfs41_updowncall_entry *entry;
     const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
         SymbolicLinkReparseBuffer.PathBuffer);
-    NTSTATUS status;
-    PNFS41_NETROOT_EXTENSION pNetRootContext =
-        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
 
     DbgEn();
 
@@ -5489,7 +5399,8 @@ static NTSTATUS nfs41_GetReparsePoint(
     }
 
     TargetName.Buffer = (PWCH)((PBYTE)FsCtl->pOutputBuffer + HeaderLen);
-    TargetName.MaximumLength = (USHORT)min(FsCtl->OutputBufferLength - HeaderLen, 0xFFFF);
+    TargetName.MaximumLength = (USHORT)min(FsCtl->OutputBufferLength - 
+        HeaderLen, 0xFFFF);
 
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
         VNetRoot->session, Fobx->nfs41_open_state,
@@ -5509,7 +5420,8 @@ static NTSTATUS nfs41_GetReparsePoint(
     status = map_symlink_errors(entry->status);
     if (status == STATUS_SUCCESS) {
         /* fill in the output buffer */
-        PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pOutputBuffer;
+        PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)
+            FsCtl->pOutputBuffer;
         Reparse->ReparseTag = IO_REPARSE_TAG_SYMLINK;
         Reparse->ReparseDataLength = HeaderLen + TargetName.Length -
             REPARSE_DATA_BUFFER_HEADER_SIZE;
@@ -5517,7 +5429,8 @@ static NTSTATUS nfs41_GetReparsePoint(
         Reparse->SymbolicLinkReparseBuffer.Flags = SYMLINK_FLAG_RELATIVE;
         /* PrintName and SubstituteName point to the same string */
         Reparse->SymbolicLinkReparseBuffer.SubstituteNameOffset = 0;
-        Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength = TargetName.Length;
+        Reparse->SymbolicLinkReparseBuffer.SubstituteNameLength = 
+            TargetName.Length;
         Reparse->SymbolicLinkReparseBuffer.PrintNameOffset = 0;
         Reparse->SymbolicLinkReparseBuffer.PrintNameLength = TargetName.Length;
         print_reparse_buffer(Reparse);
@@ -5538,7 +5451,6 @@ NTSTATUS nfs41_FsCtl(
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
     DbgEn();
     print_debug_header(RxContext);
-    DbgP("FileName: %wZ\n", &RxContext->CurrentIrpSp->FileObject->FileName);
     switch (RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode) {
     case FSCTL_SET_REPARSE_POINT:
         DbgP("FSCTL_SET_REPARSE_POINT\n");
@@ -5550,34 +5462,17 @@ NTSTATUS nfs41_FsCtl(
         status = nfs41_GetReparsePoint(RxContext);
         break;
     default:
-        DbgP("FsControlCode: %d\n", RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode);
+        DbgP("FsControlCode: %d\n", 
+             RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode);
     }
     DbgEx();
     return status;
 }
 
-NTSTATUS nfs41_IoCtl(
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_NotifyChangeDirectory(
-    IN OUT PRX_CONTEXT RxContext)
-{
-    NTSTATUS status = STATUS_NOT_IMPLEMENTED;
-    DbgEn();
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_CompleteBufferingStateChangeRequest (
+NTSTATUS nfs41_CompleteBufferingStateChangeRequest(
     IN OUT PRX_CONTEXT RxContext,
-    IN OUT PMRX_SRV_OPEN   SrvOpen,
-    IN     PVOID       pContext)
+    IN OUT PMRX_SRV_OPEN SrvOpen,
+    IN PVOID pContext)
 {
     NTSTATUS status = STATUS_SUCCESS;
     DbgEn();
@@ -5585,35 +5480,9 @@ NTSTATUS nfs41_CompleteBufferingStateChangeRequest (
     return status;
 }
 
-NTSTATUS nfs41_AreFilesAliased(
-    PFCB  Fcb1, 
-    PFCB  Fcb2)
-{
-    NTSTATUS status = STATUS_NOT_IMPLEMENTED;
-    PMRX_SRV_OPEN srv1 = (PMRX_SRV_OPEN)Fcb1->InternalSrvOpen, 
-        srv2 = (PMRX_SRV_OPEN)Fcb2->InternalSrvOpen;
-    DbgEn();
-    DbgP("fcb1 %p fcb2 %p srv1 %p srv2 %p\n", Fcb1, Fcb2, srv1, srv2);
-    DbgP("file1 %wZ file2 %wZ\n", srv1->pAlreadyPrefixedName, 
-        srv2->pAlreadyPrefixedName); 
-    DbgEx();
-    return status;
-}
-
-NTSTATUS nfs41_GetConnectionId(
-    IN OUT PRX_CONTEXT RxContext,    
-    IN OUT PRX_CONNECTION_ID UniqueId)
-{
-    NTSTATUS status = STATUS_NOT_IMPLEMENTED;
-    //DbgEn();
-    //DbgEx();
-    return status;
-}
-
 NTSTATUS nfs41_FsdDispatch (
     IN PDEVICE_OBJECT dev,
-    IN PIRP Irp
-    )
+    IN PIRP Irp)
 {
 #ifdef DEBUG_FSDDISPATCH
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
@@ -5626,14 +5495,6 @@ NTSTATUS nfs41_FsdDispatch (
     if(IrpSp->FileObject)
         DbgP("FileOject %p Filename %wZ\n", IrpSp->FileObject, 
                 &IrpSp->FileObject->FileName);
-    switch(IrpSp->MajorFunction) {
-    case 0:
-        DbgP("Create: share access %d\n", IrpSp->Parameters.Create.ShareAccess);
-        break;
-    case 5:
-        DbgP("InfoClass %d\n", IrpSp->Parameters.QueryFile.FileInformationClass);
-        break;
-    }
 #endif
 
     if (dev != (PDEVICE_OBJECT)nfs41_dev) {
@@ -5650,7 +5511,8 @@ NTSTATUS nfs41_FsdDispatch (
 
 out:
 #ifdef DEBUG_FSDDISPATCH
-    DbgP("IoStatus status = 0x%x info = 0x%x\n", Irp->IoStatus.Status, Irp->IoStatus.Information);
+    DbgP("IoStatus status = 0x%x info = 0x%x\n", Irp->IoStatus.Status, 
+         Irp->IoStatus.Information);
     DbgEx();
 #endif
     return status;
@@ -5666,14 +5528,12 @@ NTSTATUS nfs41_init_ops()
     nfs41_ops.MRxFlags = (RDBSS_MANAGE_NET_ROOT_EXTENSION |
                             RDBSS_MANAGE_V_NET_ROOT_EXTENSION |
                             RDBSS_MANAGE_FCB_EXTENSION |
-                            RDBSS_MANAGE_SRV_OPEN_EXTENSION |
                             RDBSS_MANAGE_FOBX_EXTENSION);
 
     nfs41_ops.MRxSrvCallSize  = 0; // srvcall extension is not handled in rdbss
     nfs41_ops.MRxNetRootSize  = sizeof(NFS41_NETROOT_EXTENSION);
     nfs41_ops.MRxVNetRootSize = sizeof(NFS41_V_NET_ROOT_EXTENSION);
     nfs41_ops.MRxFcbSize      = sizeof(NFS41_FCB);
-    nfs41_ops.MRxSrvOpenSize  = sizeof(NFS41_SRV_OPEN);
     nfs41_ops.MRxFobxSize     = sizeof(NFS41_FOBX);
 
     // Mini redirector cancel routine ..
@@ -5710,30 +5570,25 @@ NTSTATUS nfs41_init_ops()
     nfs41_ops.MRxShouldTryToCollapseThisOpen = nfs41_ShouldTryToCollapseThisOpen;
     nfs41_ops.MRxExtendForCache    = nfs41_ExtendForCache;
     nfs41_ops.MRxExtendForNonCache = nfs41_ExtendForCache;
-    nfs41_ops.MRxZeroExtend        = nfs41_ZeroExtend;
-    nfs41_ops.MRxTruncate          = nfs41_Truncate;
-    nfs41_ops.MRxCleanupFobx       = nfs41_CleanupFobx;
     nfs41_ops.MRxCloseSrvOpen      = nfs41_CloseSrvOpen;
     nfs41_ops.MRxFlush             = nfs41_Flush;
-    nfs41_ops.MRxForceClosed       = nfs41_ForcedClose;
     nfs41_ops.MRxDeallocateForFcb  = nfs41_DeallocateForFcb;
     nfs41_ops.MRxDeallocateForFobx = nfs41_DeallocateForFobx;
     nfs41_ops.MRxIsLockRealizable    = nfs41_IsLockRealizable;
+
     //
     // File System Objects query/Set
     //
 
     nfs41_ops.MRxQueryDirectory       = nfs41_QueryDirectory;
     nfs41_ops.MRxQueryVolumeInfo      = nfs41_QueryVolumeInformation;
-    nfs41_ops.MRxSetVolumeInfo        = nfs41_SetVolumeInfo;
     nfs41_ops.MRxQueryEaInfo          = nfs41_QueryEaInformation;
     nfs41_ops.MRxSetEaInfo            = nfs41_SetEaInformation;
     nfs41_ops.MRxQuerySdInfo          = nfs41_QuerySecurityInformation;
     nfs41_ops.MRxSetSdInfo            = nfs41_SetSecurityInformation;
-    nfs41_ops.MRxQueryQuotaInfo       = nfs41_QueryQuotaInformation;
-    nfs41_ops.MRxSetQuotaInfo         = nfs41_SetQuotaInformation;
     nfs41_ops.MRxQueryFileInfo        = nfs41_QueryFileInformation;
     nfs41_ops.MRxSetFileInfo          = nfs41_SetFileInformation;
+
     //
     // Buffering state change
     //
@@ -5751,9 +5606,6 @@ NTSTATUS nfs41_init_ops()
     nfs41_ops.MRxLowIOSubmit[LOWIO_OP_UNLOCK]          = nfs41_Unlock;
     nfs41_ops.MRxLowIOSubmit[LOWIO_OP_UNLOCK_MULTIPLE] = nfs41_Unlock;
     nfs41_ops.MRxLowIOSubmit[LOWIO_OP_FSCTL]           = nfs41_FsCtl;
-    nfs41_ops.MRxLowIOSubmit[LOWIO_OP_IOCTL]           = nfs41_IoCtl;
-    nfs41_ops.MRxLowIOSubmit[LOWIO_OP_NOTIFY_CHANGE_DIRECTORY] = 
-        nfs41_NotifyChangeDirectory;
 
     //
     // Miscellanous
@@ -5762,16 +5614,14 @@ NTSTATUS nfs41_init_ops()
     nfs41_ops.MRxCompleteBufferingStateChangeRequest = 
         nfs41_CompleteBufferingStateChangeRequest;
     nfs41_ops.MRxIsValidDirectory     = nfs41_IsValidDirectory;
-    nfs41_ops.MRxPreparseName         = nfs41_PreparseName;
-    
-    nfs41_ops.MRxAreFilesAliased = nfs41_AreFilesAliased;
-    nfs41_ops.MRxGetConnectionId = nfs41_GetConnectionId;
 
     DbgR();
     return(STATUS_SUCCESS);
 }
 
-NTSTATUS DriverEntry(IN PDRIVER_OBJECT drv, IN PUNICODE_STRING path)
+NTSTATUS DriverEntry(
+    IN PDRIVER_OBJECT drv, 
+    IN PUNICODE_STRING path)
 {
     NTSTATUS status;
     ULONG flags = 0, i;
