@@ -95,7 +95,7 @@ int upcall_parse(
     /* parse common elements */
     status = safe_read(&buffer, &length, &version, sizeof(uint32_t));
     if (status) goto out;
-    status = safe_read(&buffer, &length, &upcall->xid, sizeof(uint32_t));
+    status = safe_read(&buffer, &length, &upcall->xid, sizeof(uint64_t));
     if (status) goto out;
     status = safe_read(&buffer, &length, &upcall->opcode, sizeof(uint32_t));
     if (status) goto out;

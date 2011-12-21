@@ -56,7 +56,7 @@ void print_caching_level(int on, ULONG flag);
 const char *opcode2string(int opcode);
 void print_open_error(int on, int status);
 void print_wait_status(int on, const char *str, NTSTATUS status, 
-                       const char *opcode, PVOID entry, int xid);
+                       const char *opcode, PVOID entry, LONGLONG xid);
 void print_acl_args(SECURITY_INFORMATION info);
 
 #define DbgEn() DbgPrintEx(DPFLTR_IHVNETWORK_ID, DPFLTR_ERROR_LEVEL, \

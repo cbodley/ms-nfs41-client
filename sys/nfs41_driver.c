@@ -70,7 +70,7 @@ FAST_MUTEX upcallLock, downcallLock;
 FAST_MUTEX xidLock;
 FAST_MUTEX openOwnerLock;
 
-ULONG xid = 0;
+LONGLONG xid = 0;
 ULONG open_owner_id = 1;
 
 #define DECLARE_CONST_ANSI_STRING(_var, _string) \
@@ -122,7 +122,7 @@ typedef enum _nfs41_updowncall_state {
 
 typedef struct _updowncall_entry {
     DWORD version;
-    DWORD xid;
+    LONGLONG xid;
     DWORD opcode;
     NTSTATUS status;
     nfs41_updowncall_state state;
@@ -420,15 +420,6 @@ nfs41_start_driver_state nfs41_start_state = NFS41_START_DRIVER_STARTABLE;
 
 NTSTATUS map_readwrite_errors(DWORD status);
 
-ULONG get_next_xid() 
-{
-    ULONG x;
-    ExAcquireFastMutex(&xidLock);
-    x = ++xid;
-    ExReleaseFastMutex(&xidLock);
-    return x; 
-}
-
 ULONG get_next_open_owner() 
 {
     ULONG x;
@@ -525,7 +516,7 @@ NTSTATUS marshal_nfs41_header(
     RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
 
-    DbgP("[upcall] entry=%p xid=%d opcode=%d version=%d session=0x%x "
+    DbgP("[upcall] entry=%p xid=%lld opcode=%d version=%d session=0x%x "
         "open_state=0x%x\n", entry, entry->xid, entry->opcode, entry->version,
         entry->session, entry->open_state);
 out:
@@ -1348,7 +1339,7 @@ NTSTATUS nfs41_UpcallCreate(
     }
 
     RtlZeroMemory(entry, sizeof(nfs41_updowncall_entry));
-    entry->xid = get_next_xid();
+    entry->xid = InterlockedIncrement64(&xid);
     entry->opcode = opcode;
     entry->state = NFS41_WAITING_FOR_UPCALL;
     entry->session = session;
@@ -1391,7 +1382,7 @@ NTSTATUS nfs41_UpcallWaitForReply(
 
     nfs41_AddEntry(upcallLock, upcall, entry);
     KeSetEvent(&upcallEvent, 0, FALSE);
-    DbgP("@@@ Creating %s upcall entry=%p xid=%d\n", opstring, entry, entry->xid);
+    DbgP("@@@ Creating %s upcall entry=%p xid=%lld\n", opstring, entry, entry->xid);
     if (!entry->async_op) {
         /* 02/03/2011 AGLO: it is not clear what the "right" waiting design 
          * should be. Having non-interruptable waiting seems to be the right 
@@ -1428,12 +1419,12 @@ NTSTATUS nfs41_UpcallWaitForReply(
     default:
         ExAcquireFastMutex(&entry->lock);
         if (entry->state == NFS41_DONE_PROCESSING) {
-            DbgP("[downcall] finish processing %s entry=%p xid=%d\n", 
+            DbgP("[downcall] finish processing %s entry=%p xid=%lld\n", 
                 opcode2string(entry->opcode), entry, entry->xid);
             ExReleaseFastMutex(&entry->lock);
             break;
         }
-        DbgP("[upcall] abandoning %s entry=%p xid=%d\n", 
+        DbgP("[upcall] abandoning %s entry=%p xid=%lld\n", 
             opcode2string(entry->opcode), entry, entry->xid);
         entry->state = NFS41_NOT_WAITING;
         ExReleaseFastMutex(&entry->lock);
@@ -1520,7 +1511,7 @@ NTSTATUS nfs41_downcall(
     buf += sizeof(tmp->status);
     RtlCopyMemory(&tmp->errno, buf, sizeof(tmp->errno));
     buf += sizeof(tmp->errno);
-    DbgP("[downcall] xid=%d opcode=%d status=%d errno=%d\n", tmp->xid, 
+    DbgP("[downcall] xid=%lld opcode=%d status=%d errno=%d\n", tmp->xid, 
         tmp->opcode, tmp->status, tmp->errno);
 
     ExAcquireFastMutex(&downcallLock); 
@@ -1529,7 +1520,6 @@ NTSTATUS nfs41_downcall(
     while (pEntry != NULL) {
         cur = (nfs41_updowncall_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_updowncall_entry, next);
-        DbgP("nfs41_downcall: comparing %d %d\n", cur->xid, tmp->xid);
         if (cur->xid == tmp->xid) {
             found = 1;
             break;
@@ -1543,7 +1533,7 @@ NTSTATUS nfs41_downcall(
     ExReleaseFastMutex(&downcallLock);
     SeStopImpersonatingClient();
     if (!found) {
-        print_error("Didn't find xid=%d entry\n", tmp->xid);
+        print_error("Didn't find xid=%lld entry\n", tmp->xid);
         goto out_free;
     }
 

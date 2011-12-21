@@ -184,7 +184,7 @@ typedef union __upcall_args {
 } upcall_args;
 
 typedef struct __nfs41_upcall {
-    uint32_t                xid;
+    uint64_t                xid;
     uint32_t                opcode;
     uint32_t                status;
     uint32_t                last_error;

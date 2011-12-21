@@ -128,7 +128,7 @@ static unsigned int WINAPI thread_main(void *args)
         status = upcall_handle(&upcall);
 
 write_downcall:
-        dprintf(1, "writing downcall: xid=%d opcode=%s status=%d "
+        dprintf(1, "writing downcall: xid=%lld opcode=%s status=%d "
             "get_last_error=%d\n", upcall.xid, opcode2string(upcall.opcode),
             upcall.status, upcall.last_error);
 
@@ -138,7 +138,7 @@ write_downcall:
         status = DeviceIoControl(pipe, IOCTL_NFS41_WRITE,
             inbuf, inbuf_len, NULL, 0, (LPDWORD)&outbuf_len, NULL);
         if (!status) {
-            eprintf("IOCTL_NFS41_WRITE failed with %d xid=%d opcode=%s\n", 
+            eprintf("IOCTL_NFS41_WRITE failed with %d xid=%lld opcode=%s\n", 
                 GetLastError(), upcall.xid, opcode2string(upcall.opcode));
             upcall_cancel(&upcall);
         }
