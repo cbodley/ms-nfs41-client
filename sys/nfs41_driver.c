@@ -1749,11 +1749,12 @@ NTSTATUS nfs41_shutdown_daemon(
     if (status)
         goto out;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+    status = nfs41_UpcallWaitForReply(entry);
+    SeDeleteClientSecurity(&entry->sec_ctx);
+    if (status != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
-    SeDeleteClientSecurity(&entry->sec_ctx);
     RxFreePool(entry);
 out:
     DbgEx();
@@ -2005,6 +2006,7 @@ NTSTATUS nfs41_unmount(
     DbgEn();
     status = nfs41_UpcallCreate(NFS41_UNMOUNT, NULL, session, 
         INVALID_HANDLE_VALUE, version, &entry);
+    SeDeleteClientSecurity(&entry->sec_ctx);
     if (status)
         goto out;
 
@@ -2012,7 +2014,6 @@ NTSTATUS nfs41_unmount(
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
-    SeDeleteClientSecurity(&entry->sec_ctx);
     RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS
@@ -2385,11 +2386,12 @@ NTSTATUS nfs41_mount(
     entry->u.Mount.wsize = config->WriteSize;
     entry->u.Mount.sec_flavor = sec_flavor;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+    status = nfs41_UpcallWaitForReply(entry);
+    SeDeleteClientSecurity(&entry->sec_ctx);
+    if (status != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
-    SeDeleteClientSecurity(&entry->sec_ctx);
     *session = entry->session;
 
     /* map windows ERRORs to NTSTATUS */
@@ -3210,13 +3212,14 @@ NTSTATUS nfs41_Create(
             entry->u.Open.mode = 0777;
     }
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry);
 #ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&entry->sec_ctx);
 #endif
+    if (status != STATUS_SUCCESS) {
+        status = STATUS_INTERNAL_ERROR;
+        goto out;
+    }
 
     if (entry->status == NO_ERROR && entry->errno == ERROR_REPARSE) {
         /* symbolic link handling. when attempting to open a symlink when the
@@ -3532,7 +3535,11 @@ NTSTATUS nfs41_CloseSrvOpen(
             GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     }
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+    status = nfs41_UpcallWaitForReply(entry);
+#ifndef USE_MOUNT_SEC_CONTEXT
+    SeDeleteClientSecurity(&nfs41_fobx->sec_ctx);
+#endif
+    if (status != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
@@ -3540,9 +3547,6 @@ NTSTATUS nfs41_CloseSrvOpen(
     /* map windows ERRORs to NTSTATUS */
     status = map_close_errors(entry->status);
     RxFreePool(entry);
-#ifndef USE_MOUNT_SEC_CONTEXT
-    SeDeleteClientSecurity(&nfs41_fobx->sec_ctx);
-#endif
 out:
 #ifdef ENABLE_TIMINGS
     t2 = KeQueryPerformanceCounter(NULL);
