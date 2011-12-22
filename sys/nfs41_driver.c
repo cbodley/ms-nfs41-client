@@ -334,6 +334,11 @@ typedef struct _NFS41_NETROOT_EXTENSION {
 #define FS_NAME_LEN (sizeof(FS_NAME) - sizeof(WCHAR))
 #define FS_ATTR_LEN (sizeof(FILE_FS_ATTRIBUTE_INFORMATION) + FS_NAME_LEN)
 
+/* FileSystemName as reported by FileFsAttributeInfo query */
+#define VOL_NAME     L"PnfsVolume"
+#define VOL_NAME_LEN (sizeof(VOL_NAME) - sizeof(WCHAR))
+#define VOL_ATTR_LEN (sizeof(FILE_FS_VOLUME_INFORMATION) + VOL_NAME_LEN)
+
 typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
@@ -392,6 +397,8 @@ typedef struct _NFS41_DEVICE_EXTENSION {
     ULONG                   ActiveNodes;
     HANDLE                  SharedMemorySection;
     DWORD                   nfs41d_version;
+    BYTE                    VolAttrs[VOL_ATTR_LEN];
+    DWORD                   VolAttrsLen;
 } NFS41_DEVICE_EXTENSION, *PNFS41_DEVICE_EXTENSION;
 
 #define NFS41GetDeviceExtension(RxContext,pExt)        \
@@ -3794,6 +3801,18 @@ NTSTATUS map_volume_errors(
     }
 }
 
+void nfs41_create_volume_info(PFILE_FS_VOLUME_INFORMATION pVolInfo, DWORD *len)
+{
+    DECLARE_CONST_UNICODE_STRING(VolName, VOL_NAME);
+
+    RtlZeroMemory(pVolInfo, sizeof(FILE_FS_VOLUME_INFORMATION));
+    pVolInfo->VolumeSerialNumber = 0xBABAFACE;
+    pVolInfo->VolumeLabelLength = VolName.Length;
+    RtlCopyMemory(&pVolInfo->VolumeLabel[0], (PVOID)VolName.Buffer, 
+        VolName.MaximumLength);
+    *len = sizeof(FILE_FS_VOLUME_INFORMATION) + VolName.Length;
+}
+
 NTSTATUS nfs41_QueryVolumeInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -3807,6 +3826,8 @@ NTSTATUS nfs41_QueryVolumeInformation(
     __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    NFS41GetDeviceExtension(RxContext, DevExt);
+
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -3817,35 +3838,16 @@ NTSTATUS nfs41_QueryVolumeInformation(
 
     switch (InfoClass) {
     case FileFsVolumeInformation:
-    {
-        PFILE_FS_VOLUME_INFORMATION pVolInfo = RxContext->Info.Buffer;
-        DECLARE_CONST_UNICODE_STRING(Label, L"PnfsVolume");
-
-        if (RxContext->Info.LengthRemaining >= sizeof(FILE_FS_VOLUME_INFORMATION)) {
-            RtlZeroMemory(pVolInfo, sizeof(FILE_FS_VOLUME_INFORMATION));
-            pVolInfo->VolumeCreationTime.QuadPart = 0;
-            pVolInfo->VolumeSerialNumber = 0xBABAFACE;
-            pVolInfo->SupportsObjects = FALSE;
-            RxContext->Info.LengthRemaining -= sizeof(FILE_FS_VOLUME_INFORMATION);
-        } else {
-            status = STATUS_BUFFER_TOO_SMALL;
-            RxContext->InformationToReturn = 
-                sizeof(FILE_FS_VOLUME_INFORMATION) + Label.Length;
-            goto out;
-        }
-        if (RxContext->Info.LengthRemaining < Label.Length) {
-            status = STATUS_BUFFER_OVERFLOW;
-            goto out;
-        } else {
-            pVolInfo->VolumeLabelLength = Label.Length;
-            RtlCopyMemory(&pVolInfo->VolumeLabel[0], (PVOID)Label.Buffer, 
-                Label.Length);
-            RxContext->Info.LengthRemaining -= Label.Length;
+        if ((ULONG)RxContext->Info.LengthRemaining >= DevExt->VolAttrsLen) {
+            RtlCopyMemory(RxContext->Info.Buffer, DevExt->VolAttrs, 
+                DevExt->VolAttrsLen);
+            RxContext->Info.LengthRemaining -= DevExt->VolAttrsLen;
             status = STATUS_SUCCESS;
-            goto out;
+        } else {
+            RxContext->InformationToReturn = DevExt->VolAttrsLen;
+            status = STATUS_BUFFER_TOO_SMALL;            
         }
-    }
-
+        goto out;
     case FileFsDeviceInformation:
     {
         PFILE_FS_DEVICE_INFORMATION pDevInfo = RxContext->Info.Buffer;
@@ -3856,7 +3858,6 @@ NTSTATUS nfs41_QueryVolumeInformation(
             RxContext->InformationToReturn = SizeUsed;
             goto out;
         }
-        RtlZeroMemory(pDevInfo, SizeUsed);
         pDevInfo->DeviceType = RxContext->pFcb->pNetRoot->DeviceType;
         pDevInfo->Characteristics = FILE_REMOTE_DEVICE | FILE_DEVICE_IS_MOUNTED;
         RxContext->Info.LengthRemaining -= SizeUsed;
@@ -5712,6 +5713,8 @@ NTSTATUS DriverEntry(
 
     RxDefineNode(dev_exts, NFS41_DEVICE_EXTENSION);
     dev_exts->DeviceObject = nfs41_dev;
+    nfs41_create_volume_info((PFILE_FS_VOLUME_INFORMATION)dev_exts->VolAttrs, 
+        &dev_exts->VolAttrsLen);
 
     RtlInitUnicodeString(&user_dev_name, NFS41_SHADOW_DEVICE_NAME);
     DbgP("calling IoCreateSymbolicLink %wZ %wZ\n", &user_dev_name, &dev_name);
