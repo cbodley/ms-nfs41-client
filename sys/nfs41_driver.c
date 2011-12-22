@@ -5570,6 +5570,19 @@ out:
     return status;
 }
 
+NTSTATUS nfs41_Unimplemented(
+    PRX_CONTEXT RxContext)
+{
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+NTSTATUS nfs41_AreFilesAliased(
+    PFCB a,
+    PFCB b)
+{
+    return STATUS_NOT_IMPLEMENTED;
+}
+
 NTSTATUS nfs41_init_ops()
 {
     DbgEn();
@@ -5666,6 +5679,13 @@ NTSTATUS nfs41_init_ops()
     nfs41_ops.MRxCompleteBufferingStateChangeRequest = 
         nfs41_CompleteBufferingStateChangeRequest;
     nfs41_ops.MRxIsValidDirectory     = nfs41_IsValidDirectory;
+
+    nfs41_ops.MRxTruncate = nfs41_Unimplemented;
+    nfs41_ops.MRxZeroExtend = nfs41_Unimplemented;
+    nfs41_ops.MRxAreFilesAliased = nfs41_AreFilesAliased;
+    nfs41_ops.MRxQueryQuotaInfo = nfs41_Unimplemented;
+    nfs41_ops.MRxSetQuotaInfo = nfs41_Unimplemented;
+    nfs41_ops.MRxSetVolumeInfo = nfs41_Unimplemented;
 
     DbgR();
     return(STATUS_SUCCESS);
