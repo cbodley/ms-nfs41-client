@@ -1238,8 +1238,10 @@ NTSTATUS handle_upcall(
     unsigned char *pbOut = LowIoContext->ParamsFor.IoCtl.pOutputBuffer;
 
     status = SeImpersonateClientEx(entry->psec_ctx, NULL);
-    if (status != STATUS_SUCCESS)
+    if (status != STATUS_SUCCESS) {
         print_error("SeImpersonateClientEx failed %x\n", status);
+        goto out;
+    }
 
     switch(entry->opcode) {
     case NFS41_SHUTDOWN:
@@ -1306,6 +1308,7 @@ NTSTATUS handle_upcall(
     if (status == STATUS_SUCCESS)
         print_hexbuf(0, (unsigned char *)"upcall buffer", pbOut, *len);
 
+out:
     return status;
 }
 
@@ -1448,8 +1451,7 @@ process_upcall:
                 entry->state == NFS41_WAITING_FOR_UPCALL)
             entry->state = NFS41_WAITING_FOR_DOWNCALL;
         ExReleaseFastMutex(&entry->lock);
-        if (status == STATUS_INSUFFICIENT_RESOURCES) {
-            print_error("upcall buffer is too small\n");
+        if (status) {
             entry->status = status;
             KeSetEvent(&entry->cond, 0, FALSE);
             RxContext->InformationToReturn = 0;
