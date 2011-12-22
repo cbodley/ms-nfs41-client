@@ -222,7 +222,7 @@ typedef struct _updowncall_entry {
         struct {
             FS_INFORMATION_CLASS query;
             PVOID buf;
-            LONG buf_len;
+            ULONG buf_len;
         } Volume;
         struct {
             SECURITY_INFORMATION query;
@@ -1473,6 +1473,187 @@ out:
     return status;
 }
 
+void unmarshal_nfs41_header(
+    nfs41_updowncall_entry *tmp,
+    unsigned char **buf)
+{
+    RtlZeroMemory(tmp, sizeof(nfs41_updowncall_entry));
+
+    RtlCopyMemory(&tmp->xid, *buf, sizeof(tmp->xid));
+    *buf += sizeof(tmp->xid);
+    RtlCopyMemory(&tmp->opcode, *buf, sizeof(tmp->opcode));
+    *buf += sizeof(tmp->opcode);
+    RtlCopyMemory(&tmp->status, *buf, sizeof(tmp->status));
+    *buf += sizeof(tmp->status);
+    RtlCopyMemory(&tmp->errno, *buf, sizeof(tmp->errno));
+    *buf += sizeof(tmp->errno);
+    DbgP("[downcall] xid=%lld opcode=%d status=%d errno=%d\n", tmp->xid, 
+        tmp->opcode, tmp->status, tmp->errno);
+}
+
+void unmarshal_nfs41_mount(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    RtlCopyMemory(&cur->session, *buf, sizeof(HANDLE));
+    *buf += sizeof(HANDLE);
+    RtlCopyMemory(&cur->version, *buf, sizeof(DWORD));
+    DbgP("[mount] session pointer 0x%x version %d\n", cur->session, 
+        cur->version);
+}
+
+NTSTATUS unmarshal_nfs41_rw(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    RtlCopyMemory(&cur->u.ReadWrite.len, *buf, sizeof(cur->u.ReadWrite.len));
+    DbgP("[read/write] returned len %ld\n", cur->u.ReadWrite.len);
+#if 1
+    /* 08/27/2010: it looks like we really don't need to call 
+        * MmUnmapLockedPages() eventhough we called 
+        * MmMapLockedPagesSpecifyCache() as the MDL passed to us
+        * is already locked. 
+        */
+    __try {
+        MmUnmapLockedPages(cur->u.ReadWrite.buf, cur->u.ReadWrite.MdlAddress);
+    } __except(EXCEPTION_EXECUTE_HANDLER) { 
+        NTSTATUS code; 
+        code = GetExceptionCode(); 
+        print_error("Call to MmUnmapLockedPages failed due to"
+            " exception 0x%0x\n", code);
+        status = STATUS_ACCESS_DENIED;
+    }
+#endif
+    return status;
+}
+
+NTSTATUS unmarshal_nfs41_open(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    RtlCopyMemory(&cur->u.Open.binfo, *buf, sizeof(FILE_BASIC_INFORMATION));
+    *buf += sizeof(FILE_BASIC_INFORMATION);
+    RtlCopyMemory(&cur->u.Open.sinfo, *buf, sizeof(FILE_STANDARD_INFORMATION));
+    *buf += sizeof(FILE_STANDARD_INFORMATION);
+    RtlCopyMemory(&cur->open_state, *buf, sizeof(HANDLE));
+    *buf += sizeof(HANDLE);
+    RtlCopyMemory(&cur->u.Open.mode, *buf, sizeof(DWORD));
+    *buf += sizeof(DWORD);
+    RtlCopyMemory(&cur->u.Open.changeattr, *buf, sizeof(LONGLONG));
+    *buf += sizeof(LONGLONG);
+    if (cur->errno == ERROR_REPARSE) {
+        RtlCopyMemory(&cur->u.Open.symlink_embedded, *buf, sizeof(BOOLEAN));
+        *buf += sizeof(BOOLEAN);
+        RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, *buf, 
+            sizeof(USHORT));
+        *buf += sizeof(USHORT);
+        cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength -
+            sizeof(WCHAR);
+        cur->u.Open.symlink.Buffer = RxAllocatePoolWithTag(NonPagedPool, 
+            cur->u.Open.symlink.MaximumLength, NFS41_MM_POOLTAG);
+        if (cur->u.Open.symlink.Buffer == NULL) {
+            cur->status = STATUS_INSUFFICIENT_RESOURCES;
+            status = STATUS_UNSUCCESSFUL;
+            goto out;
+        }
+        RtlCopyMemory(cur->u.Open.symlink.Buffer, *buf, 
+            cur->u.Open.symlink.MaximumLength);
+        DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
+    }
+    DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
+        cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr);
+out:
+    return status;
+}
+
+NTSTATUS unmarshal_nfs41_dirquery(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG buf_len;
+    
+    RtlCopyMemory(&buf_len, *buf, sizeof(ULONG));
+    DbgP("readdir reply size %d\n", buf_len);
+    *buf += sizeof(ULONG);
+    __try {
+        MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, cur->u.QueryFile.mdl);
+    } __except(EXCEPTION_EXECUTE_HANDLER) { 
+        NTSTATUS code; 
+        code = GetExceptionCode(); 
+        print_error("MmUnmapLockedPages thrown exception=0x%0x\n", code);
+        status = STATUS_ACCESS_DENIED;
+    }
+    if (buf_len > cur->u.QueryFile.buf_len)
+        cur->status = STATUS_BUFFER_TOO_SMALL;
+    cur->u.QueryFile.buf_len = buf_len;
+
+    return status;
+}
+
+void unmarshal_nfs41_attrget(
+    nfs41_updowncall_entry *cur,
+    PVOID attr_value,
+    ULONG *attr_len,
+    unsigned char **buf)
+{
+    ULONG buf_len;
+    RtlCopyMemory(&buf_len, *buf, sizeof(ULONG));
+    *buf += sizeof(ULONG);
+    *attr_len = buf_len;
+    if (buf_len > *attr_len) {
+        cur->status = STATUS_BUFFER_TOO_SMALL;        
+        return;
+    }
+    RtlCopyMemory(attr_value, *buf, buf_len);
+}
+
+NTSTATUS unmarshal_nfs41_getacl(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    DWORD buf_len;
+
+    RtlCopyMemory(&buf_len, *buf, sizeof(DWORD));
+    *buf += sizeof(DWORD);
+    cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
+        buf_len, NFS41_MM_POOLTAG);
+    if (cur->u.Acl.buf == NULL) {
+        cur->status = status = STATUS_INSUFFICIENT_RESOURCES;
+        goto out;
+    }
+    RtlCopyMemory(cur->u.Acl.buf, *buf, buf_len);
+    if (buf_len > cur->u.Acl.buf_len)
+        cur->status = STATUS_BUFFER_TOO_SMALL;
+    cur->u.Acl.buf_len = buf_len;
+
+out:
+    return status;
+}
+
+void unmarshal_nfs41_symlink(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    if (cur->u.Symlink.set)
+        return;
+    RtlCopyMemory(&cur->u.Symlink.target->Length, *buf, sizeof(USHORT));
+    *buf += sizeof(USHORT);
+    if (cur->u.Symlink.target->Length > 
+            cur->u.Symlink.target->MaximumLength) {
+        cur->status = STATUS_BUFFER_TOO_SMALL;
+        return;
+    }
+    RtlCopyMemory(cur->u.Symlink.target->Buffer, *buf,
+        cur->u.Symlink.target->Length);
+    cur->u.Symlink.target->Length -= sizeof(UNICODE_NULL);
+}
+
 NTSTATUS nfs41_downcall(
     IN PRX_CONTEXT RxContext)
 {
@@ -1492,18 +1673,7 @@ NTSTATUS nfs41_downcall(
     if (tmp == NULL)
         goto out;
 
-    RtlZeroMemory(tmp, sizeof(nfs41_updowncall_entry));
-
-    RtlCopyMemory(&tmp->xid, buf, sizeof(tmp->xid));
-    buf += sizeof(tmp->xid);
-    RtlCopyMemory(&tmp->opcode, buf, sizeof(tmp->opcode));
-    buf += sizeof(tmp->opcode);
-    RtlCopyMemory(&tmp->status, buf, sizeof(tmp->status));
-    buf += sizeof(tmp->status);
-    RtlCopyMemory(&tmp->errno, buf, sizeof(tmp->errno));
-    buf += sizeof(tmp->errno);
-    DbgP("[downcall] xid=%lld opcode=%d status=%d errno=%d\n", tmp->xid, 
-        tmp->opcode, tmp->status, tmp->errno);
+    unmarshal_nfs41_header(tmp, &buf);
 
     ExAcquireFastMutex(&downcallLock); 
     pEntry = &downcall->head;
@@ -1556,152 +1726,35 @@ NTSTATUS nfs41_downcall(
     if (!tmp->status) {
         switch (tmp->opcode) {
         case NFS41_MOUNT:
-            RtlCopyMemory(&cur->session, buf, sizeof(HANDLE));
-            buf += sizeof(HANDLE);
-            RtlCopyMemory(&cur->version, buf, sizeof(DWORD));
-            DbgP("[mount] session pointer 0x%x version %d\n", cur->session, 
-                cur->version);
+            unmarshal_nfs41_mount(cur, &buf);
             break;
         case NFS41_WRITE:
         case NFS41_READ:
-            RtlCopyMemory(&cur->u.ReadWrite.len, buf, 
-                sizeof(cur->u.ReadWrite.len));
-            DbgP("[read/write] returned len %ld\n", cur->u.ReadWrite.len);
-#if 1
-            /* 08/27/2010: it looks like we really don't need to call 
-             * MmUnmapLockedPages() eventhough we called 
-             * MmMapLockedPagesSpecifyCache() as the MDL passed to us
-             * is already locked. 
-             */
-            __try {
-                MmUnmapLockedPages(cur->u.ReadWrite.buf, 
-                    cur->u.ReadWrite.MdlAddress);
-            } __except(EXCEPTION_EXECUTE_HANDLER) { 
-                NTSTATUS code; 
-                code = GetExceptionCode(); 
-                print_error("Call to MmUnmapLockedPages failed due to"
-                    " exception 0x%0x\n", code);
-                status = STATUS_ACCESS_DENIED;
-            }
-#endif
+            status = unmarshal_nfs41_rw(cur, &buf);
             break;
         case NFS41_OPEN:
-            RtlCopyMemory(&cur->u.Open.binfo, buf, 
-                sizeof(FILE_BASIC_INFORMATION));
-            buf += sizeof(FILE_BASIC_INFORMATION);
-            RtlCopyMemory(&cur->u.Open.sinfo, buf, 
-                sizeof(FILE_STANDARD_INFORMATION));
-            buf += sizeof(FILE_STANDARD_INFORMATION);
-            RtlCopyMemory(&cur->open_state, buf, sizeof(HANDLE));
-            buf += sizeof(HANDLE);
-            RtlCopyMemory(&cur->u.Open.mode, buf, sizeof(DWORD));
-            buf += sizeof(DWORD);
-            RtlCopyMemory(&cur->u.Open.changeattr, buf, sizeof(LONGLONG));
-            buf += sizeof(LONGLONG);
-            if (tmp->errno == ERROR_REPARSE) {
-                RtlCopyMemory(&cur->u.Open.symlink_embedded, buf, 
-                    sizeof(BOOLEAN));
-                buf += sizeof(BOOLEAN);
-                RtlCopyMemory(&cur->u.Open.symlink.MaximumLength, buf, 
-                    sizeof(USHORT));
-                buf += sizeof(USHORT);
-                cur->u.Open.symlink.Length = cur->u.Open.symlink.MaximumLength -
-                    sizeof(WCHAR);
-                cur->u.Open.symlink.Buffer = RxAllocatePoolWithTag(NonPagedPool, 
-                    cur->u.Open.symlink.MaximumLength, NFS41_MM_POOLTAG);
-                if (cur->u.Open.symlink.Buffer == NULL) {
-                    cur->status = STATUS_INSUFFICIENT_RESOURCES;
-                    status = STATUS_UNSUCCESSFUL;
-                    break;
-                }
-                RtlCopyMemory(cur->u.Open.symlink.Buffer, buf, 
-                    cur->u.Open.symlink.MaximumLength);
-                DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
-            }
-            DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
-                cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr);
+            status = unmarshal_nfs41_open(cur, &buf);
             break;
         case NFS41_DIR_QUERY:
-            RtlCopyMemory(&tmp->u.QueryFile.buf_len, buf, sizeof(ULONG));
-            DbgP("readdir reply size %d\n", tmp->u.QueryFile.buf_len);
-            buf += sizeof(ULONG);
-            __try {
-                MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, 
-                    cur->u.QueryFile.mdl);
-            } __except(EXCEPTION_EXECUTE_HANDLER) { 
-                NTSTATUS code; 
-                code = GetExceptionCode(); 
-                print_error("Call to MmUnmapLockedPages failed due to"
-                    " exception 0x%0x\n", code);
-                status = STATUS_ACCESS_DENIED;
-            }
-            if (tmp->u.QueryFile.buf_len > cur->u.QueryFile.buf_len) {
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-                cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
-                break;
-            }
-            cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
+            status = unmarshal_nfs41_dirquery(cur, &buf);
             break;
         case NFS41_FILE_QUERY:
-            RtlCopyMemory(&tmp->u.QueryFile.buf_len, buf, sizeof(ULONG));
-            buf += sizeof(ULONG);
-            if (tmp->u.QueryFile.buf_len > cur->u.QueryFile.buf_len) {
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-                cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
-                break;
-            }
-            cur->u.QueryFile.buf_len = tmp->u.QueryFile.buf_len;
-            RtlCopyMemory(cur->u.QueryFile.buf, buf, tmp->u.QueryFile.buf_len);
+            unmarshal_nfs41_attrget(cur, cur->u.QueryFile.buf, 
+                &cur->u.QueryFile.buf_len, &buf);
             break;
         case NFS41_EA_GET:
-            RtlCopyMemory(&tmp->u.QueryEa.buf_len, buf, sizeof(ULONG));
-            buf += sizeof(ULONG);
-            if (tmp->u.QueryEa.buf_len > cur->u.QueryEa.buf_len) {
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-                cur->u.QueryEa.buf_len = tmp->u.QueryEa.buf_len;
-                break;
-            }
-            cur->u.QueryEa.buf_len = tmp->u.QueryEa.buf_len;
-            RtlCopyMemory(cur->u.QueryEa.buf, buf, tmp->u.QueryEa.buf_len);
+            unmarshal_nfs41_attrget(cur, cur->u.QueryEa.buf, 
+                &cur->u.QueryEa.buf_len, &buf);
             break;
         case NFS41_SYMLINK:
-            if (cur->u.Symlink.set)
-                break;
-            RtlCopyMemory(&cur->u.Symlink.target->Length, buf, sizeof(USHORT));
-            buf += sizeof(USHORT);
-            if (cur->u.Symlink.target->Length > 
-                    cur->u.Symlink.target->MaximumLength) {
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-                break;
-            }
-            RtlCopyMemory(cur->u.Symlink.target->Buffer, buf,
-                cur->u.Symlink.target->Length);
-            cur->u.Symlink.target->Length -= sizeof(UNICODE_NULL);
+            unmarshal_nfs41_symlink(cur, &buf);
             break;
         case NFS41_VOLUME_QUERY:
-            RtlCopyMemory(&tmp->u.Volume.buf_len, buf, sizeof(LONG));
-            buf += sizeof(LONG);
-            if (tmp->u.Volume.buf_len > cur->u.Volume.buf_len) {
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-                cur->u.Volume.buf_len = tmp->u.Volume.buf_len;
-                break;
-            }
-            cur->u.Volume.buf_len = tmp->u.Volume.buf_len;
-            RtlCopyMemory(cur->u.Volume.buf, buf, tmp->u.Volume.buf_len);
+            unmarshal_nfs41_attrget(cur, cur->u.Volume.buf, 
+                &cur->u.Volume.buf_len, &buf);
             break;
         case NFS41_ACL_QUERY:
-            RtlCopyMemory(&tmp->u.Acl.buf_len, buf, sizeof(DWORD));
-            buf += sizeof(DWORD);
-            cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
-                tmp->u.Acl.buf_len, NFS41_MM_POOLTAG);
-            if (cur->u.Acl.buf == NULL) {
-                cur->status = status = STATUS_INSUFFICIENT_RESOURCES;
-                break;
-            }
-            RtlCopyMemory(cur->u.Acl.buf, buf, tmp->u.Acl.buf_len);
-            if (tmp->u.Acl.buf_len > cur->u.Acl.buf_len)
-                cur->status = STATUS_BUFFER_TOO_SMALL;
-            cur->u.Acl.buf_len = tmp->u.Acl.buf_len;
+            status = unmarshal_nfs41_getacl(cur, &buf);
             break;
         }
     }
@@ -3858,7 +3911,7 @@ NTSTATUS nfs41_QueryVolumeInformation(
                 (PFILE_FS_ATTRIBUTE_INFORMATION)RxContext->Info.Buffer;
             DECLARE_CONST_UNICODE_STRING(FsName, FS_NAME);
             entry->u.Volume.buf_len += FsName.Length;
-            if (entry->u.Volume.buf_len > RxContext->Info.LengthRemaining) {
+            if (entry->u.Volume.buf_len > (ULONG)RxContext->Info.LengthRemaining) {
                 RxContext->InformationToReturn = entry->u.Volume.buf_len;
                 status = STATUS_BUFFER_TOO_SMALL;
                 goto out;
