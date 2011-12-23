@@ -102,6 +102,9 @@
     <li>Uncomment the <code>ldap_hostname</code> and <code>ldap_base</code> lines, and configure as appropriate to match your ldap server configuration (we'll add suggestions later).</li>
 </ol>
 <h2>4. <a name="startup">Starting the Client</a></h2>
+<ul>
+    <li>If you've installed the binary distribution, you'll find two versions of the nfs client daemon: <strong>nfsd.exe</strong> and <strong>nfsd_debug.exe</strong>. <strong>nfsd.exe</strong> is built to run as a service, and does not provide easy access to debug output. We strongly recommend trying <strong>nfsd_debug.exe</strong> first (using the Instructions below) to verify that you can start the daemon and mount/unmount an nfs share. You can then close <strong>nfsd_debug.exe</strong> and start running <strong>nfsd.exe</strong> as a service with:<br /><code>&gt nfsd.exe -install</code>.</li>
+</ul>
 <h3>Instructions</h3>
 <ol>
     <li>From a Windows command prompt, run <strong>nfsd.exe</strong> to start the nfs client daemon. Leave this running in the background until all mapped drives are unmounted.
