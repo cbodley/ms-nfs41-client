@@ -428,8 +428,8 @@ out:
 
 enum pnfs_status pnfs_read(
     IN nfs41_root *root,
-    IN struct __nfs41_open_state *state,
-    IN const stateid_arg *stateid,
+    IN nfs41_open_state *state,
+    IN stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
@@ -443,13 +443,28 @@ enum pnfs_status pnfs_read(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, &state->file, stateid, layout,
-        buffer_out, offset, length, state->session->lease_time);
-    if (status) {
-        eprintf("pattern_init() failed with %s\n",
-            pnfs_error_string(status));
-        goto out;
+    AcquireSRWLockExclusive(&layout->lock);
+
+    /* get layouts/devices for the entire range; PNFS_PENDING means we
+     * dropped the lock to send an rpc, so repeat until it succeeds */
+    do {
+        status = pnfs_layout_state_prepare(layout, state->session,
+            &state->file, stateid, PNFS_IOMODE_READ, offset, length);
+    } while (status == PNFS_PENDING);
+
+    if (status == PNFS_SUCCESS) {
+        /* interpret the layout and set up threads for io */
+        status = pattern_init(&pattern, root, &state->file, stateid, layout,
+            buffer_out, offset, length, state->session->lease_time);
+        if (status)
+            eprintf("pattern_init() failed with %s\n",
+                pnfs_error_string(status));
     }
+
+    ReleaseSRWLockExclusive(&layout->lock);
+
+    if (status)
+        goto out;
 
     status = pattern_fork(&pattern, file_layout_read_thread);
     if (status != PNFS_SUCCESS && status != PNFS_READ_EOF)
@@ -507,7 +522,7 @@ static enum pnfs_status layout_commit(
 enum pnfs_status pnfs_write(
     IN nfs41_root *root,
     IN nfs41_open_state *state,
-    IN const stateid_arg *stateid,
+    IN stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
@@ -524,13 +539,28 @@ enum pnfs_status pnfs_write(
 
     *len_out = 0;
 
-    status = pattern_init(&pattern, root, &state->file, stateid, layout,
-        buffer, offset, length, state->session->lease_time);
-    if (status) {
-        eprintf("pattern_init() failed with %s\n",
-            pnfs_error_string(status));
-        goto out;
+    AcquireSRWLockExclusive(&layout->lock);
+
+    /* get layouts/devices for the entire range; PNFS_PENDING means we
+     * dropped the lock to send an rpc, so repeat until it succeeds */
+    do {
+        status = pnfs_layout_state_prepare(layout, state->session,
+            &state->file, stateid, PNFS_IOMODE_RW, offset, length);
+    } while (status == PNFS_PENDING);
+
+    if (status == PNFS_SUCCESS) {
+        /* interpret the layout and set up threads for io */
+        status = pattern_init(&pattern, root, &state->file, stateid, layout,
+            buffer, offset, length, state->session->lease_time);
+        if (status)
+            eprintf("pattern_init() failed with %s\n",
+                pnfs_error_string(status));
     }
+
+    ReleaseSRWLockExclusive(&layout->lock);
+
+    if (status)
+        goto out;
 
     status = pattern_fork(&pattern, file_layout_write_thread);
     /* on layout recall, we still attempt to commit what we wrote */

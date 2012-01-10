@@ -257,10 +257,17 @@ void pnfs_layout_list_free(
 
 enum pnfs_status pnfs_layout_state_open(
     IN struct __nfs41_open_state *state,
+    OUT pnfs_layout_state **layout_out);
+
+/* expects caller to hold an exclusive lock on pnfs_layout_state */
+enum pnfs_status pnfs_layout_state_prepare(
+    IN pnfs_layout_state *state,
+    IN struct __nfs41_session *session,
+    IN nfs41_path_fh *meta_file,
+    IN struct __stateid_arg *stateid,
     IN enum pnfs_iomode iomode,
     IN uint64_t offset,
-    IN uint64_t length,
-    OUT pnfs_layout_state **layout_out);
+    IN uint64_t length);
 
 void pnfs_layout_state_close(
     IN struct __nfs41_session *session,
@@ -271,6 +278,7 @@ enum pnfs_status pnfs_file_layout_recall(
     IN struct __nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall);
 
+/* expects caller to hold an exclusive lock on pnfs_layout_state */
 enum pnfs_status pnfs_layout_io_start(
     IN pnfs_layout_state *state);
 
@@ -361,7 +369,7 @@ __inline uint32_t data_server_index(
 enum pnfs_status pnfs_read(
     IN struct __nfs41_root *root,
     IN struct __nfs41_open_state *state,
-    IN const struct __stateid_arg *stateid,
+    IN struct __stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,
@@ -371,7 +379,7 @@ enum pnfs_status pnfs_read(
 enum pnfs_status pnfs_write(
     IN struct __nfs41_root *root,
     IN struct __nfs41_open_state *state,
-    IN const struct __stateid_arg *stateid,
+    IN struct __stateid_arg *stateid,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
     IN uint64_t length,

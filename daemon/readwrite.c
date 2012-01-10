@@ -114,8 +114,7 @@ static int read_from_pnfs(
     enum pnfs_status pnfsstat;
     int status = NO_ERROR;
 
-    if (pnfs_layout_state_open(upcall->state_ref, PNFS_IOMODE_READ, 
-            args->offset, args->len, &layout)) {
+    if (pnfs_layout_state_open(upcall->state_ref, &layout)) {
         status = ERROR_NOT_SUPPORTED;
         goto out;
     }
@@ -250,15 +249,14 @@ out_verify_failed:
 
 static int write_to_pnfs(
     IN nfs41_upcall *upcall,
-    IN const stateid_arg *stateid)
+    IN stateid_arg *stateid)
 {
     readwrite_upcall_args *args = &upcall->args.rw;
     pnfs_layout_state *layout;
     int status = NO_ERROR;
     nfs41_file_info info = { 0 };
 
-    if (pnfs_layout_state_open(upcall->state_ref, PNFS_IOMODE_RW, args->offset, 
-            args->len, &layout)) {
+    if (pnfs_layout_state_open(upcall->state_ref, &layout)) {
         status = ERROR_NOT_SUPPORTED;
         goto out;
     }
