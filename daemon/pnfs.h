@@ -51,6 +51,7 @@ struct __nfs41_client;
 struct __nfs41_session;
 struct __nfs41_open_state;
 struct __nfs41_root;
+struct __stateid_arg;
 
 
 /* pnfs error values, in order of increasing severity */
@@ -210,41 +211,6 @@ typedef struct __pnfs_layout_recall {
 } pnfs_layout_recall;
 
 
-/* io */
-struct __stateid_arg;
-typedef struct __pnfs_io_pattern {
-    struct __pnfs_io_thread *threads;
-    struct __nfs41_root     *root;
-    nfs41_path_fh           *meta_file;
-    const struct __stateid_arg *stateid;
-    pnfs_layout_state       *state;
-    unsigned char           *buffer;
-    uint64_t                offset_start;
-    uint64_t                offset_end;
-    uint32_t                count;
-    uint32_t                default_lease;
-} pnfs_io_pattern;
-
-typedef struct __pnfs_io_thread {
-    pnfs_io_pattern         *pattern;
-    pnfs_file_layout        *layout;
-    nfs41_path_fh           *file;
-    uint64_t                offset;
-    uint32_t                id;
-    enum stable_how4        stable;
-} pnfs_io_thread;
-
-typedef struct __pnfs_io_unit {
-    unsigned char           *buffer;
-    uint64_t                offset;
-    uint64_t                length;
-    uint32_t                stripeid;
-    uint32_t                serverid;
-} pnfs_io_unit;
-
-typedef uint32_t (WINAPI *pnfs_io_thread_fn)(void*);
-
-
 /* pnfs_layout.c */
 struct pnfs_layout_list;
 struct cb_layoutrecall_args;
@@ -286,23 +252,6 @@ void pnfs_layout_io_finished(
     IN pnfs_layout_state *state);
 
 
-__inline int is_dense(
-    IN const pnfs_file_layout *layout)
-{
-    return (layout->util & NFL4_UFLG_DENSE) != 0;
-}
-__inline int should_commit_to_mds(
-    IN const pnfs_file_layout *layout)
-{
-    return (layout->util & NFL4_UFLG_COMMIT_THRU_MDS) != 0;
-}
-__inline uint32_t layout_unit_size(
-    IN const pnfs_file_layout *layout)
-{
-    return layout->util & NFL4_UFLG_STRIPE_UNIT_SIZE_MASK;
-}
-
-
 /* pnfs_device.c */
 struct pnfs_file_device_list;
 
@@ -337,6 +286,45 @@ enum pnfs_status pnfs_data_server_client(
     OUT struct __nfs41_client **client_out);
 
 
+/* pnfs_io.c */
+enum pnfs_status pnfs_read(
+    IN struct __nfs41_root *root,
+    IN struct __nfs41_open_state *state,
+    IN struct __stateid_arg *stateid,
+    IN pnfs_layout_state *layout,
+    IN uint64_t offset,
+    IN uint64_t length,
+    OUT unsigned char *buffer_out,
+    OUT ULONG *len_out);
+
+enum pnfs_status pnfs_write(
+    IN struct __nfs41_root *root,
+    IN struct __nfs41_open_state *state,
+    IN struct __stateid_arg *stateid,
+    IN pnfs_layout_state *layout,
+    IN uint64_t offset,
+    IN uint64_t length,
+    IN unsigned char *buffer,
+    OUT ULONG *len_out,
+    OUT nfs41_file_info *cinfo);
+
+
+/* helper functions */
+__inline int is_dense(
+    IN const pnfs_file_layout *layout)
+{
+    return (layout->util & NFL4_UFLG_DENSE) != 0;
+}
+__inline int should_commit_to_mds(
+    IN const pnfs_file_layout *layout)
+{
+    return (layout->util & NFL4_UFLG_COMMIT_THRU_MDS) != 0;
+}
+__inline uint32_t layout_unit_size(
+    IN const pnfs_file_layout *layout)
+{
+    return layout->util & NFL4_UFLG_STRIPE_UNIT_SIZE_MASK;
+}
 __inline uint64_t stripe_unit_number(
     IN const pnfs_file_layout *layout,
     IN uint64_t offset,
@@ -365,28 +353,5 @@ __inline uint32_t data_server_index(
 {
     return device->stripes.arr[stripeid];
 }
-
-
-/* pnfs_io.c */
-enum pnfs_status pnfs_read(
-    IN struct __nfs41_root *root,
-    IN struct __nfs41_open_state *state,
-    IN struct __stateid_arg *stateid,
-    IN pnfs_layout_state *layout,
-    IN uint64_t offset,
-    IN uint64_t length,
-    OUT unsigned char *buffer_out,
-    OUT ULONG *len_out);
-
-enum pnfs_status pnfs_write(
-    IN struct __nfs41_root *root,
-    IN struct __nfs41_open_state *state,
-    IN struct __stateid_arg *stateid,
-    IN pnfs_layout_state *layout,
-    IN uint64_t offset,
-    IN uint64_t length,
-    IN unsigned char *buffer,
-    OUT ULONG *len_out,
-    OUT nfs41_file_info *cinfo);
 
 #endif /* !__PNFS_H__ */

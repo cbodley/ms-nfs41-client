@@ -30,6 +30,39 @@
 #define IOLVL 2 /* dprintf level for pnfs io logging */
 
 
+typedef struct __pnfs_io_pattern {
+    struct __pnfs_io_thread *threads;
+    nfs41_root              *root;
+    nfs41_path_fh           *meta_file;
+    const stateid_arg       *stateid;
+    pnfs_layout_state       *state;
+    unsigned char           *buffer;
+    uint64_t                offset_start;
+    uint64_t                offset_end;
+    uint32_t                count;
+    uint32_t                default_lease;
+} pnfs_io_pattern;
+
+typedef struct __pnfs_io_thread {
+    pnfs_io_pattern         *pattern;
+    pnfs_file_layout        *layout;
+    nfs41_path_fh           *file;
+    uint64_t                offset;
+    uint32_t                id;
+    enum stable_how4        stable;
+} pnfs_io_thread;
+
+typedef struct __pnfs_io_unit {
+    unsigned char           *buffer;
+    uint64_t                offset;
+    uint64_t                length;
+    uint32_t                stripeid;
+    uint32_t                serverid;
+} pnfs_io_unit;
+
+typedef uint32_t (WINAPI *pnfs_io_thread_fn)(void*);
+
+
 /* 13.4.2. Interpreting the File Layout Using Sparse Packing
  * http://tools.ietf.org/html/rfc5661#section-13.4.2 */
 
