@@ -218,7 +218,6 @@ typedef struct __pnfs_io_pattern {
     nfs41_path_fh           *meta_file;
     const struct __stateid_arg *stateid;
     pnfs_layout_state       *state;
-    pnfs_file_layout        *layout;
     unsigned char           *buffer;
     uint64_t                offset_start;
     uint64_t                offset_end;
@@ -228,13 +227,14 @@ typedef struct __pnfs_io_pattern {
 
 typedef struct __pnfs_io_thread {
     pnfs_io_pattern         *pattern;
+    pnfs_file_layout        *layout;
+    nfs41_path_fh           *file;
     uint64_t                offset;
     uint32_t                id;
     enum stable_how4        stable;
 } pnfs_io_thread;
 
 typedef struct __pnfs_io_unit {
-    nfs41_path_fh           *file;
     unsigned char           *buffer;
     uint64_t                offset;
     uint64_t                length;
@@ -336,29 +336,31 @@ enum pnfs_status pnfs_data_server_client(
     IN uint32_t default_lease,
     OUT struct __nfs41_client **client_out);
 
-enum pnfs_status pnfs_file_device_io_unit(
-    IN pnfs_io_pattern *pattern,
-    IN uint64_t offset,
-    OUT pnfs_io_unit *io);
-
 
 __inline uint64_t stripe_unit_number(
-    IN pnfs_file_layout *layout,
+    IN const pnfs_file_layout *layout,
     IN uint64_t offset,
     IN uint32_t unit_size)
 {
     const uint64_t relative_offset = offset - layout->pattern_offset;
     return relative_offset / unit_size;
 }
+__inline uint64_t stripe_unit_offset(
+    IN const pnfs_file_layout *layout,
+    IN uint64_t sui,
+    IN uint32_t unit_size)
+{
+    return layout->pattern_offset + unit_size * sui;
+}
 __inline uint32_t stripe_index(
-    IN pnfs_file_layout *layout,
+    IN const pnfs_file_layout *layout,
     IN uint64_t sui,
     IN uint32_t stripe_count)
 {
     return (uint32_t)((sui + layout->first_index) % stripe_count);
 }
 __inline uint32_t data_server_index(
-    IN pnfs_file_device *device,
+    IN const pnfs_file_device *device,
     IN uint32_t stripeid)
 {
     return device->stripes.arr[stripeid];

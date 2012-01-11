@@ -30,6 +30,72 @@
 #define IOLVL 2 /* dprintf level for pnfs io logging */
 
 
+/* 13.4.2. Interpreting the File Layout Using Sparse Packing
+ * http://tools.ietf.org/html/rfc5661#section-13.4.2 */
+
+static enum pnfs_status get_sparse_fh(
+    IN pnfs_file_layout *layout,
+    IN nfs41_path_fh *meta_file,
+    IN uint32_t stripeid,
+    OUT nfs41_path_fh **file_out)
+{
+    const uint32_t filehandle_count = layout->filehandles.count;
+    const uint32_t server_count = layout->device->servers.count;
+    enum pnfs_status status = PNFS_SUCCESS;
+
+    if (filehandle_count == server_count) {
+        const uint32_t serverid = data_server_index(layout->device, stripeid);
+        *file_out = &layout->filehandles.arr[serverid];
+    } else if (filehandle_count == 1) {
+        *file_out = &layout->filehandles.arr[0];
+    } else if (filehandle_count == 0) {
+        *file_out = meta_file;
+    } else {
+        eprintf("invalid sparse layout! has %u file handles "
+            "and %u servers\n", filehandle_count, server_count);
+        status = PNFSERR_INVALID_FH_LIST;
+    }
+    return status;
+}
+
+/* 13.4.3. Interpreting the File Layout Using Dense Packing
+* http://tools.ietf.org/html/rfc5661#section-13.4.3 */
+
+static enum pnfs_status get_dense_fh(
+    IN pnfs_file_layout *layout,
+    IN uint32_t stripeid,
+    OUT nfs41_path_fh **file_out)
+{
+    const uint32_t filehandle_count = layout->filehandles.count;
+    const uint32_t stripe_count = layout->device->stripes.count;
+    enum pnfs_status status = PNFS_SUCCESS;
+
+    if (filehandle_count == stripe_count) {
+        *file_out = &layout->filehandles.arr[stripeid];
+    } else {
+        eprintf("invalid dense layout! has %u file handles "
+            "and %u stripes\n", filehandle_count, stripe_count);
+        status = PNFSERR_INVALID_FH_LIST;
+    }
+    return status;
+}
+
+static enum pnfs_status thread_init(
+    IN pnfs_io_pattern *pattern,
+    IN pnfs_io_thread *thread,
+    IN pnfs_file_layout *layout,
+    IN uint32_t stripeid)
+{
+    thread->pattern = pattern;
+    thread->layout = layout;
+    thread->stable = FILE_SYNC4;
+    thread->offset = pattern->offset_start;
+    thread->id = stripeid;
+
+    return is_dense(layout) ? get_dense_fh(layout, stripeid, &thread->file)
+        : get_sparse_fh(layout, pattern->meta_file, stripeid, &thread->file);
+}
+
 static enum pnfs_status pattern_init(
     IN pnfs_io_pattern *pattern,
     IN nfs41_root *root,
@@ -41,20 +107,13 @@ static enum pnfs_status pattern_init(
     IN uint64_t length,
     IN uint32_t default_lease)
 {
-    uint64_t pos;
     uint32_t i;
     enum pnfs_status status;
-
-    /* take a reference on the layout so we don't return it during io */
-    status = pnfs_layout_io_start(state);
-    if (status)
-        goto out;
 
     pattern->count = state->layout->device->stripes.count;
     pattern->threads = calloc(pattern->count, sizeof(pnfs_io_thread));
     if (pattern->threads == NULL) {
         status = PNFSERR_RESOURCES;
-        pnfs_layout_io_finished(state);
         goto out;
     }
 
@@ -62,21 +121,28 @@ static enum pnfs_status pattern_init(
     pattern->meta_file = meta_file;
     pattern->stateid = stateid;
     pattern->state = state;
-    pattern->layout = state->layout;
     pattern->buffer = buffer;
     pattern->offset_start = offset;
     pattern->offset_end = offset + length;
     pattern->default_lease = default_lease;
 
-    pos = pattern->offset_start;
     for (i = 0; i < pattern->count; i++) {
-        pattern->threads[i].pattern = pattern;
-        pattern->threads[i].stable = FILE_SYNC4;
-        pattern->threads[i].offset = pattern->offset_start;
-        pattern->threads[i].id = i;
+        status = thread_init(pattern, &pattern->threads[i], state->layout, i);
+        if (status)
+            goto out_err_free;
     }
+
+    /* take a reference on the layout so we don't return it during io */
+    status = pnfs_layout_io_start(state);
+    if (status)
+        goto out_err_free;
 out:
     return status;
+
+out_err_free:
+    free(pattern->threads);
+    pattern->threads = NULL;
+    goto out;
 }
 
 static void pattern_free(
@@ -85,6 +151,54 @@ static void pattern_free(
     /* inform the layout that our io is finished */
     pnfs_layout_io_finished(pattern->state);
     free(pattern->threads);
+}
+
+static __inline uint64_t positive_remainder(
+    IN uint64_t dividend,
+    IN uint32_t divisor)
+{
+    const uint64_t remainder = dividend % divisor;
+    return remainder < divisor ? remainder : remainder + divisor;
+}
+
+/* return the next unit of the given stripeid */
+static enum pnfs_status stripe_next_unit(
+    IN const pnfs_file_layout *layout,
+    IN uint32_t stripeid,
+    IN uint64_t *position,
+    IN uint64_t offset_end,
+    OUT pnfs_io_unit *io)
+{
+    const uint32_t unit_size = layout_unit_size(layout);
+    const uint32_t stripe_count = layout->device->stripes.count;
+    uint64_t sui = stripe_unit_number(layout, *position, unit_size);
+
+    /* advance to the desired stripeid */
+    sui += abs(stripeid - stripe_index(layout, sui, stripe_count));
+
+    io->offset = stripe_unit_offset(layout, sui, unit_size);
+    if (io->offset < *position) /* don't start before position */
+        io->offset = *position;
+    else
+        *position = io->offset;
+
+    io->length = stripe_unit_offset(layout, sui + 1, unit_size);
+    if (io->length > offset_end) /* don't end past offset_end */
+        io->length = offset_end;
+
+    if (io->offset >= io->length) /* nothing to do, return success */
+        return PNFS_SUCCESS;
+
+    io->length -= io->offset;
+
+    if (is_dense(layout)) {
+        const uint64_t rel_offset = io->offset - layout->pattern_offset;
+        const uint64_t remainder = positive_remainder(rel_offset, unit_size);
+        const uint32_t stride = unit_size * stripe_count;
+
+        io->offset = (rel_offset / stride) * unit_size + remainder;
+    }
+    return PNFS_PENDING;
 }
 
 static enum pnfs_status thread_next_unit(
@@ -107,19 +221,11 @@ static enum pnfs_status thread_next_unit(
         goto out_unlock;
     }
 
-    /* loop until we find an io unit that matches this thread */
-    while (thread->offset < pattern->offset_end) {
-        status = pnfs_file_device_io_unit(pattern, thread->offset, io);
-        if (status)
-            break;
+    status = stripe_next_unit(thread->layout, thread->id,
+        &thread->offset, pattern->offset_end, io);
+    if (status == PNFS_PENDING)
+        io->buffer = pattern->buffer + thread->offset - pattern->offset_start;
 
-        if (io->stripeid == thread->id) {
-            status = PNFS_PENDING;
-            break;
-        }
-
-        thread->offset += io->length;
-    }
 out_unlock:
     ReleaseSRWLockShared(&state->lock);
     return status;
@@ -129,7 +235,7 @@ static enum pnfs_status thread_data_server(
     IN pnfs_io_thread *thread,
     OUT pnfs_data_server **server_out)
 {
-    pnfs_file_device *device = thread->pattern->layout->device;
+    pnfs_file_device *device = thread->layout->device;
     const uint32_t serverid = data_server_index(device, thread->id);
 
     if (serverid >= device->servers.count)
@@ -285,12 +391,12 @@ static uint32_t WINAPI file_layout_read_thread(void *args)
 
     total_read = 0;
     while ((status = thread_next_unit(thread, &io)) == PNFS_PENDING) {
-        maxreadsize = max_read_size(client->session, &io.file->fh);
+        maxreadsize = max_read_size(client->session, &thread->file->fh);
         if (io.length > maxreadsize)
             io.length = maxreadsize;
 
-        nfsstat = nfs41_read(client->session, io.file, &stateid, io.offset,
-            (uint32_t)io.length, io.buffer, &bytes_read, &eof);
+        nfsstat = nfs41_read(client->session, thread->file, &stateid,
+            io.offset, (uint32_t)io.length, io.buffer, &bytes_read, &eof);
         if (nfsstat) {
             eprintf("nfs41_read() failed with %s\n",
                 nfs_error_string(nfsstat));
@@ -322,9 +428,7 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
     pnfs_io_thread *thread = (pnfs_io_thread*)args;
     pnfs_io_pattern *pattern = thread->pattern;
     pnfs_data_server *server;
-    pnfs_file_layout *layout = pattern->layout;
     nfs41_client *client;
-    nfs41_path_fh *commit_file;
     const uint64_t offset_start = thread->offset;
     uint64_t commit_min, commit_max;
     uint32_t maxwritesize, bytes_written, total_written;
@@ -352,20 +456,20 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
     memcpy(&stateid, pattern->stateid, sizeof(stateid));
     stateid.stateid.seqid = 0;
 
+    maxwritesize = max_write_size(client->session, &thread->file->fh);
+
 retry_write:
     thread->offset = offset_start;
     thread->stable = FILE_SYNC4;
-    commit_file = NULL;
     commit_min = NFS4_UINT64_MAX;
     commit_max = 0;
     total_written = 0;
 
     while ((status = thread_next_unit(thread, &io)) == PNFS_PENDING) {
-        maxwritesize = max_write_size(client->session, &io.file->fh);
         if (io.length > maxwritesize)
             io.length = maxwritesize;
 
-        nfsstat = nfs41_write(client->session, io.file, &stateid, io.buffer,
+        nfsstat = nfs41_write(client->session, thread->file, &stateid, io.buffer,
             (uint32_t)io.length, io.offset, UNSTABLE4, &bytes_written, 
             &verf, NULL);
         if (nfsstat) {
@@ -379,8 +483,6 @@ retry_write:
 
         total_written += bytes_written;
         thread->offset += bytes_written;
-
-        commit_file = io.file;
 
         /* track the range for commit */
         if (commit_min > io.offset)
@@ -399,12 +501,12 @@ retry_write:
     if (thread->stable != UNSTABLE4)
         goto out;
     /* the metadata server expects us to commit there instead */
-    if (should_commit_to_mds(layout))
+    if (should_commit_to_mds(thread->layout))
         goto out;
 
     dprintf(1, "sending COMMIT to data server for offset=%lld len=%lld\n",
         commit_min, commit_max - commit_min);
-    nfsstat = nfs41_commit(client->session, commit_file,
+    nfsstat = nfs41_commit(client->session, thread->file,
         commit_min, (uint32_t)(commit_max - commit_min), 0, &verf, NULL);
 
     if (nfsstat)
