@@ -367,7 +367,7 @@ VOID ServiceStart(DWORD argc, LPTSTR *argv)
         exit(0);
 
     nfs41_server_list_init();
-    cmd_args.ldap_enable = 0;
+
     if (cmd_args.ldap_enable) {
         status = nfs41_idmap_create(&idmapper);
         if (status) {
