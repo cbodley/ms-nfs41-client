@@ -2739,6 +2739,8 @@ NTSTATUS nfs41_CreateVNetRoot(
         goto out;
     }
 
+    pVNetRootContext->session = INVALID_HANDLE_VALUE;
+
     /* In order to cooperate with other network providers, we must
      * only claim paths of the form '\\server\nfs4\path' */
     status = has_nfs_prefix(pSrvCall->pSrvCallName, pNetRoot->pNetRootName);
@@ -3095,8 +3097,10 @@ NTSTATUS nfs41_FinalizeVNetRoot(
             pVNetRoot->pNetRoot->Type != NET_ROOT_WILD)
         status = STATUS_NOT_SUPPORTED;
 #ifdef STORE_MOUNT_SEC_CONTEXT
-    else
+    else if (pVNetRootContext->session != INVALID_HANDLE_VALUE) {
+        DbgP("nfs41_FinalizeVNetRoot: deleting security context\n");
         SeDeleteClientSecurity(&pVNetRootContext->mount_sec_ctx);
+    }
 #endif
     DbgEx();
     return status;
