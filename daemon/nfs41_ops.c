@@ -340,8 +340,6 @@ static void open_update_cache(
     IN nfs41_getattr_res *file_attrs)
 {
     struct nfs41_name_cache *cache = session_name_cache(session);
-    enum open_delegation_type4 delegation_type =
-        already_delegated ? OPEN_DELEGATE_NONE : delegation->type;
     uint32_t status;
 
     /* update the attributes of the parent directory */
@@ -355,7 +353,8 @@ static void open_update_cache(
 retry_cache_insert:
     AcquireSRWLockShared(&file->path->lock);
     status = nfs41_name_cache_insert(cache, file->path->path, &file->name,
-        &file->fh, file_attrs->info, changeinfo, delegation_type);
+        &file->fh, file_attrs->info, changeinfo,
+        already_delegated ? OPEN_DELEGATE_NONE : delegation->type);
     ReleaseSRWLockShared(&file->path->lock);
 
     if (status == ERROR_TOO_MANY_OPEN_FILES) {
