@@ -54,11 +54,13 @@ typedef struct __open_upcall_args {
     LONG open_owner_id;
     DWORD mode;
     LONGLONG changeattr;
+    HANDLE srv_open;
     BOOLEAN created;
     BOOLEAN symlink_embedded;
 } open_upcall_args;
 
 typedef struct __close_upcall_args {
+    HANDLE srv_open;
     const char *path;
     BOOLEAN remove;
     BOOLEAN renamed;

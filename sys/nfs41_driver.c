@@ -174,10 +174,12 @@ typedef struct _updowncall_entry {
             LONG open_owner_id;
             DWORD mode;
             LONGLONG changeattr;
+            HANDLE srv_open;
             BOOLEAN symlink_embedded;
         } Open;
         struct {
             PUNICODE_STRING filename;
+            HANDLE srv_open;
             BOOLEAN remove;
             BOOLEAN renamed;
         } Close;
@@ -615,7 +617,7 @@ NTSTATUS marshal_nfs41_open(
     else 
         tmp += *len;
     header_len = *len + length_as_ansi(entry->u.Open.filename) +
-        5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD);
+        5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD) + sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -638,14 +640,17 @@ NTSTATUS marshal_nfs41_open(
         sizeof(entry->u.Open.open_owner_id));
     tmp += sizeof(entry->u.Open.open_owner_id);
     RtlCopyMemory(tmp, &entry->u.Open.mode, sizeof(DWORD));
+    tmp += sizeof(DWORD);
+    RtlCopyMemory(tmp, &entry->u.Open.srv_open, sizeof(HANDLE));
 
     *len = header_len;
 
     DbgP("marshal_nfs41_open: mask=0x%x mode=0x%x attrs=0x%x opts=0x%x "
-         "dispo=0x%x open_owner_id=0x%x mode=%o\n", entry->u.Open.access_mask, 
-         entry->u.Open.access_mode, entry->u.Open.attrs, 
-         entry->u.Open.copts, entry->u.Open.disp,
-         entry->u.Open.open_owner_id, entry->u.Open.mode); 
+         "dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p\n", 
+         entry->u.Open.access_mask, entry->u.Open.access_mode, 
+         entry->u.Open.attrs, entry->u.Open.copts, entry->u.Open.disp,
+         entry->u.Open.open_owner_id, entry->u.Open.mode,
+         entry->u.Open.srv_open); 
 out:
     DbgEx();
     return status;
@@ -812,7 +817,7 @@ NTSTATUS marshal_nfs41_close(
         tmp += *len;
 
 
-    header_len = *len + sizeof(BOOLEAN);
+    header_len = *len + sizeof(BOOLEAN) + sizeof(HANDLE);
     if (entry->u.Close.remove)
         header_len += length_as_ansi(entry->u.Close.filename) +
             sizeof(BOOLEAN);
@@ -822,8 +827,10 @@ NTSTATUS marshal_nfs41_close(
         goto out;
     }
     RtlCopyMemory(tmp, &entry->u.Close.remove, sizeof(BOOLEAN));
+    tmp += sizeof(BOOLEAN);
+    RtlCopyMemory(tmp, &entry->u.Close.srv_open, sizeof(HANDLE));
     if (entry->u.Close.remove) {
-        tmp += sizeof(BOOLEAN);
+        tmp += sizeof(HANDLE);
         status = marshall_unicode_as_ansi(&tmp, entry->u.Close.filename);
         if (status) goto out;
         RtlCopyMemory(tmp, &entry->u.Close.renamed, sizeof(BOOLEAN));
@@ -831,8 +838,9 @@ NTSTATUS marshal_nfs41_close(
 
     *len = header_len;
 
-    DbgP("marshal_nfs41_close: remove=%d renamed=%d filename=%wZ\n", 
-         entry->u.Close.remove, entry->u.Close.renamed, entry->u.Close.filename);
+    DbgP("marshal_nfs41_close: remove=%d srv_open=%p renamed=%d "
+        "filename=%wZ\n", entry->u.Close.remove, entry->u.Close.srv_open, 
+        entry->u.Close.renamed, entry->u.Close.filename);
 out:
     DbgEx();
     return status;
@@ -1229,7 +1237,17 @@ NTSTATUS nfs41_invalidate_cache (
     IN PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_SUCCESS;
+    PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
+    unsigned char *buf = LowIoContext->ParamsFor.IoCtl.pInputBuffer;
+    ULONG flag = DISABLE_CACHING;
+    PMRX_SRV_OPEN srv_open;
+
     DbgEn();
+    RtlCopyMemory(&srv_open, buf, sizeof(HANDLE));
+
+    DbgP("nfs41_invalidate_cache: received srv_open=%p\n", srv_open);
+    if (MmIsAddressValid(srv_open))
+        RxChangeBufferingState((PSRV_OPEN)srv_open, ULongToPtr(flag), 1);
     DbgEx();
     return status;
 }
@@ -3253,6 +3271,7 @@ NTSTATUS nfs41_Create(
     entry->u.Open.attrs = params.FileAttributes;
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
+    entry->u.Open.srv_open = SrvOpen;
     if (isDataAccess(params.DesiredAccess))
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
@@ -3581,6 +3600,7 @@ NTSTATUS nfs41_CloseSrvOpen(
         pNetRootContext->nfs41d_version, &entry);
     if (status)
         goto out;
+    entry->u.Close.srv_open = SrvOpen;
     if (!RxContext->pFcb->OpenCount) {
         entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
         entry->u.Close.renamed = nfs41_fcb->Renamed;

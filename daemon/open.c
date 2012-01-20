@@ -211,6 +211,11 @@ static int do_open(
     /* allocate delegation state and register it with the client */
     nfs41_delegation_granted(state->session, &state->parent,
         &state->file, &delegation, TRUE, &deleg_state);
+    if (deleg_state) {
+        deleg_state->srv_open = state->srv_open;
+        dprintf(1, "do_open: received delegation: saving srv_open = %x\n", 
+            state->srv_open);
+    }
 
     AcquireSRWLockExclusive(&state->lock);
     /* update the stateid */
@@ -270,12 +275,15 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->mode, sizeof(DWORD));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->srv_open, sizeof(HANDLE));
+    if (status) goto out;
 
     dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
         "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
-        "(kernel) disposition=%d\n\topen_owner_id=%d mode=%o\n", 
-        args->path, args->access_mask, args->access_mode, args->file_attrs,
-        args->create_opts, args->disposition, args->open_owner_id, args->mode);
+        "(kernel) disposition=%d\n\topen_owner_id=%d mode=%o "
+        "srv_open=%x\n", args->path, args->access_mask, args->access_mode, 
+        args->file_attrs, args->create_opts, args->disposition, 
+        args->open_owner_id, args->mode, args->srv_open);
     print_disposition(2, args->disposition);
     print_access_mask(2, args->access_mask);
     print_share_mode(2, args->access_mode);
@@ -432,6 +440,7 @@ static int handle_open(nfs41_upcall *upcall)
             args->open_owner_id, status);
         goto out;
     }
+    state->srv_open = args->srv_open;
 
     // first check if windows told us it's a directory
     if (args->create_opts & FILE_DIRECTORY_FILE)
@@ -700,6 +709,8 @@ static int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
 
     status = safe_read(&buffer, &length, &args->remove, sizeof(BOOLEAN));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->srv_open, sizeof(HANDLE));
+    if (status) goto out;
     if (args->remove) {
         status = get_name(&buffer, &length, &args->path);
         if (status) goto out;
@@ -707,8 +718,9 @@ static int parse_close(unsigned char *buffer, uint32_t length, nfs41_upcall *upc
         if (status) goto out;
     }
 
-    dprintf(1, "parsing NFS41_CLOSE: remove=%d renamed=%d filename='%s'\n",
-        args->remove, args->renamed, args->remove ? args->path : "");
+    dprintf(1, "parsing NFS41_CLOSE: remove=%d srv_open=%x renamed=%d "
+        "filename='%s'\n", args->remove, args->srv_open, args->renamed, 
+        args->remove ? args->path : "");
 out:
     return status;
 }
@@ -741,6 +753,9 @@ static int handle_close(nfs41_upcall *upcall)
     /* return associated file layouts if necessary */
     if (state->type == NF4REG)
         pnfs_layout_state_close(state->session, state, args->remove);
+
+    if (state->srv_open == args->srv_open)
+        nfs41_delegation_remove_srvopen(state->session, &state->file);
 
     if (args->remove) {
         nfs41_component *name = &state->file.name;

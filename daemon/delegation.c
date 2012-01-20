@@ -30,6 +30,9 @@
 #include "util.h"
 #include "daemon_debug.h"
 
+#include <devioctl.h>
+#include "nfs41_driver.h" /* for making downcall to invalidate cache */
+#include "util.h"
 
 #define DGLVL 2 /* dprintf level for delegation logging */
 
@@ -273,6 +276,32 @@ static int delegation_return(
     nfs41_open_state *open;
     int status;
 
+    if (deleg->srv_open) {
+        /* make an upcall to the kernel: invalide data cache */
+        HANDLE pipe;
+        unsigned char inbuf[sizeof(HANDLE)], *buffer = inbuf; 
+        DWORD inbuf_len = sizeof(HANDLE), outbuf_len, dstatus;
+        uint32_t length;
+        dprintf(1, "delegation_return: making a downcall for srv_open=%x\n", 
+            deleg->srv_open);
+        pipe = CreateFile(NFS41_USER_DEVICE_NAME_A, GENERIC_READ|GENERIC_WRITE, 
+                FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        if (pipe == INVALID_HANDLE_VALUE) {
+            eprintf("delegation_return: Unable to open downcall pipe %d\n", 
+                GetLastError());
+            goto out_downcall;
+        }
+        length = inbuf_len;
+        safe_write(&buffer, &length, &deleg->srv_open, sizeof(HANDLE));
+
+        dstatus = DeviceIoControl(pipe, IOCTL_NFS41_INVALCACHE, inbuf, inbuf_len,
+            NULL, 0, (LPDWORD)&outbuf_len, NULL);
+        if (!dstatus)
+            eprintf("IOCTL_NFS41_INVALCACHE failed %d\n", GetLastError());
+        CloseHandle(pipe);
+    }
+out_downcall:
+
     /* recover opens and locks associated with the delegation */
     while (open = deleg_open_find(&client->state, deleg)) {
         status = nfs41_delegation_to_open(open, try_recovery);
@@ -481,6 +510,11 @@ int nfs41_delegate_open(
         stateid.type = STATEID_DELEG_FILE;
         memcpy(&stateid.stateid, &deleg->state.stateid, sizeof(stateid4));
     }
+    if (!status) {
+        dprintf(1, "nfs41_delegate_open: updating srv_open from %x to %x\n", 
+            deleg->srv_open, state->srv_open);
+        deleg->srv_open = state->srv_open;
+    }
     ReleaseSRWLockExclusive(&deleg->lock);
 
     if (status == NFS4ERR_DELEG_REVOKED)
@@ -581,6 +615,21 @@ out_unlock:
     return status;
 }
 
+void nfs41_delegation_remove_srvopen(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file)
+{
+    nfs41_delegation_state *deleg = NULL;
+
+    /* find a delegation for this file */
+    if (delegation_find(session->client, &file->fh, deleg_fh_cmp, &deleg) || !deleg)
+        return;
+    dprintf(1, "nfs41_delegation_remove_srvopen: removing reference to "
+        "srv_open=%x\n", deleg->srv_open);
+    AcquireSRWLockExclusive(&deleg->lock);
+    deleg->srv_open = NULL;
+    ReleaseSRWLockExclusive(&deleg->lock);
+}
 
 /* synchronous delegation return */
 #ifdef DELEGATION_RETURN_ON_CONFLICT

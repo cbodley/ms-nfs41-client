@@ -102,6 +102,8 @@ typedef struct __nfs41_delegation_state {
     CONDITION_VARIABLE cond;
 
     bool_t revoked; /* for recovery, accessed under client.state.lock */
+
+    HANDLE srv_open; /* for rdbss cache invalidation */
 } nfs41_delegation_state;
 
 typedef struct __nfs41_lock_state {
@@ -148,6 +150,8 @@ typedef struct __nfs41_open_state {
         struct list_entry list;
         uint32_t counter;
     } locks;
+
+    HANDLE srv_open; /* for data cache invalidation */
 } nfs41_open_state;
 
 typedef struct __nfs41_rpc_clnt {
