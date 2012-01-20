@@ -602,6 +602,8 @@ static int handle_open(nfs41_upcall *upcall)
                 nfs_to_basic_info(&info, &args->basic_info);
                 nfs_to_standard_info(&info, &args->std_info);
                 args->mode = info.mode;
+                if (state->delegation.state)
+                    args->deleg_type = state->delegation.state->state.type;
             }
         }
         if (status) {
@@ -635,6 +637,8 @@ static int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *
     status = safe_write(&buffer, length, &args->mode, sizeof(args->mode));
     if (status) goto out;
     status = safe_write(&buffer, length, &args->changeattr, sizeof(args->changeattr));
+    if (status) goto out;
+    status = safe_write(&buffer, length, &args->deleg_type, sizeof(args->deleg_type));
     if (status) goto out;
     if (upcall->last_error == ERROR_REPARSE) {
         unsigned short len = (args->symlink.len + 1) * sizeof(WCHAR);

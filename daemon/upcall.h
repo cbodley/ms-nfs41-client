@@ -55,6 +55,7 @@ typedef struct __open_upcall_args {
     DWORD mode;
     LONGLONG changeattr;
     HANDLE srv_open;
+    DWORD deleg_type;
     BOOLEAN created;
     BOOLEAN symlink_embedded;
 } open_upcall_args;

@@ -175,6 +175,7 @@ typedef struct _updowncall_entry {
             DWORD mode;
             LONGLONG changeattr;
             HANDLE srv_open;
+            DWORD deleg_type;
             BOOLEAN symlink_embedded;
         } Open;
         struct {
@@ -311,6 +312,7 @@ typedef struct _NFS41_MOUNT_CONFIG {
     BOOLEAN ReadOnly;
     BOOLEAN write_thru;
     BOOLEAN nocache;
+    BOOLEAN nocoherence;
     WCHAR srv_buffer[SERVER_NAME_BUFFER_SIZE];
     UNICODE_STRING SrvName;
     WCHAR mntpt_buffer[MAX_PATH];
@@ -351,6 +353,7 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     BOOLEAN                 read_only;
     BOOLEAN                 write_thru;
     BOOLEAN                 nocache;
+    BOOLEAN                 nocoherence;
 #define STORE_MOUNT_SEC_CONTEXT
 #ifdef STORE_MOUNT_SEC_CONTEXT
     SECURITY_CLIENT_CONTEXT mount_sec_ctx;
@@ -1572,6 +1575,8 @@ NTSTATUS unmarshal_nfs41_open(
     *buf += sizeof(DWORD);
     RtlCopyMemory(&cur->u.Open.changeattr, *buf, sizeof(LONGLONG));
     *buf += sizeof(LONGLONG);
+    RtlCopyMemory(&cur->u.Open.deleg_type, *buf, sizeof(DWORD));
+    *buf += sizeof(DWORD);
     if (cur->errno == ERROR_REPARSE) {
         RtlCopyMemory(&cur->u.Open.symlink_embedded, *buf, sizeof(BOOLEAN));
         *buf += sizeof(BOOLEAN);
@@ -1591,8 +1596,9 @@ NTSTATUS unmarshal_nfs41_open(
             cur->u.Open.symlink.MaximumLength);
         DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
     }
-    DbgP("[open] open_state 0x%x mode %o changeattr 0x%x\n",
-        cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr);
+    DbgP("[open] open_state 0x%x mode %o changeattr 0x%x deleg_type %d\n",
+        cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr, 
+        cur->u.Open.deleg_type);
 out:
     return status;
 }
@@ -2488,6 +2494,7 @@ void nfs41_MountConfig_InitDefaults(
     Config->ReadOnly = FALSE;
     Config->write_thru = FALSE;
     Config->nocache = FALSE;
+    Config->nocoherence = FALSE;
     Config->SrvName.Length = 0;
     Config->SrvName.MaximumLength = SERVER_NAME_BUFFER_SIZE;
     Config->SrvName.Buffer = Config->srv_buffer;
@@ -2580,6 +2587,10 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
         else if (wcsncmp(L"nocache", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
                 &Config->nocache);
+        }
+        else if (wcsncmp(L"nocoherence", Name, NameLen) == 0) {
+            status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
+                &Config->nocoherence);
         }
         else if (wcsncmp(L"rsize", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseDword(Option, &usValue,
@@ -2783,6 +2794,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         pVNetRootContext->read_only = Config.ReadOnly;
         pVNetRootContext->write_thru = Config.write_thru;
         pVNetRootContext->nocache = Config.nocache;
+        pVNetRootContext->nocoherence = Config.nocoherence;
     } else {
         /* use the SRV_CALL name (without leading \) as the hostname */
         Config.SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
@@ -3425,37 +3437,38 @@ NTSTATUS nfs41_Create(
             SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
             SrvOpen, SrvOpen->Key, ULongToPtr(flag));
     } else if (!file_changed && !nfs41_fcb->StandardInfo.Directory) {
-#if 0
-        SrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
-#else
-        // turn on read caching
-        if (pVNetRootContext->nocache)
-            SrvOpen->BufferingFlags = FCB_STATE_DISABLE_LOCAL_BUFFERING;
-        else {
-            if (params.DesiredAccess & FILE_READ_DATA)
-                SrvOpen->BufferingFlags |= 
-                    (FCB_STATE_READBUFFERING_ENABLED | 
-                    FCB_STATE_READCACHING_ENABLED);
-            // turn on write caching only if the file opened for both reading 
-            // and writingwe current CANT turn on write-only caching because 
-            // RDBSS translates a write into a read first which leads to a 
-            // NFS4ERR_IO error from the server because the file was opened 
-            // read-only.
-            if (/*(params.DesiredAccess & FILE_READ_DATA) && */
-                    (params.DesiredAccess & FILE_WRITE_DATA || 
-                    params.DesiredAccess & FILE_APPEND_DATA) && 
-                    !pVNetRootContext->write_thru)
-                SrvOpen->BufferingFlags |= 
-                    (FCB_STATE_WRITECACHING_ENABLED | 
-                    FCB_STATE_WRITEBUFFERING_ENABLED);
+        // windows does agressive write flushing (every 2s)
+        // thus we'll always turn on write buffering 
+        if ((!pVNetRootContext->nocoherence &&
+                (entry->u.Open.deleg_type == 2 && 
+                !(params.CreateOptions & FILE_WRITE_THROUGH))) ||
+             (pVNetRootContext->nocoherence &&
+                ((params.DesiredAccess & FILE_WRITE_DATA || 
+                params.DesiredAccess & FILE_APPEND_DATA) && 
+                !pVNetRootContext->write_thru &&
+                !(params.CreateOptions & FILE_WRITE_THROUGH)))) {
+            DbgP("nfs41_Create: enabling write buffering\n");
+            SrvOpen->BufferingFlags |= 
+                (FCB_STATE_WRITECACHING_ENABLED | 
+                FCB_STATE_WRITEBUFFERING_ENABLED);
         }
-#endif
-    }
 
-    if (params.CreateOptions & FILE_WRITE_THROUGH ||
-        params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) {
-            DbgP("Disable caching\n");
-            SrvOpen->BufferingFlags |= FCB_STATE_DISABLE_LOCAL_BUFFERING;
+        // if we received read delegation, turn on read buffering
+        if ((!pVNetRootContext->nocoherence &&
+                (entry->u.Open.deleg_type >= 1)) ||
+             (pVNetRootContext->nocoherence &&
+                (params.DesiredAccess & FILE_READ_DATA))) {
+            DbgP("nfs41_Create: enabling read buffering\n");
+            SrvOpen->BufferingFlags |= 
+                (FCB_STATE_READBUFFERING_ENABLED | 
+                FCB_STATE_READCACHING_ENABLED);
+        }
+
+        if (pVNetRootContext->nocache || 
+                (params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)) {
+            DbgP("nfs41_Create: disabling buffering\n");
+            SrvOpen->BufferingFlags = FCB_STATE_DISABLE_LOCAL_BUFFERING;
+        }
     }
 
     if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
@@ -4903,9 +4916,7 @@ void enable_caching(
     if (!flag)
         return;
 
-    RxIndicateChangeOfBufferingStateForSrvOpen(
-        SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
-        SrvOpen, SrvOpen->Key, ULongToPtr(flag));
+    RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
 }
 
 NTSTATUS map_readwrite_errors(
@@ -4982,13 +4993,14 @@ NTSTATUS nfs41_Read(
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
         nfs41_fcb->Flags = 0;
 
-        if (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
+        if (pVNetRootContext->nocoherence &&
+            (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
                 (SrvOpen->DesiredAccess & FILE_READ_DATA) &&
                 !pVNetRootContext->nocache &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_READBUFFERING_ENABLED | 
-                 FCB_STATE_READCACHING_ENABLED)))
+                 FCB_STATE_READCACHING_ENABLED))))
             enable_caching(SrvOpen);
     } else {
         status = map_readwrite_errors(entry->status);
@@ -5075,8 +5087,10 @@ NTSTATUS nfs41_Write(
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
         nfs41_fcb->Flags = 0;
-        
-        if (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
+
+        //re-enable write buffering
+        if (pVNetRootContext->nocoherence &&
+            (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
                 (SrvOpen->DesiredAccess & FILE_WRITE_DATA) &&
                 (SrvOpen->DesiredAccess & FILE_READ_DATA) &&
@@ -5084,7 +5098,7 @@ NTSTATUS nfs41_Write(
                 !pVNetRootContext->nocache &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_WRITEBUFFERING_ENABLED | 
-                 FCB_STATE_WRITECACHING_ENABLED)))
+                 FCB_STATE_WRITECACHING_ENABLED))))
             enable_caching(SrvOpen);
     } else {
         status = map_readwrite_errors(entry->status);
