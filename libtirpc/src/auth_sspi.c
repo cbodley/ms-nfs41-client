@@ -57,6 +57,7 @@ static struct auth_ops authsspi_ops = {
 
 struct rpc_sspi_data {
 	bool_t              established;	/* context established */
+    bool_t              inprogress;
 	sspi_buffer_desc    gc_wire_verf;	/* save GSS_S_COMPLETE NULL RPC verfier
                                          * to process at end of context negotiation*/
 	CLIENT              *clnt;		    /* client handle */
@@ -359,7 +360,7 @@ authsspi_refresh(AUTH *auth, void *tmp)
 
 	gd = AUTH_PRIVATE(auth);
 
-	if (gd->established && tmp == NULL)
+	if ((gd->established && tmp == NULL) || gd->inprogress)
 		return (TRUE);
     else if (tmp) {
         log_debug("trying to refresh credentials\n");
@@ -406,6 +407,7 @@ authsspi_refresh(AUTH *auth, void *tmp)
 						&ret_flags,
 						NULL);		/* time rec */
 #else
+        gd->inprogress = TRUE;
         out_desc.cBuffers = 1;
         out_desc.pBuffers = wtkn;
         out_desc.ulVersion = SECBUFFER_VERSION;
@@ -518,6 +520,7 @@ authsspi_refresh(AUTH *auth, void *tmp)
 				break;
 			}
 			gd->established = TRUE;
+            gd->inprogress = FALSE;
 			gd->gc.gc_proc = RPCSEC_SSPI_DATA;
 			gd->gc.gc_seq = 0;
 			gd->win = gr.gr_win;
