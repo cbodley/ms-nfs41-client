@@ -45,6 +45,7 @@ typedef struct __pnfs_io_pattern {
 } pnfs_io_pattern;
 
 typedef struct __pnfs_io_thread {
+    nfs41_write_verf        verf;
     pnfs_io_pattern         *pattern;
     pnfs_file_layout        *layout;
     nfs41_path_fh           *file;
@@ -552,7 +553,6 @@ static uint32_t WINAPI file_layout_write_thread(void *args)
 {
     pnfs_io_unit io;
     stateid_arg stateid;
-    nfs41_write_verf verf;
     pnfs_io_thread *thread = (pnfs_io_thread*)args;
     pnfs_io_pattern *pattern = thread->pattern;
     pnfs_data_server *server;
@@ -597,16 +597,16 @@ retry_write:
         if (io.length > maxwritesize)
             io.length = maxwritesize;
 
-        nfsstat = nfs41_write(client->session, thread->file, &stateid, io.buffer,
-            (uint32_t)io.length, io.offset, UNSTABLE4, &bytes_written, 
-            &verf, NULL);
+        nfsstat = nfs41_write(client->session, thread->file, &stateid,
+            io.buffer, (uint32_t)io.length, io.offset, UNSTABLE4,
+            &bytes_written, &thread->verf, NULL);
         if (nfsstat) {
             eprintf("nfs41_write() failed with %s\n",
                 nfs_error_string(nfsstat));
             status = map_ds_error(nfsstat, pattern->state, thread->layout);
             break;
         }
-        if (!verify_write(&verf, &thread->stable))
+        if (!verify_write(&thread->verf, &thread->stable))
             goto retry_write;
 
         total_written += bytes_written;
@@ -635,11 +635,11 @@ retry_write:
     dprintf(1, "sending COMMIT to data server for offset=%lld len=%lld\n",
         commit_min, commit_max - commit_min);
     nfsstat = nfs41_commit(client->session, thread->file,
-        commit_min, (uint32_t)(commit_max - commit_min), 0, &verf, NULL);
+        commit_min, (uint32_t)(commit_max - commit_min), 0, &thread->verf, NULL);
 
     if (nfsstat)
         status = map_ds_error(nfsstat, pattern->state, thread->layout);
-    else if (!verify_commit(&verf)) {
+    else if (!verify_commit(&thread->verf)) {
         /* resend the writes unless the layout was recalled */
         if (status != PNFSERR_LAYOUT_RECALLED)
             goto retry_write;
@@ -711,6 +711,54 @@ out:
     return status;
 }
 
+static enum pnfs_status mds_commit(
+    IN nfs41_open_state *state,
+    IN uint64_t offset,
+    IN uint32_t length,
+    IN const pnfs_io_pattern *pattern,
+    OUT nfs41_file_info *info)
+{
+    nfs41_write_verf verf;
+    enum nfsstat4 nfsstat;
+    enum pnfs_status status = PNFS_SUCCESS;
+    uint32_t i;
+
+    nfsstat = nfs41_commit(state->session,
+        &state->file, offset, length, 1, &verf, info);
+    if (nfsstat) {
+        eprintf("nfs41_commit() to mds failed with %s\n",
+            nfs_error_string(nfsstat));
+        status = PNFSERR_IO;
+        goto out;
+    }
+
+    /* 13.7. COMMIT through Metadata Server:
+     * If nfl_util & NFL4_UFLG_COMMIT_THRU_MDS is TRUE, then in order to
+     * maintain the current NFSv4.1 commit and recovery model, the data
+     * servers MUST return a common writeverf verifier in all WRITE
+     * responses for a given file layout, and the metadata server's
+     * COMMIT implementation must return the same writeverf. */
+    for (i = 0; i < pattern->count; i++) {
+        const pnfs_io_thread *thread = &pattern->threads[i];
+        if (thread->stable != UNSTABLE4) /* already committed */
+            continue;
+
+        if (!should_commit_to_mds(thread->layout)) {
+            /* commit to mds is not allowed on this layout */
+            eprintf("mds commit: failed to commit to data server\n");
+            status = PNFSERR_IO;
+            break;
+        }
+        if (memcmp(verf.verf, thread->verf.verf, NFS4_VERIFIER_SIZE) != 0) {
+            eprintf("mds commit verifier doesn't match ds write verifiers\n");
+            status = PNFSERR_IO;
+            break;
+        }
+    }
+out:
+    return status;
+}
+
 static enum pnfs_status layout_commit(
     IN nfs41_open_state *state,
     IN pnfs_layout_state *layout,
@@ -764,7 +812,6 @@ enum pnfs_status pnfs_write(
     pnfs_io_pattern pattern;
     enum stable_how4 stable;
     enum pnfs_status status;
-    enum nfsstat4 nfsstat;
 
     dprintf(IOLVL, "--> pnfs_write(%llu, %llu)\n", offset, length);
 
@@ -804,18 +851,8 @@ enum pnfs_status pnfs_write(
         goto out_free_pattern;
 
     if (stable == UNSTABLE4) {
-        nfs41_write_verf ignored;
-
-        /* not all data was committed, so commit to metadata server */
-        dprintf(1, "sending COMMIT to meta server for offset=%lld len=%lld\n",
-            offset, *len_out);
-        nfsstat = nfs41_commit(state->session, &state->file,
-            offset, *len_out, 1, &ignored, info);
-        if (nfsstat) {
-            dprintf(IOLVL, "nfs41_commit() failed with %s\n",
-                nfs_error_string(nfsstat));
-            status = PNFSERR_IO;
-        }
+        /* send COMMIT to the mds and verify against all ds writes */
+        status = mds_commit(state, offset, *len_out, &pattern, info);
     } else if (stable == DATA_SYNC4) {
         /* send LAYOUTCOMMIT to sync the metadata */
         status = layout_commit(state, layout, offset, *len_out, info);
