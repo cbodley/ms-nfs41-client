@@ -629,6 +629,7 @@ void nfs41_delegation_remove_srvopen(
     AcquireSRWLockExclusive(&deleg->lock);
     deleg->srv_open = NULL;
     ReleaseSRWLockExclusive(&deleg->lock);
+    nfs41_delegation_deref(deleg);
 }
 
 /* synchronous delegation return */
