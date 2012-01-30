@@ -84,11 +84,6 @@ enum pnfs_iomode {
 };
 
 enum pnfs_layout_status {
-    /* LAYOUTGET was successful, and the layout has not been returned or
-     * otherwise revoked by the server */
-    PNFS_LAYOUT_GRANTED     = 0x01,
-    /* GETDEVICEINFO was successful, and we have a valid 'device' pointer */
-    PNFS_LAYOUT_HAS_DEVICE  = 0x02,
     /* CB_LAYOUTRECALL indicated that the server has recalled this layout,
      * and it should be returned on completion of any pending io */
     PNFS_LAYOUT_RECALLED    = 0x04,
@@ -162,7 +157,7 @@ typedef struct __pnfs_layout_state {
     nfs41_fh                meta_fh;
     stateid4                stateid;
     struct list_entry       entry; /* position in nfs41_client.layouts */
-    struct __pnfs_file_layout *layout;
+    struct list_entry       layouts; /* list of pnfs_file_layouts */
     enum pnfs_layout_status status;
     bool_t                  return_on_close;
     LONG                    open_count; /* for return on last close */
@@ -245,7 +240,7 @@ enum pnfs_status pnfs_file_layout_recall(
     IN const struct cb_layoutrecall_args *recall);
 
 /* expects caller to hold an exclusive lock on pnfs_layout_state */
-enum pnfs_status pnfs_layout_io_start(
+void pnfs_layout_io_start(
     IN pnfs_layout_state *state);
 
 void pnfs_layout_io_finished(

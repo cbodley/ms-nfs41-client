@@ -606,7 +606,7 @@ static uint32_t stateid_array(
 
         if (open->layout) { /* layout stateid? */
             AcquireSRWLockShared(&open->layout->lock);
-            if (open->layout->status & PNFS_LAYOUT_GRANTED) {
+            if (open->layout->stateid.seqid) {
                 memcpy(&stateids[i].stateid, &open->layout->stateid, sizeof(stateid4));
                 stateids[i].type = STATEID_LAYOUT;
                 stateids[i].open = open;
