@@ -84,13 +84,6 @@ enum pnfs_iomode {
 };
 
 enum pnfs_layout_status {
-    /* CB_LAYOUTRECALL indicated that the server has recalled this layout,
-     * and it should be returned on completion of any pending io */
-    PNFS_LAYOUT_RECALLED    = 0x04,
-    /* CB_LAYOUTRECALL indicated that the layout is changing, and "the client
-     * SHOULD NOT write and commit modified data to the storage devices!" */
-    PNFS_LAYOUT_CHANGED     = 0x08,
-
     /* a LAYOUTGET error indicated that this layout will never be granted */
     PNFS_LAYOUT_UNAVAILABLE = 0x10,
     /* LAYOUTGET returned BADIOMODE, so a RW layout will never be granted */
@@ -158,6 +151,7 @@ typedef struct __pnfs_layout_state {
     stateid4                stateid;
     struct list_entry       entry; /* position in nfs41_client.layouts */
     struct list_entry       layouts; /* list of pnfs_file_layouts */
+    struct list_entry       recalls; /* list of pnfs_layouts */
     enum pnfs_layout_status status;
     bool_t                  return_on_close;
     LONG                    open_count; /* for return on last close */
@@ -189,21 +183,6 @@ typedef struct __pnfs_file_layout {
     uint32_t                first_index;
     uint32_t                util;
 } pnfs_file_layout;
-
-typedef struct __pnfs_layout_recall {
-    enum pnfs_layout_type   type;
-    enum pnfs_iomode        iomode;
-    bool_t                  changed;
-
-    enum pnfs_return_type   recall;
-    union {
-        struct {
-            nfs41_fh        fh;
-            stateid4        stateid;
-        } file;
-        nfs41_fsid          fsid;
-    } args;
-} pnfs_layout_recall;
 
 
 /* pnfs_layout.c */
@@ -238,6 +217,15 @@ void pnfs_layout_state_close(
 enum pnfs_status pnfs_file_layout_recall(
     IN struct __nfs41_client *client,
     IN const struct cb_layoutrecall_args *recall);
+
+/* expects caller to hold a shared lock on pnfs_layout_state */
+enum pnfs_status pnfs_layout_recall_status(
+    IN const pnfs_layout_state *state,
+    IN const pnfs_layout *layout);
+
+void pnfs_layout_recall_fenced(
+    IN pnfs_layout_state *state,
+    IN const pnfs_layout *layout);
 
 /* expects caller to hold an exclusive lock on pnfs_layout_state */
 void pnfs_layout_io_start(

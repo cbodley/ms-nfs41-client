@@ -55,6 +55,7 @@ static enum pnfs_status layout_state_create(
 
     fh_copy(&layout->meta_fh, meta_fh);
     list_init(&layout->layouts);
+    list_init(&layout->recalls);
     InitializeSRWLock(&layout->lock);
     InitializeConditionVariable(&layout->cond);
 
@@ -80,10 +81,20 @@ static void layout_state_free_layouts(
     list_init(&state->layouts);
 }
 
+static void layout_state_free_recalls(
+    IN pnfs_layout_state *state)
+{
+    struct list_entry *entry, *tmp;
+    list_for_each_tmp(entry, tmp, &state->recalls)
+        free(layout_entry(entry));
+    list_init(&state->recalls);
+}
+
 static void layout_state_free(
     IN pnfs_layout_state *state)
 {
     layout_state_free_layouts(state);
+    layout_state_free_recalls(state);
     free(state);
 }
 
@@ -702,13 +713,18 @@ enum pnfs_status pnfs_layout_state_prepare(
     IN uint64_t length)
 {
     unsigned char deviceid[PNFS_DEVICEID_SIZE];
+    struct list_entry *entry;
     uint64_t missing;
     enum pnfs_status status;
 
-    /* check for layout recall */
-    if (state->status & PNFS_LAYOUT_RECALLED) {
-        status = PNFSERR_LAYOUT_RECALLED;
-        goto out;
+    /* fail if the range intersects any pending recalls */
+    list_for_each(entry, &state->recalls) {
+        const pnfs_layout *recall = layout_entry(entry);
+        if (offset <= recall->offset + recall->length
+            && recall->offset <= offset + length) {
+            status = PNFSERR_LAYOUT_RECALLED;
+            goto out;
+        }
     }
 
     /* if part of the given range is not covered by a layout,
@@ -849,26 +865,175 @@ void pnfs_layout_state_close(
 
 
 /* pnfs_layout_recall */
+struct layout_recall {
+    pnfs_layout layout;
+    bool_t changed;
+};
+#define recall_entry(pos) list_container(pos, struct layout_recall, layout.entry)
 
-/* expects the caller to have an exclusive lock */
-static void layout_recall_return(
+static bool_t layout_recall_compatible(
+    IN const pnfs_layout *layout,
+    IN const pnfs_layout *recall)
+{
+    return layout->type == recall->type
+        && layout->offset <= (recall->offset + recall->length)
+        && recall->offset <= (layout->offset + layout->length)
+        && (recall->iomode == PNFS_IOMODE_ANY ||
+            layout->iomode == recall->iomode);
+}
+
+static pnfs_file_layout* layout_allocate_copy(
+    IN const pnfs_file_layout *existing)
+{
+    /* allocate a segment to cover the end of the range */
+    pnfs_file_layout *layout = calloc(1, sizeof(pnfs_file_layout));
+    if (layout == NULL)
+        goto out;
+
+    memcpy(layout, existing, sizeof(pnfs_file_layout));
+
+    /* XXX: don't use the device from existing layout;
+     * we need to get a reference for ourselves */
+    layout->device = NULL;
+
+    /* allocate a copy of the filehandle array */
+    layout->filehandles.arr = calloc(layout->filehandles.count,
+        sizeof(nfs41_path_fh));
+    if (layout->filehandles.arr == NULL)
+        goto out_free;
+
+    memcpy(layout->filehandles.arr, existing->filehandles.arr,
+        layout->filehandles.count * sizeof(nfs41_path_fh));
+out:
+    return layout;
+
+out_free:
+    file_layout_free(layout);
+    layout = NULL;
+    goto out;
+}
+
+static void layout_recall_range(
+    IN pnfs_layout_state *state,
+    IN const pnfs_layout *recall)
+{
+    struct list_entry *entry, *tmp;
+    list_for_each_tmp(entry, tmp, &state->layouts) {
+        pnfs_file_layout *layout = file_layout_entry(entry);
+        const uint64_t layout_end = layout->layout.offset + layout->layout.length;
+
+        if (!layout_recall_compatible(&layout->layout, recall))
+            continue;
+        
+        if (recall->offset > layout->layout.offset) {
+            /* segment starts before recall; shrink length */
+            layout->layout.length = recall->offset - layout->layout.offset;
+
+            if (layout_end > recall->offset + recall->length) {
+                /* middle chunk of the segment is recalled;
+                 * allocate a new segment to cover the end */
+                pnfs_file_layout *remainder = layout_allocate_copy(layout);
+                if (remainder == NULL) {
+                    /* silently ignore allocation errors here. behave
+                     * as if we 'forgot' this last segment */
+                } else {
+                    layout->layout.offset = recall->offset + recall->length;
+                    layout->layout.length = layout_end - layout->layout.offset;
+                    layout_ordered_insert(state, &remainder->layout);
+                }
+            }
+        } else {
+            /* segment starts after recall */
+            if (layout_end <= recall->offset + recall->length) {
+                /* entire segment is recalled */
+                list_remove(&layout->layout.entry);
+                file_layout_free(layout);
+            } else {
+                /* beginning of segment is recalled; shrink offset/length */
+                layout->layout.offset = recall->offset + recall->length;
+                layout->layout.length = layout_end - layout->layout.offset;
+            }
+        }
+    }
+}
+
+static void layout_state_deferred_recalls(
     IN pnfs_layout_state *state)
 {
-    dprintf(FLLVL, "layout_recall_return() 'forgetting' layout\n");
+    struct list_entry *entry, *tmp;
+    list_for_each_tmp(entry, tmp, &state->recalls) {
+        /* process each deferred layout recall */
+        pnfs_layout *recall = layout_entry(entry);
+        layout_recall_range(state, recall);
 
-    layout_state_free_layouts(state);
+        /* remove/free the recall entry */
+        list_remove(&recall->entry);
+        free(recall);
+    }
+}
 
-    /* since we're forgetful, we don't actually return the layout;
-     * just zero the stateid since it won't be valid anymore */
-    ZeroMemory(&state->stateid, sizeof(state->stateid));
-    state->status = 0;
+static void layout_recall_entry_init(
+    OUT struct layout_recall *lrc,
+    IN const struct cb_layoutrecall_args *recall)
+{
+    list_init(&lrc->layout.entry);
+    if (recall->recall.type == PNFS_RETURN_FILE) {
+        lrc->layout.offset = recall->recall.args.file.offset;
+        lrc->layout.length = recall->recall.args.file.length;
+    } else {
+        lrc->layout.offset = 0;
+        lrc->layout.length = NFS4_UINT64_MAX;
+    }
+    lrc->layout.iomode = recall->iomode;
+    lrc->layout.type = PNFS_LAYOUTTYPE_FILE;
+    lrc->changed = recall->changed;
+}
+
+static enum pnfs_status layout_recall_merge(
+    IN struct list_entry *list,
+    IN pnfs_layout *from)
+{
+    struct list_entry *entry, *tmp;
+    enum pnfs_status status = PNFSERR_NO_LAYOUT;
+
+    /* attempt to merge the new recall with each existing recall */
+    list_for_each_tmp(entry, tmp, list) {
+        pnfs_layout *to = layout_entry(entry);
+        const uint64_t to_max = to->offset + to->length;
+        const uint64_t from_max = from->offset + from->length;
+
+        /* the ranges must meet or overlap */
+        if (to_max < from->offset || from_max < to->offset)
+            continue;
+
+        /* the following fields must match: */
+        if (to->iomode != from->iomode || to->type != from->type)
+            continue;
+
+        dprintf(FLLVL, "merging recalled range {%llu, %llu} with {%llu, %llu}\n",
+            to->offset, to->length, from->offset, from->length);
+
+        /* calculate the union of the two ranges */
+        to->offset = min(to->offset, from->offset);
+        to->length = max(to_max, from_max) - to->offset;
+
+        /* on success, remove/free the new segment */
+        list_remove(&from->entry);
+        free(from);
+        status = PNFS_SUCCESS;
+
+        /* because the existing segment 'to' has grown, we may
+         * be able to merge it with later segments */
+        from = to;
+    }
+    return status;
 }
 
 static enum pnfs_status file_layout_recall(
     IN pnfs_layout_state *state,
     IN const struct cb_layoutrecall_args *recall)
 {
-    const stateid4 *stateid_arg = &recall->recall.args.file.stateid;
+    const stateid4 *stateid = &recall->recall.args.file.stateid;
     enum pnfs_status status = PNFS_SUCCESS;
 
     /* under an exclusive lock, flag the layout as recalled */
@@ -877,26 +1042,42 @@ static enum pnfs_status file_layout_recall(
     if (state->stateid.seqid == 0) {
         /* return NOMATCHINGLAYOUT if it wasn't actually granted */
         status = PNFSERR_NO_LAYOUT;
-    } else if (recall->recall.type == PNFS_RETURN_FILE
-        && stateid_arg->seqid > state->stateid.seqid + 1) {
-        /* the server has processed an outstanding LAYOUTGET or LAYOUTRETURN;
-         * we must return ERR_DELAY until we get the response and update our
-         * view of the layout */
-        status = PNFS_PENDING;
-    } else if (state->io_count) {
-        /* flag the layout as recalled so it can be returned after io */
-        state->status |= PNFS_LAYOUT_RECALLED;
-        if (recall->changed)
-            state->status |= PNFS_LAYOUT_CHANGED;
+        goto out;
+    }
+    
+    if (recall->recall.type == PNFS_RETURN_FILE) {
+        /* detect races between CB_LAYOUTRECALL and LAYOUTGET/LAYOUTRETURN */
+        if (stateid->seqid > state->stateid.seqid + 1) {
+            /* the server has processed an outstanding LAYOUTGET or
+             * LAYOUTRETURN; we must return ERR_DELAY until we get the
+             * response and update our view of the layout */
+            status = PNFS_PENDING;
+            goto out;
+        }
 
-        /* if we got a stateid, update the layout's seqid */
-        if (recall->recall.type == PNFS_RETURN_FILE)
-            state->stateid.seqid = stateid_arg->seqid;
-    } else {
-        /* if there is no pending io, return the layout now */
-        layout_recall_return(state);
+        /* save the updated seqid */
+        state->stateid.seqid = stateid->seqid;
     }
 
+    if (state->io_count) {
+        /* save an entry for this recall, and process it once io finishes */
+        struct layout_recall *lrc = calloc(1, sizeof(struct layout_recall));
+        if (lrc == NULL) {
+            /* on failure to allocate, we'll have to respond
+             * to the CB_LAYOUTRECALL with NFS4ERR_DELAY */
+            status = PNFS_PENDING;
+            goto out;
+        }
+        layout_recall_entry_init(lrc, recall);
+        if (layout_recall_merge(&state->recalls, &lrc->layout) != PNFS_SUCCESS)
+            list_add_tail(&state->recalls, &lrc->layout.entry);
+    } else {
+        /* if there is no pending io, process the recall immediately */
+        struct layout_recall lrc = { 0 };
+        layout_recall_entry_init(&lrc, recall);
+        layout_recall_range(state, &lrc.layout);
+    }
+out:
     ReleaseSRWLockExclusive(&state->lock);
     return status;
 }
@@ -1026,6 +1207,51 @@ out:
     return status;
 }
 
+/* expects caller to hold a shared lock on pnfs_layout_state */
+enum pnfs_status pnfs_layout_recall_status(
+    IN const pnfs_layout_state *state,
+    IN const pnfs_layout *layout)
+{
+    struct list_entry *entry;
+    enum pnfs_status status = PNFS_SUCCESS;
+
+    /* search for a pending recall that intersects with the given segment */
+    list_for_each(entry, &state->recalls) {
+        const struct layout_recall *recall = recall_entry(entry);
+        if (!layout_recall_compatible(layout, &recall->layout))
+            continue;
+
+        if (recall->changed)
+            status = PNFSERR_LAYOUT_CHANGED;
+        else
+            status = PNFSERR_LAYOUT_RECALLED;
+        break;
+    }
+    return status;
+}
+
+void pnfs_layout_recall_fenced(
+    IN pnfs_layout_state *state,
+    IN const pnfs_layout *layout)
+{
+    struct layout_recall *lrc = calloc(1, sizeof(struct layout_recall));
+    if (lrc == NULL)
+        return;
+
+    AcquireSRWLockExclusive(&state->lock);
+
+    list_init(&lrc->layout.entry);
+    lrc->layout.offset = layout->offset;
+    lrc->layout.length = layout->length;
+    lrc->layout.iomode = layout->iomode;
+    lrc->layout.type = layout->type;
+    lrc->changed = TRUE;
+
+    if (layout_recall_merge(&state->recalls, &lrc->layout) != PNFS_SUCCESS)
+        list_add_tail(&state->recalls, &lrc->layout.entry);
+
+    ReleaseSRWLockExclusive(&state->lock);
+}
 
 /* expects caller to hold an exclusive lock on pnfs_layout_state */
 void pnfs_layout_io_start(
@@ -1051,9 +1277,8 @@ void pnfs_layout_io_finished(
     if (state->io_count > 0) /* more io pending */
         goto out_unlock;
 
-    /* once all io is finished, check for layout recalls */
-    if (state->status & PNFS_LAYOUT_RECALLED)
-        layout_recall_return(state);
+    /* once all io is finished, process any layout recalls */
+    layout_state_deferred_recalls(state);
 
     /* finish any segment merging that was delayed during io */
     if (!list_empty(&state->layouts))

@@ -332,19 +332,14 @@ static enum pnfs_status thread_next_unit(
 {
     pnfs_io_pattern *pattern = thread->pattern;
     pnfs_layout_state *state = pattern->state;
-    enum pnfs_status status = PNFS_SUCCESS;
+    enum pnfs_status status;
 
     AcquireSRWLockShared(&state->lock);
 
     /* stop io if the layout is recalled */
-    if (state->status & PNFS_LAYOUT_CHANGED) {
-        status = PNFSERR_LAYOUT_CHANGED;
+    status = pnfs_layout_recall_status(state, &thread->layout->layout);
+    if (status)
         goto out_unlock;
-    }
-    if (state->status & PNFS_LAYOUT_RECALLED) {
-        status = PNFSERR_LAYOUT_RECALLED;
-        goto out_unlock;
-    }
 
     status = stripe_next_unit(thread->layout, thread->id,
         &thread->offset, pattern->offset_end, io);
@@ -462,7 +457,8 @@ static uint64_t pattern_bytes_transferred(
 
 static enum pnfs_status map_ds_error(
     IN enum nfsstat4 nfsstat,
-    IN pnfs_layout_state *state)
+    IN pnfs_layout_state *state,
+    IN const pnfs_file_layout *layout)
 {
     switch (nfsstat) {
     case NO_ERROR:
@@ -477,10 +473,7 @@ static enum pnfs_status map_ds_error(
     case NFS4ERR_PNFS_NO_LAYOUT:
         dprintf(IOLVL, "data server fencing detected!\n");
 
-        AcquireSRWLockExclusive(&state->lock);
-        /* flag the layout for return once io is finished */
-        state->status |= PNFS_LAYOUT_RECALLED | PNFS_LAYOUT_CHANGED;
-        ReleaseSRWLockExclusive(&state->lock);
+        pnfs_layout_recall_fenced(state, &layout->layout);
 
         /* return CHANGED to prevent any further use of the layout */
         return PNFSERR_LAYOUT_CHANGED;
@@ -535,7 +528,7 @@ static uint32_t WINAPI file_layout_read_thread(void *args)
         if (nfsstat) {
             eprintf("nfs41_read() failed with %s\n",
                 nfs_error_string(nfsstat));
-            status = map_ds_error(nfsstat, pattern->state);
+            status = map_ds_error(nfsstat, pattern->state, thread->layout);
             break;
         }
 
@@ -610,7 +603,7 @@ retry_write:
         if (nfsstat) {
             eprintf("nfs41_write() failed with %s\n",
                 nfs_error_string(nfsstat));
-            status = map_ds_error(nfsstat, pattern->state);
+            status = map_ds_error(nfsstat, pattern->state, thread->layout);
             break;
         }
         if (!verify_write(&verf, &thread->stable))
@@ -645,7 +638,7 @@ retry_write:
         commit_min, (uint32_t)(commit_max - commit_min), 0, &verf, NULL);
 
     if (nfsstat)
-        status = map_ds_error(nfsstat, pattern->state);
+        status = map_ds_error(nfsstat, pattern->state, thread->layout);
     else if (!verify_commit(&verf)) {
         /* resend the writes unless the layout was recalled */
         if (status != PNFSERR_LAYOUT_RECALLED)
