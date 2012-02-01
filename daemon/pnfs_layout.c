@@ -228,6 +228,81 @@ static bool_t layout_sanity_check(
     return TRUE;
 }
 
+static int layout_filehandles_cmp(
+    IN const pnfs_file_layout_handles *lhs,
+    IN const pnfs_file_layout_handles *rhs)
+{
+    const uint32_t diff = rhs->count - lhs->count;
+    return diff ? diff : memcmp(rhs->arr, lhs->arr,
+        rhs->count * sizeof(nfs41_path_fh));
+}
+
+static bool_t layout_merge_segments(
+    IN pnfs_file_layout *to,
+    IN pnfs_file_layout *from)
+{
+    const uint64_t to_max = range_max(&to->layout);
+    const uint64_t from_max = range_max(&from->layout);
+
+    /* cannot merge a segment with itself */
+    if (to == from)
+        return FALSE;
+
+    /* the ranges must meet or overlap */
+    if (to_max < from->layout.offset || from_max < to->layout.offset)
+        return FALSE;
+
+    /* the following fields must match: */
+    if (to->layout.iomode != from->layout.iomode ||
+        to->layout.type != from->layout.type ||
+        layout_filehandles_cmp(&to->filehandles, &from->filehandles) != 0 ||
+        memcmp(to->deviceid, from->deviceid, PNFS_DEVICEID_SIZE) != 0 ||
+        to->pattern_offset != from->pattern_offset ||
+        to->first_index != from->first_index ||
+        to->util != from->util)
+        return FALSE;
+
+    dprintf(FLLVL, "merging layout range {%llu, %llu} with {%llu, %llu}\n",
+        to->layout.offset, to->layout.length,
+        from->layout.offset, from->layout.length);
+
+    /* calculate the union of the two ranges */
+    to->layout.offset = min(to->layout.offset, from->layout.offset);
+    to->layout.length = max(to_max, from_max) - to->layout.offset;
+    return TRUE;
+}
+
+static enum pnfs_status layout_state_merge(
+    IN pnfs_layout_state *state,
+    IN pnfs_file_layout *from)
+{
+    struct list_entry *entry, *tmp;
+    pnfs_file_layout *to;
+    enum pnfs_status status = PNFSERR_NO_LAYOUT;
+
+    /* attempt to merge the new segment with each existing segment */
+    list_for_each_tmp(entry, tmp, &state->layouts) {
+        to = file_layout_entry(entry);
+        if (!layout_merge_segments(to, from))
+            continue;
+
+        /* on success, remove/free the new segment */
+        list_remove(&from->layout.entry);
+        file_layout_free(from);
+        status = PNFS_SUCCESS;
+
+        /* because the existing segment 'to' has grown, we may
+         * be able to merge it with later segments */
+        from = to;
+
+        /* but if there could be io threads referencing this segment,
+         * we can't free it until io is finished */
+        if (state->io_count)
+            break;
+    }
+    return status;
+}
+
 static void layout_ordered_insert(
     IN pnfs_layout_state *state,
     IN pnfs_layout *layout)
@@ -272,11 +347,15 @@ static enum pnfs_status layout_update_range(
             continue;
         }
 
-        dprintf(FLLVL, "Saving layout:\n");
-        dprint_layout(FLLVL, layout);
+        /* attempt to merge the range with existing segments */
+        status = layout_state_merge(state, layout);
+        if (status) {
+            dprintf(FLLVL, "saving new layout:\n");
+            dprint_layout(FLLVL, layout);
 
-        layout_ordered_insert(state, &layout->layout);
-        status = PNFS_SUCCESS;
+            layout_ordered_insert(state, &layout->layout);
+            status = PNFS_SUCCESS;
+        }
     }
     return status;
 }
@@ -975,6 +1054,10 @@ void pnfs_layout_io_finished(
     /* once all io is finished, check for layout recalls */
     if (state->status & PNFS_LAYOUT_RECALLED)
         layout_recall_return(state);
+
+    /* finish any segment merging that was delayed during io */
+    if (!list_empty(&state->layouts))
+        layout_state_merge(state, file_layout_entry(state->layouts.next));
 
 out_unlock:
     ReleaseSRWLockExclusive(&state->lock);
