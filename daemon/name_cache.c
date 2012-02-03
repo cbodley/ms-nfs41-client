@@ -95,6 +95,7 @@ struct attr_cache_entry {
     uint32_t                time_modify_ns;
     uint32_t                numlinks;
     uint32_t                mode;
+    time_t                  expiration;
     unsigned                ref_count : 26;
     unsigned                type : 4;
     unsigned                invalidated : 1;
@@ -173,6 +174,13 @@ static __inline void attr_cache_entry_deref(
 
     if (entry->ref_count == 0)
         attr_cache_entry_free(cache, entry);
+}
+
+static __inline int attr_cache_entry_expired(
+    IN const struct attr_cache_entry *entry)
+{
+    return entry->invalidated ||
+        (!entry->delegated && time(NULL) > entry->expiration);
 }
 
 /* attr_cache */
@@ -285,6 +293,7 @@ static void attr_cache_update(
             entry->change = info->change;
             /* revalidate whenever we get a change attribute */
             entry->invalidated = 0;
+            entry->expiration = time(NULL) + NAME_CACHE_EXPIRATION;
         }
         if (info->attrmask.arr[0] & FATTR4_WORD0_SIZE)
             entry->size = info->size;
@@ -610,8 +619,8 @@ static int entry_invis(
         dprintf(NCLVL2, "name_entry_negative('%s')\n", entry->component);
         return 1;
     }
-    /* attribute entry invalidated? */
-    if (entry->attributes->invalidated) {
+    /* attribute entry expired? */
+    if (attr_cache_entry_expired(entry->attributes)) {
         dprintf(NCLVL2, "attr_entry_expired(%llu)\n",
             entry->attributes->fileid);
         return 1;
@@ -848,7 +857,7 @@ int nfs41_attr_cache_lookup(
     }
 
     entry = attr_cache_search(&cache->attributes, fileid);
-    if (entry == NULL) {
+    if (entry == NULL || attr_cache_entry_expired(entry)) {
         status = ERROR_FILE_NOT_FOUND;
         goto out_unlock;
     }
