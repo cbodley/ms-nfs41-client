@@ -785,13 +785,21 @@ static int handle_setacl(nfs41_upcall *upcall)
                 nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
     }
+    args->ctime = info.change;
     if (args->query & DACL_SECURITY_INFORMATION)
         free(nfs4_acl.aces);
 out:
     return status;
 }
 
+static int marshall_setacl(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+{
+    setacl_upcall_args *args = &upcall->args.setacl;
+    return safe_write(&buffer, length, &args->ctime, sizeof(args->ctime));
+}
+
 const nfs41_upcall_op nfs41_op_setacl = {
     parse_setacl,
     handle_setacl,
+    marshall_setacl
 };

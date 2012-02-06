@@ -235,6 +235,7 @@ typedef struct _updowncall_entry {
             SECURITY_INFORMATION query;
             PVOID buf;
             DWORD buf_len;
+            ULONGLONG ChangeTime;
         } Acl;
     } u;
 
@@ -1820,6 +1821,9 @@ NTSTATUS nfs41_downcall(
             break;
         case NFS41_EA_SET:
             unmarshal_nfs41_setattr(cur, &cur->u.SetEa.ChangeTime, &buf);
+            break;
+        case NFS41_ACL_SET:
+            unmarshal_nfs41_setattr(cur, &cur->u.Acl.ChangeTime, &buf);
             break;
         }
     }

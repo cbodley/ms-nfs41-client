@@ -170,6 +170,7 @@ typedef struct __getacl_upcall_args {
 typedef struct __setacl_upcall_args {
     SECURITY_INFORMATION query;
     PSECURITY_DESCRIPTOR sec_desc;
+    ULONGLONG ctime;
 } setacl_upcall_args;
 
 typedef union __upcall_args {
