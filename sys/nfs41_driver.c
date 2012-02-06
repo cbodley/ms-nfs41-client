@@ -194,6 +194,7 @@ typedef struct _updowncall_entry {
             BOOLEAN initial_query;
             PMDL mdl;
             PVOID mdl_buf;
+            ULONGLONG ChangeTime;
         } QueryFile;
         struct {
             PUNICODE_STRING filename;
@@ -1636,13 +1637,24 @@ void unmarshal_nfs41_attrget(
 {
     ULONG buf_len;
     RtlCopyMemory(&buf_len, *buf, sizeof(ULONG));
-    *buf += sizeof(ULONG);
-    *attr_len = buf_len;
     if (buf_len > *attr_len) {
         cur->status = STATUS_BUFFER_TOO_SMALL;        
         return;
     }
+    *buf += sizeof(ULONG);
+    *attr_len = buf_len;
     RtlCopyMemory(attr_value, *buf, buf_len);
+    *buf += buf_len;
+}
+
+void unmarshal_nfs41_getattr(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    unmarshal_nfs41_attrget(cur, cur->u.QueryFile.buf, 
+        &cur->u.QueryFile.buf_len, buf);
+    RtlCopyMemory(&cur->u.QueryFile.ChangeTime, *buf, sizeof(LONGLONG));
+    DbgP("[getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
 }
 
 NTSTATUS unmarshal_nfs41_getacl(
@@ -1772,8 +1784,7 @@ NTSTATUS nfs41_downcall(
             status = unmarshal_nfs41_dirquery(cur, &buf);
             break;
         case NFS41_FILE_QUERY:
-            unmarshal_nfs41_attrget(cur, cur->u.QueryFile.buf, 
-                &cur->u.QueryFile.buf_len, &buf);
+            unmarshal_nfs41_getattr(cur, &buf);
             break;
         case NFS41_EA_GET:
             unmarshal_nfs41_attrget(cur, cur->u.QueryEa.buf, 

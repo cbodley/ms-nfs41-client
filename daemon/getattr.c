@@ -104,6 +104,7 @@ static int handle_getattr(nfs41_upcall *upcall)
     switch (args->query_class) {
     case FileBasicInformation:
         nfs_to_basic_info(&info, &args->basic_info);
+        args->ctime = info.change;
         break;
     case FileStandardInformation:
         nfs_to_standard_info(&info, &args->std_info);
@@ -165,6 +166,8 @@ static int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcal
         status = 103;
         goto out;
     }
+    status = safe_write(&buffer, length, &args->ctime, sizeof(args->ctime));
+    if (status) goto out;
 out:
     return status;
 }

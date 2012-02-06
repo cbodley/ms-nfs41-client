@@ -96,6 +96,7 @@ typedef struct __getattr_upcall_args {
     int query_class;
     int buf_len;
     int query_reply_len;
+    ULONGLONG ctime;
 } getattr_upcall_args;
 
 typedef struct __setattr_upcall_args {
