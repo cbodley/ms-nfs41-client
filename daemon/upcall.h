@@ -107,6 +107,7 @@ typedef struct __setattr_upcall_args {
     unsigned char *buf;
     uint32_t buf_len;
     int set_class;
+    ULONGLONG ctime;
 } setattr_upcall_args;
 
 typedef struct __getexattr_upcall_args {
@@ -126,6 +127,7 @@ typedef struct __setexattr_upcall_args {
     unsigned char *buf;
     uint32_t buf_len;
     uint32_t mode;
+    ULONGLONG ctime;
 } setexattr_upcall_args;
 
 typedef struct __readdir_upcall_args {

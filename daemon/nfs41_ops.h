@@ -1170,7 +1170,8 @@ int nfs41_link(
     IN nfs41_path_fh *src,
     IN nfs41_path_fh *dst_dir,
     IN const nfs41_component *target,
-    OUT OPTIONAL nfs41_path_fh *link_out);
+    OUT OPTIONAL nfs41_path_fh *link_out,
+    OUT nfs41_file_info *cinfo);
 
 /* symlink.c */
 int nfs41_symlink_target(

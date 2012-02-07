@@ -127,6 +127,7 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
             nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
     }
+    args->ctime = info.change;
 out:
     return status;
 }
@@ -355,6 +356,7 @@ static int handle_nfs41_set_size(setattr_upcall_args *args)
     AcquireSRWLockExclusive(&state->lock);
     state->pnfs_last_offset = info.size ? info.size - 1 : 0;
     ReleaseSRWLockExclusive(&state->lock);
+    args->ctime = info.change;
 out:
     return status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
 }
@@ -368,6 +370,7 @@ static int handle_nfs41_link(setattr_upcall_args *args)
     nfs41_path_fh dst_dir, dst;
     nfs41_component dst_name;
     uint32_t depth = 0;
+    nfs41_file_info info = { 0 };
     int status;
 
     dst_path.len = (unsigned short)WideCharToMultiByte(CP_UTF8, 0,
@@ -449,12 +452,13 @@ static int handle_nfs41_link(setattr_upcall_args *args)
         OPEN_DELEGATE_READ, FALSE);
 
     status = nfs41_link(state->session, &state->file,
-        &dst_dir, &dst_name, NULL);
+        &dst_dir, &dst_name, NULL, &info);
     if (status) {
         dprintf(1, "nfs41_link() failed with error %s.\n",
             nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_INVALID_PARAMETER);
     }
+    args->ctime = info.change;
 out:
     return status;
 }
@@ -491,6 +495,11 @@ static int handle_setattr(nfs41_upcall *upcall)
     return status;
 }
 
+static int marshall_setattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+{
+    setattr_upcall_args *args = &upcall->args.setattr;
+    return safe_write(&buffer, length, &args->ctime, sizeof(args->ctime));
+}
 
 /* NFS41_EA_SET */
 static int parse_setexattr(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
@@ -548,6 +557,7 @@ static int handle_setexattr(nfs41_upcall *upcall)
                 nfs_error_string(status));
             return nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
         }
+        args->ctime = info.change;
     } else {
         status = nfs41_rpc_openattr(state->session, &state->file, TRUE, &parent.fh);
         if (status) {
@@ -612,12 +622,19 @@ out:
     return status;
 }
 
+static int marshall_setexattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
+{
+    setexattr_upcall_args *args = &upcall->args.setexattr;
+    return safe_write(&buffer, length, &args->ctime, sizeof(args->ctime));
+}
 
 const nfs41_upcall_op nfs41_op_setattr = {
     parse_setattr,
-    handle_setattr
+    handle_setattr,
+    marshall_setattr
 };
 const nfs41_upcall_op nfs41_op_setexattr = {
     parse_setexattr,
-    handle_setexattr
+    handle_setexattr,
+    marshall_setexattr
 };

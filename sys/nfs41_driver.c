@@ -202,12 +202,14 @@ typedef struct _updowncall_entry {
             PVOID buf;
             ULONG buf_len;
             FILE_INFORMATION_CLASS InfoClass;
+            ULONGLONG ChangeTime;
         } SetFile;
         struct {
             PUNICODE_STRING filename;
             PVOID buf;
             ULONG buf_len;
             DWORD mode;
+            ULONGLONG ChangeTime;
         } SetEa;
         struct {
             PUNICODE_STRING filename;
@@ -1534,6 +1536,15 @@ void unmarshal_nfs41_mount(
         cur->version);
 }
 
+VOID unmarshal_nfs41_setattr(
+    nfs41_updowncall_entry *cur,
+    PULONGLONG dest_buf,
+    unsigned char **buf)
+{
+    RtlCopyMemory(dest_buf, *buf, sizeof(ULONGLONG));
+    DbgP("[setattr] returned ChangeTime %llu\n", *dest_buf);
+}
+
 NTSTATUS unmarshal_nfs41_rw(
     nfs41_updowncall_entry *cur,
     unsigned char **buf)
@@ -1803,6 +1814,12 @@ NTSTATUS nfs41_downcall(
             break;
         case NFS41_ACL_QUERY:
             status = unmarshal_nfs41_getacl(cur, &buf);
+            break;
+        case NFS41_FILE_SET:
+            unmarshal_nfs41_setattr(cur, &cur->u.SetFile.ChangeTime, &buf);
+            break;
+        case NFS41_EA_SET:
+            unmarshal_nfs41_setattr(cur, &cur->u.SetEa.ChangeTime, &buf);
             break;
         }
     }
