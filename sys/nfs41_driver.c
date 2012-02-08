@@ -173,7 +173,7 @@ typedef struct _updowncall_entry {
             ULONG cattrs;
             LONG open_owner_id;
             DWORD mode;
-            LONGLONG changeattr;
+            ULONGLONG changeattr;
             HANDLE srv_open;
             DWORD deleg_type;
             BOOLEAN symlink_embedded;
@@ -372,7 +372,7 @@ typedef struct _NFS41_FCB {
     FILE_STANDARD_INFORMATION StandardInfo;
     BOOLEAN                 Renamed;
     DWORD                   mode;
-    LONGLONG                changeattr;
+    ULONGLONG                changeattr;
 } NFS41_FCB, *PNFS41_FCB;
 #define NFS41GetFcbExtension(pFcb)      \
         (((pFcb) == NULL) ? NULL : (PNFS41_FCB)((pFcb)->Context))
@@ -1574,8 +1574,8 @@ NTSTATUS unmarshal_nfs41_open(
     *buf += sizeof(HANDLE);
     RtlCopyMemory(&cur->u.Open.mode, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
-    RtlCopyMemory(&cur->u.Open.changeattr, *buf, sizeof(LONGLONG));
-    *buf += sizeof(LONGLONG);
+    RtlCopyMemory(&cur->u.Open.changeattr, *buf, sizeof(ULONGLONG));
+    *buf += sizeof(ULONGLONG);
     RtlCopyMemory(&cur->u.Open.deleg_type, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
     if (cur->errno == ERROR_REPARSE) {
@@ -1597,7 +1597,7 @@ NTSTATUS unmarshal_nfs41_open(
             cur->u.Open.symlink.MaximumLength);
         DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
     }
-    DbgP("[open] open_state 0x%x mode %o changeattr 0x%x deleg_type %d\n",
+    DbgP("[open] open_state 0x%x mode %o changeattr 0x%lx deleg_type %d\n",
         cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr, 
         cur->u.Open.deleg_type);
 out:
@@ -3158,7 +3158,7 @@ BOOLEAN isDataAccess(
 }
 
 BOOLEAN has_file_changed(
-    IN LONGLONG new_changeattr, 
+    IN ULONGLONG new_changeattr, 
     IN PFILE_BASIC_INFORMATION new_binfo, 
     IN PNFS41_FCB nfs41_fcb)
 {

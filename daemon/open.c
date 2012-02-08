@@ -602,6 +602,7 @@ static int handle_open(nfs41_upcall *upcall)
                 nfs_to_basic_info(&info, &args->basic_info);
                 nfs_to_standard_info(&info, &args->std_info);
                 args->mode = info.mode;
+                args->changeattr = info.change;
                 if (state->delegation.state)
                     args->deleg_type = state->delegation.state->state.type;
             }

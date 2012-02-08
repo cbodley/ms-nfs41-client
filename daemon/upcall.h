@@ -53,7 +53,7 @@ typedef struct __open_upcall_args {
     ULONG create_opts;
     LONG open_owner_id;
     DWORD mode;
-    LONGLONG changeattr;
+    ULONGLONG changeattr;
     HANDLE srv_open;
     DWORD deleg_type;
     BOOLEAN created;
