@@ -1385,7 +1385,6 @@ int nfs41_link(
     IN nfs41_path_fh *src,
     IN nfs41_path_fh *dst_dir,
     IN const nfs41_component *target,
-    OUT OPTIONAL nfs41_path_fh *link_out,
     OUT nfs41_file_info *cinfo)
 {
     int status;
@@ -1406,9 +1405,6 @@ int nfs41_link(
     nfs41_getattr_res getattr_res[2];
     nfs41_file_info info = { 0 };
     nfs41_path_fh file;
-
-    if (link_out == NULL)
-        link_out = &file;
 
     init_getattr_request(&info.attrmask);
     init_getattr_request(&cinfo->attrmask);
@@ -1454,7 +1450,7 @@ int nfs41_link(
 
     /* GETFH(target) */
     compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
-    getfh_res.fh = &link_out->fh;
+    getfh_res.fh = &file.fh;
 
     status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
@@ -1464,9 +1460,9 @@ int nfs41_link(
         goto out;
 
     /* fill in the file handle's fileid and superblock */
-    link_out->fh.fileid = cinfo->fileid;
+    file.fh.fileid = cinfo->fileid;
     status = nfs41_superblock_for_fh(session,
-        &cinfo->fsid, &dst_dir->fh, link_out);
+        &cinfo->fsid, &dst_dir->fh, &file);
     if (status)
         goto out;
 
@@ -1481,7 +1477,7 @@ int nfs41_link(
         sizeof(bitmap4));
     AcquireSRWLockShared(&dst_dir->path->lock);
     nfs41_name_cache_insert(session_name_cache(session),
-        dst_dir->path->path, target, &link_out->fh,
+        dst_dir->path->path, target, &file.fh,
         cinfo, &link_res.cinfo, OPEN_DELEGATE_NONE);
     ReleaseSRWLockShared(&dst_dir->path->lock);
 

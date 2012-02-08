@@ -451,8 +451,8 @@ static int handle_nfs41_link(setattr_upcall_args *args)
     nfs41_delegation_return(state->session, &state->file,
         OPEN_DELEGATE_READ, FALSE);
 
-    status = nfs41_link(state->session, &state->file,
-        &dst_dir, &dst_name, NULL, &info);
+    status = nfs41_link(state->session, &state->file, &dst_dir, &dst_name, 
+            &info);
     if (status) {
         dprintf(1, "nfs41_link() failed with error %s.\n",
             nfs_error_string(status));
