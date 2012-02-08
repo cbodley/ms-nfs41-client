@@ -66,7 +66,7 @@ PRDBSS_DEVICE_OBJECT nfs41_dev;
 #define NFS41_MM_POOLTAG        ('nfs4')
 
 KEVENT upcallEvent;
-FAST_MUTEX upcallLock, downcallLock;
+FAST_MUTEX upcallLock, downcallLock, srvopenLock;
 FAST_MUTEX xidLock;
 FAST_MUTEX openOwnerLock;
 
@@ -317,7 +317,6 @@ typedef struct _NFS41_MOUNT_CONFIG {
     BOOLEAN ReadOnly;
     BOOLEAN write_thru;
     BOOLEAN nocache;
-    BOOLEAN nocoherence;
     WCHAR srv_buffer[SERVER_NAME_BUFFER_SIZE];
     UNICODE_STRING SrvName;
     WCHAR mntpt_buffer[MAX_PATH];
@@ -358,7 +357,6 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     BOOLEAN                 read_only;
     BOOLEAN                 write_thru;
     BOOLEAN                 nocache;
-    BOOLEAN                 nocoherence;
 #define STORE_MOUNT_SEC_CONTEXT
 #ifdef STORE_MOUNT_SEC_CONTEXT
     SECURITY_CLIENT_CONTEXT mount_sec_ctx;
@@ -390,6 +388,7 @@ typedef struct _NFS41_FOBX {
     PVOID acl;
     DWORD acl_len;
     LARGE_INTEGER time; 
+    DWORD deleg_type;
 } NFS41_FOBX, *PNFS41_FOBX;
 #define NFS41GetFobxExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
@@ -409,11 +408,25 @@ typedef struct _NFS41_DEVICE_EXTENSION {
     DWORD                   nfs41d_version;
     BYTE                    VolAttrs[VOL_ATTR_LEN];
     DWORD                   VolAttrsLen;
+    HANDLE                  openlistHandle;
 } NFS41_DEVICE_EXTENSION, *PNFS41_DEVICE_EXTENSION;
 
 #define NFS41GetDeviceExtension(RxContext,pExt)        \
         PNFS41_DEVICE_EXTENSION pExt = (PNFS41_DEVICE_EXTENSION) \
         ((PBYTE)(RxContext->RxDeviceObject) + sizeof(RDBSS_DEVICE_OBJECT))
+
+typedef struct _nfs41_srvopen_list_entry {
+    LIST_ENTRY next;
+    PMRX_SRV_OPEN srv_open;
+    PNFS41_FOBX nfs41_fobx;
+    ULONGLONG ChangeTime;
+    BOOLEAN skip;
+} nfs41_srvopen_list_entry;
+
+typedef struct _nfs41_srvopen_list {
+    LIST_ENTRY head;
+} nfs41_srvopen_list;
+nfs41_srvopen_list *openlist = NULL;
 
 typedef enum _NULMRX_STORAGE_TYPE_CODES {
     NTC_NFS41_DEVICE_EXTENSION      =   (NODE_TYPE_CODE)0xFC00,    
@@ -1670,7 +1683,8 @@ void unmarshal_nfs41_getattr(
     unmarshal_nfs41_attrget(cur, cur->u.QueryFile.buf, 
         &cur->u.QueryFile.buf_len, buf);
     RtlCopyMemory(&cur->u.QueryFile.ChangeTime, *buf, sizeof(LONGLONG));
-    DbgP("[getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
+    if (cur->u.QueryFile.InfoClass == FileBasicInformation)
+        DbgP("[getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
 }
 
 NTSTATUS unmarshal_nfs41_getacl(
@@ -2530,7 +2544,6 @@ void nfs41_MountConfig_InitDefaults(
     Config->ReadOnly = FALSE;
     Config->write_thru = FALSE;
     Config->nocache = FALSE;
-    Config->nocoherence = FALSE;
     Config->SrvName.Length = 0;
     Config->SrvName.MaximumLength = SERVER_NAME_BUFFER_SIZE;
     Config->SrvName.Buffer = Config->srv_buffer;
@@ -2623,10 +2636,6 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
         else if (wcsncmp(L"nocache", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
                 &Config->nocache);
-        }
-        else if (wcsncmp(L"nocoherence", Name, NameLen) == 0) {
-            status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
-                &Config->nocoherence);
         }
         else if (wcsncmp(L"rsize", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseDword(Option, &usValue,
@@ -2830,7 +2839,6 @@ NTSTATUS nfs41_CreateVNetRoot(
         pVNetRootContext->read_only = Config.ReadOnly;
         pVNetRootContext->write_thru = Config.write_thru;
         pVNetRootContext->nocache = Config.nocache;
-        pVNetRootContext->nocoherence = Config.nocoherence;
     } else {
         /* use the SRV_CALL name (without leading \) as the hostname */
         Config.SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
@@ -3182,19 +3190,6 @@ BOOLEAN isDataAccess(
     return FALSE;
 }
 
-BOOLEAN has_file_changed(
-    IN ULONGLONG new_changeattr, 
-    IN PFILE_BASIC_INFORMATION new_binfo, 
-    IN PNFS41_FCB nfs41_fcb)
-{
-    if (new_changeattr != nfs41_fcb->changeattr && nfs41_fcb->changeattr)
-        return TRUE;
-    if (new_binfo->ChangeTime.QuadPart != 
-            nfs41_fcb->BasicInfo.ChangeTime.QuadPart)
-        return TRUE;
-    return FALSE;
-}
-
 NTSTATUS map_open_errors(
     DWORD status, 
     USHORT len)
@@ -3425,10 +3420,9 @@ NTSTATUS nfs41_Create(
 #endif
 
     // we get attributes only for data access and file (not directories)
-    if (Fcb->OpenCount > 0)
-        file_changed = has_file_changed(entry->u.Open.changeattr, 
-            &entry->u.Open.binfo, nfs41_fcb);
-    if (Fcb->OpenCount == 0 || file_changed) {
+    if (Fcb->OpenCount == 0 || 
+            (Fcb->OpenCount > 0 && 
+                nfs41_fcb->changeattr != entry->u.Open.changeattr)) {
         print_basic_info(1, &entry->u.Open.binfo);
         print_std_info(1, &entry->u.Open.sinfo);
         RtlCopyMemory(&nfs41_fcb->BasicInfo, &entry->u.Open.binfo, 
@@ -3466,44 +3460,52 @@ NTSTATUS nfs41_Create(
         }
     }
 
-    if (file_changed && !nfs41_fcb->StandardInfo.Directory) {
+    if (Fcb->OpenCount > 0 && 
+            nfs41_fcb->changeattr != entry->u.Open.changeattr && 
+                !nfs41_fcb->StandardInfo.Directory) {
         ULONG flag = DISABLE_CACHING;
-        DbgP("file object %wZ changed\n", SrvOpen->pAlreadyPrefixedName);
-        RxIndicateChangeOfBufferingStateForSrvOpen(
-            SrvOpen->pVNetRoot->pNetRoot->pSrvCall, 
-            SrvOpen, SrvOpen->Key, ULongToPtr(flag));
+        DbgP("nfs41_Create: reopening (changed) file %wZ\n", SrvOpen->pAlreadyPrefixedName);
+        RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
     } else if (!file_changed && !nfs41_fcb->StandardInfo.Directory) {
-        // windows does agressive write flushing (every 2s)
-        // thus we'll always turn on write buffering 
-        if ((!pVNetRootContext->nocoherence &&
-                (entry->u.Open.deleg_type == 2 && 
-                !(params.CreateOptions & FILE_WRITE_THROUGH))) ||
-             (pVNetRootContext->nocoherence &&
-                ((params.DesiredAccess & FILE_WRITE_DATA || 
-                params.DesiredAccess & FILE_APPEND_DATA) && 
+        nfs41_fobx->deleg_type = entry->u.Open.deleg_type;
+        DbgP("nfs41_Create: received delegation %d\n", entry->u.Open.deleg_type);
+        if (!(params.CreateOptions & FILE_WRITE_THROUGH) &&
                 !pVNetRootContext->write_thru &&
-                !(params.CreateOptions & FILE_WRITE_THROUGH)))) {
+                (entry->u.Open.deleg_type == 2 ||
+                (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)))) {
             DbgP("nfs41_Create: enabling write buffering\n");
             SrvOpen->BufferingFlags |= 
                 (FCB_STATE_WRITECACHING_ENABLED | 
                 FCB_STATE_WRITEBUFFERING_ENABLED);
         }
-
-        // if we received read delegation, turn on read buffering
-        if ((!pVNetRootContext->nocoherence &&
-                (entry->u.Open.deleg_type >= 1)) ||
-             (pVNetRootContext->nocoherence &&
-                (params.DesiredAccess & FILE_READ_DATA))) {
+        if (entry->u.Open.deleg_type >= 1 ||
+                params.DesiredAccess & FILE_READ_DATA) {
             DbgP("nfs41_Create: enabling read buffering\n");
             SrvOpen->BufferingFlags |= 
                 (FCB_STATE_READBUFFERING_ENABLED | 
                 FCB_STATE_READCACHING_ENABLED);
         }
-
         if (pVNetRootContext->nocache || 
                 (params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)) {
             DbgP("nfs41_Create: disabling buffering\n");
             SrvOpen->BufferingFlags = FCB_STATE_DISABLE_LOCAL_BUFFERING;
+        } else if (!entry->u.Open.deleg_type && 
+                    (params.DesiredAccess & 
+                        (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA))) {
+            nfs41_srvopen_list_entry *oentry;
+            DbgP("nfs41_Create: received no delegations: srv_open=%p "
+                "ctime=%llu\n", SrvOpen, entry->u.Open.changeattr);
+            oentry = RxAllocatePoolWithTag(NonPagedPool, 
+                sizeof(nfs41_srvopen_list_entry), NFS41_MM_POOLTAG);
+            if (oentry == NULL) {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                goto out;
+            }
+            oentry->srv_open = SrvOpen;
+            oentry->nfs41_fobx = nfs41_fobx;
+            oentry->ChangeTime = entry->u.Open.changeattr;
+            oentry->skip = FALSE;
+            nfs41_AddEntry(srvopenLock, openlist, oentry);
         }
     }
 
@@ -3609,6 +3611,34 @@ ULONG nfs41_ExtendForNonCache(
     return status;
 }
 
+VOID nfs41_remove_srvopen_entry(
+    PMRX_SRV_OPEN SrvOpen)
+{
+    PLIST_ENTRY pEntry;
+    nfs41_srvopen_list_entry *cur;
+    ExAcquireFastMutex(&srvopenLock);
+
+    pEntry = openlist->head.Flink;
+    DbgP("nfs41_remove_srvopen_entry: Looking for srv_open=%p\n", SrvOpen);
+    while (!IsListEmpty(&openlist->head)) {
+        cur = (nfs41_srvopen_list_entry *)CONTAINING_RECORD(pEntry, 
+                nfs41_srvopen_list_entry, next);
+        if (cur->srv_open == SrvOpen) {
+            DbgP("nfs41_remove_srvopen_entry: Found match\n");
+            RemoveEntryList(pEntry);
+            RxFreePool(cur);
+            break;
+        }
+        /* place an upcall for this srv_open */
+        if (pEntry->Flink == &openlist->head) {
+            DbgP("nfs41_remove_srvopen_entry: reached end of the list\n");
+            break;
+        }
+        pEntry = pEntry->Flink;
+    }
+    ExReleaseFastMutex(&srvopenLock);
+}
+
 NTSTATUS map_close_errors(
     DWORD status)
 {
@@ -3643,6 +3673,12 @@ NTSTATUS nfs41_CloseSrvOpen(
 
     DbgEn();
     print_debug_header(RxContext);
+
+    if (!nfs41_fobx->deleg_type && !nfs41_fcb->StandardInfo.Directory &&
+            (SrvOpen->DesiredAccess & 
+            (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA))) {
+        nfs41_remove_srvopen_entry(SrvOpen);
+    }
 
     status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
@@ -4027,6 +4063,35 @@ out:
     return status;
 }
 
+VOID nfs41_update_srvopen_list(
+    PMRX_SRV_OPEN SrvOpen,
+    ULONGLONG ChangeTime)
+{
+    PLIST_ENTRY pEntry;
+    nfs41_srvopen_list_entry *cur;
+    ExAcquireFastMutex(&srvopenLock); 
+    pEntry = openlist->head.Flink;
+    DbgP("nfs41_update_srvopen_list: Looking for srv_open=%p\n", SrvOpen);
+    while (!IsListEmpty(&openlist->head)) {
+        cur = (nfs41_srvopen_list_entry *)CONTAINING_RECORD(pEntry, 
+                nfs41_srvopen_list_entry, next);
+        if (cur->srv_open == SrvOpen && 
+                cur->ChangeTime != ChangeTime) {
+            DbgP("nfs41_update_srvopen_list: Found match: updating %llu to "
+                "%llu\n", cur->ChangeTime, ChangeTime);
+            cur->ChangeTime = ChangeTime;
+            break;
+        }
+        /* place an upcall for this srv_open */
+        if (pEntry->Flink == &openlist->head) {
+            DbgP("nfs41_update_srvopen_list: reached end of the list\n");
+            break;
+        }
+        pEntry = pEntry->Flink;
+    }
+    ExReleaseFastMutex(&srvopenLock);
+}
+
 void print_nfs3_attrs(
     nfs3_attrs *attrs)
 {
@@ -4152,6 +4217,13 @@ NTSTATUS nfs41_SetEaInformation(
     }
 #endif
     status = map_setea_error(entry->status);
+    if (!status) {
+        if (!nfs41_fobx->deleg_type && entry->u.SetEa.ChangeTime &&
+                (SrvOpen->DesiredAccess & 
+                (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
+            nfs41_update_srvopen_list(SrvOpen, entry->u.SetEa.ChangeTime);
+        nfs41_fcb->changeattr = entry->u.SetEa.ChangeTime;
+    }
     RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS
@@ -4441,6 +4513,7 @@ NTSTATUS nfs41_SetSecurityInformation(
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PSECURITY_DESCRIPTOR sec_desc = 
         RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityDescriptor;
+    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
     SECURITY_INFORMATION info_class = 
         RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityInformation;
 #ifdef ENABLE_TIMINGS
@@ -4497,6 +4570,13 @@ NTSTATUS nfs41_SetSecurityInformation(
         goto out;
     }
     status = map_query_acl_error(entry->status);
+    if (!status) {
+        if (!nfs41_fobx->deleg_type && entry->u.Acl.ChangeTime &&
+                (SrvOpen->DesiredAccess & 
+                (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
+            nfs41_update_srvopen_list(SrvOpen, entry->u.Acl.ChangeTime);
+        nfs41_fcb->changeattr = entry->u.Acl.ChangeTime;
+    }
     RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS
@@ -4838,6 +4918,13 @@ NTSTATUS nfs41_SetFileInformation(
     }
 
     status = map_setfile_error(entry->status);
+    if (!status) {
+        if (!nfs41_fobx->deleg_type && entry->u.SetFile.ChangeTime &&
+                (SrvOpen->DesiredAccess & 
+                (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
+            nfs41_update_srvopen_list(SrvOpen, entry->u.SetFile.ChangeTime);
+        nfs41_fcb->changeattr = entry->u.SetFile.ChangeTime;
+    }
     RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS
@@ -4936,9 +5023,15 @@ void print_readwrite_args(
 }
 
 void enable_caching(
-    PMRX_SRV_OPEN SrvOpen)
+    PMRX_SRV_OPEN SrvOpen,
+    PNFS41_FOBX nfs41_fobx,
+    ULONGLONG ChangeTime)
 {
     ULONG flag = 0;
+    PLIST_ENTRY pEntry;
+    nfs41_srvopen_list_entry *cur;
+    BOOLEAN found = FALSE;
+
     if (SrvOpen->DesiredAccess & FILE_READ_DATA)
         flag = ENABLE_READ_CACHING;
     if (SrvOpen->DesiredAccess & FILE_WRITE_DATA)
@@ -4953,6 +5046,39 @@ void enable_caching(
         return;
 
     RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
+
+    ExAcquireFastMutex(&srvopenLock);
+    pEntry = openlist->head.Flink;
+    DbgP("enable_caching: Looking for srv_open=%p\n", SrvOpen);
+    while (!IsListEmpty(&openlist->head)) {
+        cur = (nfs41_srvopen_list_entry *)CONTAINING_RECORD(pEntry,
+                nfs41_srvopen_list_entry, next);
+        if (cur->srv_open == SrvOpen) {
+            DbgP("enable_caching: Found match\n");
+            cur->skip = FALSE;
+            found = TRUE;
+            break;
+        }
+        if (pEntry->Flink == &openlist->head) {
+            DbgP("enable_caching: reached end of the list\n");
+            break;
+        }
+        pEntry = pEntry->Flink;
+    }
+    if (!found && nfs41_fobx->deleg_type) {
+        nfs41_srvopen_list_entry *oentry;
+        DbgP("enable_caching: delegation recalled: srv_open=%p\n", SrvOpen);
+        oentry = RxAllocatePoolWithTag(NonPagedPool, 
+            sizeof(nfs41_srvopen_list_entry), NFS41_MM_POOLTAG);
+        if (oentry == NULL) return;
+        oentry->srv_open = SrvOpen;
+        oentry->nfs41_fobx = nfs41_fobx;
+        oentry->ChangeTime = ChangeTime;
+        oentry->skip = FALSE;
+        InsertTailList(&openlist->head, &oentry->next);
+        nfs41_fobx->deleg_type = 0;
+    }
+    ExReleaseFastMutex(&srvopenLock);
 }
 
 NTSTATUS map_readwrite_errors(
@@ -5029,15 +5155,15 @@ NTSTATUS nfs41_Read(
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
         nfs41_fcb->Flags = 0;
 
-        if (pVNetRootContext->nocoherence &&
-            (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
+        if ((!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
                 (SrvOpen->DesiredAccess & FILE_READ_DATA) &&
                 !pVNetRootContext->nocache &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_READBUFFERING_ENABLED | 
-                 FCB_STATE_READCACHING_ENABLED))))
-            enable_caching(SrvOpen);
+                 FCB_STATE_READCACHING_ENABLED)))) {
+            enable_caching(SrvOpen, nfs41_fobx, nfs41_fcb->changeattr);
+        }
     } else {
         status = map_readwrite_errors(entry->status);
         RxContext->CurrentIrp->IoStatus.Status = status;
@@ -5123,19 +5249,21 @@ NTSTATUS nfs41_Write(
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
         nfs41_fcb->Flags = 0;
+        nfs41_fcb->changeattr = entry->u.ReadWrite.ChangeTime;
 
         //re-enable write buffering
-        if (pVNetRootContext->nocoherence &&
-            (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
+        if ((!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
-                (SrvOpen->DesiredAccess & FILE_WRITE_DATA) &&
-                (SrvOpen->DesiredAccess & FILE_READ_DATA) &&
+                (SrvOpen->DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) &&
                 !pVNetRootContext->write_thru &&
                 !pVNetRootContext->nocache &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_WRITEBUFFERING_ENABLED | 
-                 FCB_STATE_WRITECACHING_ENABLED))))
-            enable_caching(SrvOpen);
+                 FCB_STATE_WRITECACHING_ENABLED)))) {
+            enable_caching(SrvOpen, nfs41_fobx, nfs41_fcb->changeattr);
+        } else if (!nfs41_fobx->deleg_type) 
+            nfs41_update_srvopen_list(SrvOpen, entry->u.ReadWrite.ChangeTime);
+
     } else {
         status = map_readwrite_errors(entry->status);
         RxContext->CurrentIrp->IoStatus.Status = status;
@@ -5765,6 +5893,83 @@ NTSTATUS nfs41_init_ops()
     return(STATUS_SUCCESS);
 }
 
+#define RELATIVE(wait) (-(wait))
+#define NANOSECONDS(nanos) (((signed __int64)(nanos)) / 100L)
+#define MICROSECONDS(micros) (((signed __int64)(micros)) * NANOSECONDS(1000L))
+#define MILLISECONDS(milli) (((signed __int64)(milli)) * MICROSECONDS(1000L))
+#define SECONDS(seconds) (((signed __int64)(seconds)) * MILLISECONDS(1000L))
+
+KSTART_ROUTINE srvopen_main;
+VOID srvopen_main(PVOID ctx)
+{
+    NTSTATUS status;
+    LARGE_INTEGER timeout;
+
+    DbgEn();
+    timeout.QuadPart = RELATIVE(SECONDS(30));
+    while(1) {
+        PLIST_ENTRY pEntry;
+        nfs41_srvopen_list_entry *cur;
+        status = KeDelayExecutionThread(KernelMode, TRUE, &timeout);
+        ExAcquireFastMutex(&srvopenLock);
+        pEntry = openlist->head.Flink;
+        while (!IsListEmpty(&openlist->head)) {
+            PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext;
+            PNFS41_NETROOT_EXTENSION pNetRootContext;
+            nfs41_updowncall_entry *entry;
+            FILE_BASIC_INFORMATION binfo;
+            PNFS41_FCB nfs41_fcb;
+            cur = (nfs41_srvopen_list_entry *)CONTAINING_RECORD(pEntry, 
+                    nfs41_srvopen_list_entry, next);
+
+            DbgP("srvopen_main: Checking attributes for srv_open=%p "
+                "change_time=%llu skipping=%d\n", cur->srv_open, 
+                cur->ChangeTime, cur->skip);
+            if (cur->skip) goto out;
+            pVNetRootContext = 
+                NFS41GetVNetRootExtension(cur->srv_open->pVNetRoot);
+            pNetRootContext = 
+                NFS41GetNetRootExtension(cur->srv_open->pVNetRoot->pNetRoot);
+            /* place an upcall for this srv_open */
+            status = nfs41_UpcallCreate(NFS41_FILE_QUERY, 
+                &cur->nfs41_fobx->sec_ctx, pVNetRootContext->session, 
+                cur->nfs41_fobx->nfs41_open_state,
+                pNetRootContext->nfs41d_version, &entry);
+            if (status)
+                goto out;
+            entry->u.QueryFile.InfoClass = FileBasicInformation;
+            entry->u.QueryFile.buf = &binfo;
+            entry->u.QueryFile.buf_len = sizeof(binfo);
+
+            if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
+                status = STATUS_INTERNAL_ERROR;
+                goto out;
+            }
+            if (cur->ChangeTime != entry->u.QueryFile.ChangeTime) {
+                ULONG flag = DISABLE_CACHING;
+                DbgP("srvopen_main: old ctime=%llu new_ctime=%llu\n", 
+                    cur->ChangeTime, entry->u.QueryFile.ChangeTime);
+                DbgP("************ Invalidate the cache ************\n");
+                RxChangeBufferingState((PSRV_OPEN)cur->srv_open, 
+                    ULongToPtr(flag), 1);
+                cur->ChangeTime = entry->u.QueryFile.ChangeTime;
+                cur->skip = TRUE;
+            }
+            nfs41_fcb = (PNFS41_FCB)cur->srv_open->pFcb->Context;
+            nfs41_fcb->changeattr = entry->u.QueryFile.ChangeTime;
+            RxFreePool(entry);
+out:
+            if (pEntry->Flink == &openlist->head) {
+                DbgP("srvopen_main: reached end of the list\n");
+                break;
+            }
+            pEntry = pEntry->Flink;
+        }
+        ExReleaseFastMutex(&srvopenLock);
+    }
+    DbgEx();
+}
+
 NTSTATUS DriverEntry(
     IN PDRIVER_OBJECT drv, 
     IN PUNICODE_STRING path)
@@ -5774,6 +5979,8 @@ NTSTATUS DriverEntry(
     UNICODE_STRING dev_name, user_dev_name;
     PNFS41_DEVICE_EXTENSION dev_exts;
     TIME_FIELDS jan_1_1970 = {1970, 1, 1, 0, 0, 0, 0, 0};
+    ACCESS_MASK mask = 0;
+    OBJECT_ATTRIBUTES oattrs;
 
     DbgEn();
 
@@ -5823,6 +6030,7 @@ NTSTATUS DriverEntry(
     ExInitializeFastMutex(&downcallLock);
     ExInitializeFastMutex(&xidLock);
     ExInitializeFastMutex(&openOwnerLock);
+    ExInitializeFastMutex(&srvopenLock);
     upcall = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_list), 
                 NFS41_MM_POOLTAG);
     if (upcall == NULL) 
@@ -5835,6 +6043,23 @@ NTSTATUS DriverEntry(
         goto out_unregister;
     }
     InitializeListHead(&downcall->head);
+    openlist = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_srvopen_list), 
+                NFS41_MM_POOLTAG);
+    if (openlist == NULL) {
+        RxFreePool(upcall);
+        RxFreePool(downcall);
+        goto out_unregister;
+    }
+    InitializeListHead(&openlist->head);
+    InitializeObjectAttributes(&oattrs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = PsCreateSystemThread(&dev_exts->openlistHandle, mask, 
+        &oattrs, NULL, NULL, &srvopen_main, NULL);
+    if (status != STATUS_SUCCESS) {
+        RxFreePool(upcall);
+        RxFreePool(downcall);
+        RxFreePool(openlist);
+        goto out;
+    }
 
     drv->DriverUnload = nfs41_driver_unload;
 
