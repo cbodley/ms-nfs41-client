@@ -700,7 +700,8 @@ int nfs41_write(
     IN uint64_t offset,
     IN enum stable_how4 stable,
     OUT uint32_t *bytes_written,
-    OUT nfs41_write_verf *verf)
+    OUT nfs41_write_verf *verf,
+    OUT nfs41_file_info *cinfo)
 {
     int status;
     nfs41_compound compound;
@@ -715,7 +716,7 @@ int nfs41_write(
     nfs41_getattr_args getattr_args;
     nfs41_getattr_res getattr_res = {0};
     bitmap4 attr_request;
-    nfs41_file_info info = { 0 };
+    nfs41_file_info info = { 0 }, *pinfo;
 
     init_getattr_request(&attr_request);
 
@@ -739,13 +740,16 @@ int nfs41_write(
     write_args.data = data;
     write_res.resok4.verf = verf;
 
+    if (cinfo) pinfo = cinfo;
+    else pinfo = &info;
+
     if (stable != UNSTABLE4) {
         /* if the write is stable, we can't rely on COMMIT to update
          * the attribute cache, so we do the GETATTR here */
         compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
         getattr_args.attr_request = &attr_request;
         getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-        getattr_res.info = &info;
+        getattr_res.info = pinfo;
     }
 
     status = compound_encode_send_decode(session, &compound, TRUE);
@@ -757,10 +761,10 @@ int nfs41_write(
 
     if (stable != UNSTABLE4) {
         /* update the attribute cache */
-        memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
+        memcpy(&pinfo->attrmask, &getattr_res.obj_attributes.attrmask,
             sizeof(bitmap4));
         nfs41_attr_cache_update(session_name_cache(session),
-            file->fh.fileid, &info);
+            file->fh.fileid, pinfo);
     }
 
     *bytes_written = write_res.resok4.count;
@@ -773,7 +777,7 @@ int nfs41_write(
             nfs_error_string(status));
     }
 
-    if (info.type == NF4NAMEDATTR)
+    if (pinfo->type == NF4NAMEDATTR)
         goto out;
 
     nfs41_superblock_space_changed(file->fh.superblock);
@@ -848,7 +852,8 @@ int nfs41_commit(
     IN uint64_t offset,
     IN uint32_t count,
     IN bool_t do_getattr,
-    OUT nfs41_write_verf *verf)
+    OUT nfs41_write_verf *verf,
+    OUT nfs41_file_info *cinfo)
 {
     int status;
     nfs41_compound compound;
@@ -863,7 +868,7 @@ int nfs41_commit(
     nfs41_getattr_args getattr_args;
     nfs41_getattr_res getattr_res = {0};
     bitmap4 attr_request;
-    nfs41_file_info info;
+    nfs41_file_info info, *pinfo;
 
     compound_init(&compound, argops, resops,
         do_getattr ? "commit" : "ds commit");
@@ -884,13 +889,15 @@ int nfs41_commit(
 
     /* send a GETATTR request to update the attribute cache,
      * but not if we're talking to a data server! */
+    if (cinfo) pinfo = cinfo;
+    else pinfo = &info;
     if (do_getattr) {
         init_getattr_request(&attr_request);
 
         compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
         getattr_args.attr_request = &attr_request;
         getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-        getattr_res.info = &info;
+        getattr_res.info = pinfo;
     }
 
     status = compound_encode_send_decode(session, &compound, TRUE);
@@ -902,10 +909,10 @@ int nfs41_commit(
 
     if (do_getattr) {
         /* update the attribute cache */
-        memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
+        memcpy(&pinfo->attrmask, &getattr_res.obj_attributes.attrmask,
             sizeof(bitmap4));
         nfs41_attr_cache_update(session_name_cache(session),
-            file->fh.fileid, &info);
+            file->fh.fileid, pinfo);
     }
     nfs41_superblock_space_changed(file->fh.superblock);
 out:
@@ -2001,7 +2008,8 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
     IN uint64_t offset,
     IN uint64_t length,
     IN OPTIONAL uint64_t *new_last_offset,
-    IN OPTIONAL nfstime4 *new_time_modify)
+    IN OPTIONAL nfstime4 *new_time_modify,
+    OUT nfs41_file_info *info)
 {
     enum nfsstat4 status;
     nfs41_compound compound;
@@ -2015,7 +2023,6 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
     pnfs_layoutcommit_res lc_res;
     nfs41_getattr_args getattr_args;
     nfs41_getattr_res getattr_res;
-    nfs41_file_info info;
     bitmap4 attr_request;
 
     init_getattr_request(&attr_request);
@@ -2041,7 +2048,7 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
     compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
     getattr_args.attr_request = &attr_request;
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    getattr_res.info = &info;
+    getattr_res.info = info;
 
     status = compound_encode_send_decode(session, &compound, TRUE);
     if (status)
@@ -2051,10 +2058,10 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
         goto out;
 
     /* update the attribute cache */
-    memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
+    memcpy(&info->attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));
     nfs41_attr_cache_update(session_name_cache(session),
-        file->fh.fileid, &info);
+        file->fh.fileid, info);
 out:
     return status;
 }

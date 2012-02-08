@@ -1078,7 +1078,8 @@ int nfs41_write(
     IN uint64_t offset,
     IN enum stable_how4 stable,
     OUT uint32_t *bytes_written,
-    OUT nfs41_write_verf *verf);
+    OUT nfs41_write_verf *verf,
+    OUT nfs41_file_info *cinfo);
 
 int nfs41_read(
     IN nfs41_session *session,
@@ -1096,7 +1097,8 @@ int nfs41_commit(
     IN uint64_t offset,
     IN uint32_t count,
     IN bool_t do_getattr,
-    OUT nfs41_write_verf *verf);
+    OUT nfs41_write_verf *verf,
+    OUT nfs41_file_info *cinfo);
 
 int nfs41_lock(
     IN nfs41_session *session,
@@ -1257,7 +1259,8 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
     IN uint64_t offset,
     IN uint64_t length,
     IN OPTIONAL uint64_t *new_last_offset,
-    IN OPTIONAL nfstime4 *new_time_modify);
+    IN OPTIONAL nfstime4 *new_time_modify,
+    OUT nfs41_file_info *info);
 
 enum nfsstat4 pnfs_rpc_layoutreturn(
     IN nfs41_session *session,

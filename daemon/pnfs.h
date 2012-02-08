@@ -381,6 +381,7 @@ enum pnfs_status pnfs_write(
     IN uint64_t offset,
     IN uint64_t length,
     IN unsigned char *buffer,
-    OUT ULONG *len_out);
+    OUT ULONG *len_out,
+    OUT nfs41_file_info *cinfo);
 
 #endif /* !__PNFS_H__ */

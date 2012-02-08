@@ -584,7 +584,8 @@ static int handle_setexattr(nfs41_upcall *upcall)
             stateid.stateid.seqid = 0;
             buf = (UCHAR *) eainfo->EaName + eainfo->EaNameLength + 1;
             status = nfs41_write(state->session, &file, &stateid, buf, 
-                eainfo->EaValueLength, 0, FILE_SYNC4, &bytes_written, &verf);
+                eainfo->EaValueLength, 0, FILE_SYNC4, &bytes_written, 
+                &verf, NULL);
             if (status) {
                 dprintf(1, "handle_setexattr: nfs41_write() failed w/error %s.\n",
                     nfs_error_string(status));

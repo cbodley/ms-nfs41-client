@@ -72,6 +72,7 @@ typedef struct __readwrite_upcall_args {
     LONGLONG offset;
     ULONG len;
     ULONG out_len;
+    ULONGLONG ctime;
 } readwrite_upcall_args;
 
 typedef struct __lock_upcall_args {

@@ -190,6 +190,7 @@ static int write_to_mds(
     int status = 0;
     /* on write verifier mismatch, retry N times before failing */
     uint32_t retries = MAX_WRITE_RETRIES;
+    nfs41_file_info info = { 0 };
 
 retry_write:
     p = args->buffer;
@@ -207,7 +208,7 @@ retry_write:
         uint32_t bytes_written = 0, chunk = min(to_send, maxwritesize);
 
         status = nfs41_write(session, file, stateid, p, chunk,
-            args->offset + reloffset, stable, &bytes_written, &verf);
+            args->offset + reloffset, stable, &bytes_written, &verf, &info);
         if (status && !len)
             goto out;
         p += bytes_written;
@@ -225,7 +226,7 @@ retry_write:
     }
     if (committed != FILE_SYNC4) {
         dprintf(1, "sending COMMIT for offset=%d and len=%d\n", args->offset, len);
-        status = nfs41_commit(session, file, args->offset, len, 1, &verf);
+        status = nfs41_commit(session, file, args->offset, len, 1, &verf, &info);
         if (status)
             goto out;
 
@@ -234,6 +235,7 @@ retry_write:
             goto out_verify_failed;
         }
     }
+    args->ctime = info.change;
 out:
     args->out_len = len;
     return nfs_to_windows_error(status, ERROR_NET_WRITE_FAULT);
@@ -251,6 +253,7 @@ static int write_to_pnfs(
     readwrite_upcall_args *args = &upcall->args.rw;
     pnfs_layout_state *layout;
     int status = NO_ERROR;
+    nfs41_file_info info = { 0 };
 
     if (pnfs_layout_state_open(upcall->state_ref, PNFS_IOMODE_RW, args->offset, 
             args->len, &layout)) {
@@ -259,10 +262,11 @@ static int write_to_pnfs(
     }
 
     if (pnfs_write(upcall->root_ref, upcall->state_ref, stateid, layout, 
-            args->offset, args->len, args->buffer, &args->out_len)) {
+            args->offset, args->len, args->buffer, &args->out_len, &info)) {
         status = ERROR_WRITE_FAULT;
         goto out;
     }
+    args->ctime = info.change;
 out:
     return status;
 }
@@ -301,7 +305,12 @@ out:
 static int marshall_rw(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     readwrite_upcall_args *args = &upcall->args.rw;
-    return safe_write(&buffer, length, &args->out_len, sizeof(args->out_len));
+    int status;
+    status = safe_write(&buffer, length, &args->out_len, sizeof(args->out_len));
+    if (status) goto out;
+    status = safe_write(&buffer, length, &args->ctime, sizeof(args->ctime));
+out:
+    return status;
 }
 
 

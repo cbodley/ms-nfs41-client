@@ -371,7 +371,8 @@ retry_write:
             io.length = maxwritesize;
 
         nfsstat = nfs41_write(client->session, io.file, &stateid, io.buffer,
-            (uint32_t)io.length, io.offset, UNSTABLE4, &bytes_written, &verf);
+            (uint32_t)io.length, io.offset, UNSTABLE4, &bytes_written, 
+            &verf, NULL);
         if (nfsstat) {
             eprintf("nfs41_write() failed with %s\n",
                 nfs_error_string(nfsstat));
@@ -409,7 +410,7 @@ retry_write:
     dprintf(1, "sending COMMIT to data server for offset=%lld len=%lld\n",
         commit_min, commit_max - commit_min);
     nfsstat = nfs41_commit(client->session, commit_file,
-        commit_min, (uint32_t)(commit_max - commit_min), 0, &verf);
+        commit_min, (uint32_t)(commit_max - commit_min), 0, &verf, NULL);
 
     if (nfsstat)
         status = map_ds_error(nfsstat, pattern->state);
@@ -473,7 +474,8 @@ static enum pnfs_status layout_commit(
     IN nfs41_open_state *state,
     IN pnfs_layout_state *layout,
     IN uint64_t offset,
-    IN uint64_t length)
+    IN uint64_t length,
+    OUT nfs41_file_info *info)
 {
     stateid4 layout_stateid;
     uint64_t last_offset = offset + length - 1;
@@ -498,7 +500,7 @@ static enum pnfs_status layout_commit(
     dprintf(1, "LAYOUTCOMMIT for offset=%lld len=%lld new_last_offset=%u\n",
         offset, length, new_last_offset ? 1 : 0);
     nfsstat = pnfs_rpc_layoutcommit(state->session, &state->file,
-        &layout_stateid, offset, length, new_last_offset, NULL);
+        &layout_stateid, offset, length, new_last_offset, NULL, info);
     if (nfsstat) {
         dprintf(IOLVL, "pnfs_rpc_layoutcommit() failed with %s\n",
             nfs_error_string(nfsstat));
@@ -515,7 +517,8 @@ enum pnfs_status pnfs_write(
     IN uint64_t offset,
     IN uint64_t length,
     IN unsigned char *buffer,
-    OUT ULONG *len_out)
+    OUT ULONG *len_out,
+    OUT nfs41_file_info *info)
 {
     pnfs_io_pattern pattern;
     enum stable_how4 stable;
@@ -550,7 +553,7 @@ enum pnfs_status pnfs_write(
         dprintf(1, "sending COMMIT to meta server for offset=%lld len=%lld\n",
             offset, *len_out);
         nfsstat = nfs41_commit(state->session, &state->file,
-            offset, *len_out, 1, &ignored);
+            offset, *len_out, 1, &ignored, info);
         if (nfsstat) {
             dprintf(IOLVL, "nfs41_commit() failed with %s\n",
                 nfs_error_string(nfsstat));
@@ -558,13 +561,12 @@ enum pnfs_status pnfs_write(
         }
     } else if (stable == DATA_SYNC4) {
         /* send LAYOUTCOMMIT to sync the metadata */
-        status = layout_commit(state, layout, offset, *len_out);
+        status = layout_commit(state, layout, offset, *len_out, info);
     } else {
         /* send a GETATTR to update the cached size */
-        nfs41_file_info info = { 0 };
         bitmap4 attr_request;
         init_getattr_request(&attr_request);
-        nfs41_getattr(state->session, &state->file, &attr_request, &info);
+        nfs41_getattr(state->session, &state->file, &attr_request, info);
     }
 out_free_pattern:
     pattern_free(&pattern);

@@ -149,6 +149,7 @@ typedef struct _updowncall_entry {
             LONGLONG offset;
             ULONG len;
             PRX_CONTEXT rxcontext;
+            ULONGLONG ChangeTime;
         } ReadWrite;
         struct {
             LONGLONG offset;
@@ -1540,7 +1541,10 @@ NTSTATUS unmarshal_nfs41_rw(
     NTSTATUS status = STATUS_SUCCESS;
 
     RtlCopyMemory(&cur->u.ReadWrite.len, *buf, sizeof(cur->u.ReadWrite.len));
-    DbgP("[read/write] returned len %ld\n", cur->u.ReadWrite.len);
+    *buf += sizeof(cur->u.ReadWrite.len);
+    RtlCopyMemory(&cur->u.ReadWrite.ChangeTime, *buf, sizeof(ULONGLONG));
+    DbgP("[read/write] returned len %lu ChangeTime %llu\n", 
+        cur->u.ReadWrite.len, cur->u.ReadWrite.ChangeTime);
 #if 1
     /* 08/27/2010: it looks like we really don't need to call 
         * MmUnmapLockedPages() eventhough we called 
