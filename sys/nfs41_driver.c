@@ -988,7 +988,7 @@ NTSTATUS marshal_nfs41_fileset(
     else 
         tmp += *len;
     header_len = *len + length_as_ansi(entry->u.SetFile.filename) +
-        5 * sizeof(ULONG) + entry->u.SetFile.buf_len;
+        2 * sizeof(ULONG) + entry->u.SetFile.buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
