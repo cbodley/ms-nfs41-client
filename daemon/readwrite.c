@@ -296,9 +296,8 @@ static int handle_write(nfs41_upcall *upcall)
 #endif
 
     status = write_to_mds(upcall, &stateid);
-
-    args->out_len += pnfs_bytes_written;
 out:
+    args->out_len += pnfs_bytes_written;
     return status;
 }
 
