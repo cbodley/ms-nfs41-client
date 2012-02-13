@@ -36,7 +36,22 @@
 #include "nfs41_debug.h"
 
 #define USE_MOUNT_SEC_CONTEXT
+
+/* debugging printout defines */
+//#define DEBUG_OPEN
 //#define DEBUG_CLOSE
+//#define DEBUG_CACHE
+//#define DEBUG_READ
+//#define DEBUG_WRITE
+//#define DEBUG_DIR_QUERY
+//#define DEBUG_FILE_QUERY
+//#define DEBUG_FILE_SET
+//#define DEBUG_ACL_QUERY
+//#define DEBUG_ACL_SET
+//#define DEBUG_EA_QUERY
+//#define DEBUG_EA_SET
+//#define DEBUG_LOCK
+
 //#define ENABLE_TIMINGS
 //#define ENABLE_INDV_TIMINGS
 #ifdef ENABLE_TIMINGS
@@ -135,6 +150,7 @@ typedef struct _updowncall_entry {
     PSECURITY_CLIENT_CONTEXT psec_ctx;
     HANDLE open_state;
     HANDLE session;
+    PUNICODE_STRING filename;
     union {
         struct {
             PUNICODE_STRING srv_name;
@@ -303,6 +319,8 @@ DECLARE_CONST_UNICODE_STRING(AUTH_SYS_NAME, L"sys");
 DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5_NAME, L"krb5");
 DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5I_NAME, L"krb5i");
 DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5P_NAME, L"krb5p");
+DECLARE_CONST_UNICODE_STRING(SLASH, L"\\");
+DECLARE_CONST_UNICODE_STRING(EMPTY_STRING, L"");
 
 #define SERVER_NAME_BUFFER_SIZE     1024
 
@@ -455,27 +473,18 @@ void print_debug_header(
 {
 
     PIO_STACK_LOCATION IrpSp = RxContext->CurrentIrpSp;
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
-        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
-    PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
 
     if (IrpSp) {
-        DbgP("FileOject %p Filename %wZ %wZ\n", IrpSp->FileObject, 
-                &IrpSp->FileObject->FileName, SrvOpen->pAlreadyPrefixedName);
+        DbgP("FileOject %p name %wZ\n", IrpSp->FileObject, 
+            &IrpSp->FileObject->FileName);
         print_file_object(0, IrpSp->FileObject);
-        print_irps_flags(1, RxContext->CurrentIrpSp);
+        print_irps_flags(0, RxContext->CurrentIrpSp);
     } else
         DbgP("Couldn't print FileObject IrpSp is NULL\n");
 
     print_fo_all(1, RxContext);
-    if (RxContext->pFobx) {
-        PNFS41_FOBX nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
-        if (pVNetRootContext && nfs41_fobx)
-            DbgP("Session=0x%x OpenState=0x%x\n", pVNetRootContext->session, 
-                nfs41_fobx->nfs41_open_state);
-    }
     if (RxContext->CurrentIrp)
-        print_irp_flags(1, RxContext->CurrentIrp);
+        print_irp_flags(0, RxContext->CurrentIrp);
 }
 
 /* convert strings from unicode -> ansi during marshalling to
@@ -537,9 +546,10 @@ NTSTATUS marshal_nfs41_header(
     RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
 
-    DbgP("[upcall] entry=%p xid=%lld opcode=%d version=%d session=0x%x "
-        "open_state=0x%x\n", entry, entry->xid, entry->opcode, entry->version,
-        entry->session, entry->open_state);
+    DbgP("[upcall header] xid=%lld opcode=%s filename=%wZ version=%d "
+        "session=0x%x open_state=0x%x\n", entry->xid, 
+        opcode2string(entry->opcode), entry->filename,
+        entry->version, entry->session, entry->open_state);
 out:
     return status;
 }
@@ -565,8 +575,6 @@ NTSTATUS marshal_nfs41_mount(
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
     unsigned char *tmp = buf;
-
-    DbgEn();
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
@@ -597,12 +605,11 @@ NTSTATUS marshal_nfs41_mount(
 
     *len = header_len;
 
-    DbgP("marshal_nfs41_mount: server name=%wZ mount point=%wZ sec_flavor=%s"
+    DbgP("marshal_nfs41_mount: server name=%wZ mount point=%wZ sec_flavor=%s "
          "rsize=%d wsize=%d\n", entry->u.Mount.srv_name, entry->u.Mount.root, 
          secflavorop2name(entry->u.Mount.sec_flavor), entry->u.Mount.rsize,
          entry->u.Mount.wsize);
 out:
-    DbgEx();
     return status;
 }
 
@@ -612,12 +619,7 @@ NTSTATUS marshal_nfs41_unmount(
     ULONG buf_len,
     ULONG *len) 
 {
-    NTSTATUS status = STATUS_SUCCESS;
-
-    DbgEn();
-    status = marshal_nfs41_header(entry, buf, buf_len, len);
-    DbgEx();
-    return status;
+    return marshal_nfs41_header(entry, buf, buf_len, len);
 }
 
 NTSTATUS marshal_nfs41_open(
@@ -629,8 +631,6 @@ NTSTATUS marshal_nfs41_open(
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
     unsigned char *tmp = buf;
-
-    DbgEn();
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
@@ -666,14 +666,13 @@ NTSTATUS marshal_nfs41_open(
 
     *len = header_len;
 
-    DbgP("marshal_nfs41_open: mask=0x%x mode=0x%x attrs=0x%x opts=0x%x "
-         "dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p\n", 
-         entry->u.Open.access_mask, entry->u.Open.access_mode, 
-         entry->u.Open.attrs, entry->u.Open.copts, entry->u.Open.disp,
-         entry->u.Open.open_owner_id, entry->u.Open.mode,
+    DbgP("marshal_nfs41_open: name=%wZ mask=0x%x access=0x%x attrs=0x%x "
+         "opts=0x%x dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p\n", 
+         entry->u.Open.filename, entry->u.Open.access_mask, 
+         entry->u.Open.access_mode, entry->u.Open.attrs, entry->u.Open.copts, 
+         entry->u.Open.disp, entry->u.Open.open_owner_id, entry->u.Open.mode,
          entry->u.Open.srv_open); 
 out:
-    DbgEx();
     return status;
 }
 
@@ -687,7 +686,6 @@ NTSTATUS marshal_nfs41_rw(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -730,7 +728,6 @@ NTSTATUS marshal_nfs41_rw(
          entry->u.ReadWrite.len, entry->u.ReadWrite.offset, 
          entry->u.ReadWrite.MdlAddress, entry->u.ReadWrite.buf);
 out:
-    DbgEx();
     return status;
 }
 
@@ -743,7 +740,6 @@ NTSTATUS marshal_nfs41_lock(
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
     unsigned char *tmp = buf;
-    DbgEn();
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
@@ -771,7 +767,6 @@ NTSTATUS marshal_nfs41_lock(
          "blocking=%u\n", entry->u.Lock.offset, entry->u.Lock.length,
          entry->u.Lock.exclusive, entry->u.Lock.blocking);
 out:
-    DbgEx();
     return status;
 }
 
@@ -785,7 +780,6 @@ NTSTATUS marshal_nfs41_unlock(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
     PLOWIO_LOCK_LIST lock;
-    DbgEn();
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
@@ -815,7 +809,6 @@ NTSTATUS marshal_nfs41_unlock(
 
     DbgP("marshal_nfs41_unlock: count=%u\n", entry->u.Unlock.count);
 out:
-    DbgEx();
     return status;
 }
 
@@ -828,8 +821,6 @@ NTSTATUS marshal_nfs41_close(
     NTSTATUS status = STATUS_SUCCESS;
     ULONG header_len = 0;
     unsigned char *tmp = buf;
-
-    DbgEn();
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
@@ -859,11 +850,10 @@ NTSTATUS marshal_nfs41_close(
 
     *len = header_len;
 
-    DbgP("marshal_nfs41_close: remove=%d srv_open=%p renamed=%d "
-        "filename=%wZ\n", entry->u.Close.remove, entry->u.Close.srv_open, 
-        entry->u.Close.renamed, entry->u.Close.filename);
+    DbgP("marshal_nfs41_close: name=%wZ remove=%d srv_open=%p renamed=%d\n", 
+        entry->u.Close.filename->Length?entry->u.Close.filename:&SLASH, 
+        entry->u.Close.remove, entry->u.Close.srv_open, entry->u.Close.renamed);
 out:
-    DbgEx();
     return status;
 }
 
@@ -877,7 +867,6 @@ NTSTATUS marshal_nfs41_dirquery(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -912,8 +901,6 @@ NTSTATUS marshal_nfs41_dirquery(
             status = STATUS_INSUFFICIENT_RESOURCES;
             goto out;
         }
-        DbgP("MdlAddress=%p Userspace=%p\n", entry->u.QueryFile.mdl,
-            entry->u.QueryFile.mdl_buf);
     } __except(EXCEPTION_EXECUTE_HANDLER) { 
         NTSTATUS code; 
         code = GetExceptionCode(); 
@@ -930,7 +917,6 @@ NTSTATUS marshal_nfs41_dirquery(
          entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan, 
          entry->u.QueryFile.return_single);
 out:
-    DbgEx();
     return status;
 }
 
@@ -944,7 +930,6 @@ NTSTATUS marshal_nfs41_filequery(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -967,7 +952,6 @@ NTSTATUS marshal_nfs41_filequery(
 
     DbgP("marshal_nfs41_filequery: class=%d\n", entry->u.QueryFile.InfoClass);
 out:
-    DbgEx();
     return status;
 }
 
@@ -981,7 +965,6 @@ NTSTATUS marshal_nfs41_fileset(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1009,7 +992,6 @@ NTSTATUS marshal_nfs41_fileset(
     print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf,
         entry->u.SetFile.buf_len);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1023,7 +1005,6 @@ NTSTATUS marshal_nfs41_easet(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1049,7 +1030,6 @@ NTSTATUS marshal_nfs41_easet(
     DbgP("marshal_nfs41_easet: filename=%wZ, buflen=%d mode=0x%x\n", 
         entry->u.SetEa.filename, entry->u.SetEa.buf_len, entry->u.SetEa.mode);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1063,7 +1043,6 @@ NTSTATUS marshal_nfs41_eaget(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1096,7 +1075,6 @@ NTSTATUS marshal_nfs41_eaget(
         entry->u.QueryEa.EaIndex, entry->u.QueryEa.EaListLength, 
         entry->u.QueryEa.RestartScan, entry->u.QueryEa.ReturnSingleEntry);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1110,7 +1088,6 @@ NTSTATUS marshal_nfs41_symlink(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1137,7 +1114,6 @@ NTSTATUS marshal_nfs41_symlink(
          entry->u.Symlink.filename, 
          entry->u.Symlink.set?entry->u.Symlink.target : NULL);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1151,7 +1127,6 @@ NTSTATUS marshal_nfs41_volume(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1168,7 +1143,6 @@ NTSTATUS marshal_nfs41_volume(
 
     DbgP("marshal_nfs41_volume: class=%d\n", entry->u.Volume.query);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1182,7 +1156,6 @@ NTSTATUS marshal_nfs41_getacl(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1199,7 +1172,6 @@ NTSTATUS marshal_nfs41_getacl(
 
     DbgP("marshal_nfs41_getacl: class=0x%x\n", entry->u.Acl.query);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1213,7 +1185,6 @@ NTSTATUS marshal_nfs41_setacl(
     ULONG header_len = 0;
     unsigned char *tmp = buf;
 
-    DbgEn();
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
     if (status == STATUS_INSUFFICIENT_RESOURCES) 
         goto out;
@@ -1236,7 +1207,6 @@ NTSTATUS marshal_nfs41_setacl(
     DbgP("marshal_nfs41_setacl: class=0x%x sec_desc_len=%d\n", 
          entry->u.Acl.query, entry->u.Acl.buf_len);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1246,12 +1216,7 @@ NTSTATUS marshal_nfs41_shutdown(
     ULONG buf_len, 
     ULONG *len) 
 {
-    NTSTATUS status = STATUS_SUCCESS;
-
-    DbgEn();
-    status = marshal_nfs41_header(entry, buf, buf_len, len);
-    DbgEx();
-    return status;
+    return marshal_nfs41_header(entry, buf, buf_len, len);
 }
 
 NTSTATUS nfs41_invalidate_cache (
@@ -1292,7 +1257,6 @@ NTSTATUS handle_upcall(
     switch(entry->opcode) {
     case NFS41_SHUTDOWN:
         status = marshal_nfs41_shutdown(entry, pbOut, cbOut, len);
-        DbgP("[upcall] About to signal waiting IO thread\n");
         KeSetEvent(&entry->cond, 0, FALSE);
         break;
     case NFS41_MOUNT:
@@ -1364,6 +1328,7 @@ NTSTATUS nfs41_UpcallCreate(
     IN HANDLE session,
     IN HANDLE open_state,
     IN DWORD version,
+    IN PUNICODE_STRING filename,
     OUT nfs41_updowncall_entry **entry_out)
 {
     NTSTATUS status = STATUS_SUCCESS;
@@ -1385,6 +1350,9 @@ NTSTATUS nfs41_UpcallCreate(
     entry->session = session;
     entry->open_state = open_state;
     entry->version = version;
+    if (filename && filename->Length) entry->filename = filename;
+    else if (filename && !filename->Length) entry->filename = (PUNICODE_STRING)&SLASH;
+    else entry->filename = (PUNICODE_STRING)&EMPTY_STRING;
     /*XXX KeInitializeEvent will bugcheck under verifier if allocated 
      * from PagedPool? */
     KeInitializeEvent(&entry->cond, SynchronizationEvent, FALSE);
@@ -1418,11 +1386,9 @@ NTSTATUS nfs41_UpcallWaitForReply(
     IN nfs41_updowncall_entry *entry)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    const char *opstring = opcode2string(entry->opcode);
 
     nfs41_AddEntry(upcallLock, upcall, entry);
     KeSetEvent(&upcallEvent, 0, FALSE);
-    DbgP("@@@ Creating %s upcall entry=%p xid=%lld\n", opstring, entry, entry->xid);
     if (!entry->async_op) {
         /* 02/03/2011 AGLO: it is not clear what the "right" waiting design 
          * should be. Having non-interruptable waiting seems to be the right 
@@ -1447,7 +1413,7 @@ NTSTATUS nfs41_UpcallWaitForReply(
 
         status = KeWaitForSingleObject(&entry->cond, Executive, KernelMode, FALSE, NULL);
 #endif
-        print_wait_status(1, "[downcall]", status, opcode2string(entry->opcode), 
+        print_wait_status(0, "[downcall]", status, opcode2string(entry->opcode), 
             entry, entry->xid);
     } else 
         goto out;
@@ -1459,8 +1425,6 @@ NTSTATUS nfs41_UpcallWaitForReply(
     default:
         ExAcquireFastMutex(&entry->lock);
         if (entry->state == NFS41_DONE_PROCESSING) {
-            DbgP("[downcall] finish processing %s entry=%p xid=%lld\n", 
-                opcode2string(entry->opcode), entry, entry->xid);
             ExReleaseFastMutex(&entry->lock);
             break;
         }
@@ -1483,8 +1447,6 @@ NTSTATUS nfs41_upcall(
     ULONG len = 0;
     PLIST_ENTRY pEntry;
 
-    DbgEn();
-
 process_upcall:
     nfs41_RemoveFirst(upcallLock, upcall, pEntry);
     if (pEntry) {
@@ -1505,10 +1467,9 @@ process_upcall:
             RxContext->InformationToReturn = len;
     }
     else {
-        DbgP("[upcall] About to go to sleep\n");
         status = KeWaitForSingleObject(&upcallEvent, Executive, UserMode, TRUE,
             (PLARGE_INTEGER) NULL);
-        print_wait_status(1, "[upcall]", status, NULL, NULL, 0);
+        print_wait_status(0, "[upcall]", status, NULL, NULL, 0);
         switch (status) {
         case STATUS_SUCCESS: goto process_upcall;
         case STATUS_USER_APC:
@@ -1517,7 +1478,6 @@ process_upcall:
         }
     }
 out:
-    DbgEx();
     return status;
 }
 
@@ -1535,8 +1495,8 @@ void unmarshal_nfs41_header(
     *buf += sizeof(tmp->status);
     RtlCopyMemory(&tmp->errno, *buf, sizeof(tmp->errno));
     *buf += sizeof(tmp->errno);
-    DbgP("[downcall] xid=%lld opcode=%d status=%d errno=%d\n", tmp->xid, 
-        tmp->opcode, tmp->status, tmp->errno);
+    DbgP("[downcall header] xid=%lld opcode=%s status=%d errno=%d\n", tmp->xid, 
+        opcode2string(tmp->opcode), tmp->status, tmp->errno);
 }
 
 void unmarshal_nfs41_mount(
@@ -1546,7 +1506,7 @@ void unmarshal_nfs41_mount(
     RtlCopyMemory(&cur->session, *buf, sizeof(HANDLE));
     *buf += sizeof(HANDLE);
     RtlCopyMemory(&cur->version, *buf, sizeof(DWORD));
-    DbgP("[mount] session pointer 0x%x version %d\n", cur->session, 
+    DbgP("unmarshal_nfs41_mount: session pointer 0x%x version %d\n", cur->session, 
         cur->version);
 }
 
@@ -1556,7 +1516,7 @@ VOID unmarshal_nfs41_setattr(
     unsigned char **buf)
 {
     RtlCopyMemory(dest_buf, *buf, sizeof(ULONGLONG));
-    DbgP("[setattr] returned ChangeTime %llu\n", *dest_buf);
+    DbgP("unmarshal_nfs41_setattr: returned ChangeTime %llu\n", *dest_buf);
 }
 
 NTSTATUS unmarshal_nfs41_rw(
@@ -1568,7 +1528,7 @@ NTSTATUS unmarshal_nfs41_rw(
     RtlCopyMemory(&cur->u.ReadWrite.len, *buf, sizeof(cur->u.ReadWrite.len));
     *buf += sizeof(cur->u.ReadWrite.len);
     RtlCopyMemory(&cur->u.ReadWrite.ChangeTime, *buf, sizeof(ULONGLONG));
-    DbgP("[read/write] returned len %lu ChangeTime %llu\n", 
+    DbgP("unmarshal_nfs41_rw: returned len %lu ChangeTime %llu\n", 
         cur->u.ReadWrite.len, cur->u.ReadWrite.ChangeTime);
 #if 1
     /* 08/27/2010: it looks like we really don't need to call 
@@ -1624,11 +1584,11 @@ NTSTATUS unmarshal_nfs41_open(
         }
         RtlCopyMemory(cur->u.Open.symlink.Buffer, *buf, 
             cur->u.Open.symlink.MaximumLength);
-        DbgP("[open] ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
+        DbgP("unmarshal_nfs41_open: ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
     }
-    DbgP("[open] open_state 0x%x mode %o changeattr 0x%lx deleg_type %d\n",
-        cur->open_state, cur->u.Open.mode, cur->u.Open.changeattr, 
-        cur->u.Open.deleg_type);
+    DbgP("unmarshal_nfs41_open: open_state 0x%x mode %o changeattr %llu "
+        "deleg_type %d\n", cur->open_state, cur->u.Open.mode, 
+        cur->u.Open.changeattr, cur->u.Open.deleg_type);
 out:
     return status;
 }
@@ -1641,7 +1601,7 @@ NTSTATUS unmarshal_nfs41_dirquery(
     ULONG buf_len;
     
     RtlCopyMemory(&buf_len, *buf, sizeof(ULONG));
-    DbgP("readdir reply size %d\n", buf_len);
+    DbgP("unmarshal_nfs41_dirquery: reply size %d\n", buf_len);
     *buf += sizeof(ULONG);
     __try {
         MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, cur->u.QueryFile.mdl);
@@ -1684,7 +1644,7 @@ void unmarshal_nfs41_getattr(
         &cur->u.QueryFile.buf_len, buf);
     RtlCopyMemory(&cur->u.QueryFile.ChangeTime, *buf, sizeof(LONGLONG));
     if (cur->u.QueryFile.InfoClass == FileBasicInformation)
-        DbgP("[getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
+        DbgP("[unmarshal_nfs41_getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
 }
 
 NTSTATUS unmarshal_nfs41_getacl(
@@ -1740,7 +1700,6 @@ NTSTATUS nfs41_downcall(
     nfs41_updowncall_entry *tmp, *cur= NULL;
     BOOLEAN found = 0;
 
-    DbgEn();
     print_hexbuf(0, (unsigned char *)"downcall buffer", buf, in_len);
 
     tmp = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
@@ -1760,10 +1719,8 @@ NTSTATUS nfs41_downcall(
             found = 1;
             break;
         }
-        if (pEntry->Flink == &downcall->head) {
-            DbgP("reached end of the list\n");
+        if (pEntry->Flink == &downcall->head)
             break;
-        }
         pEntry = pEntry->Flink;
     }
     ExReleaseFastMutex(&downcallLock);
@@ -1775,7 +1732,7 @@ NTSTATUS nfs41_downcall(
 
     ExAcquireFastMutex(&cur->lock);    
     if (cur->state == NFS41_NOT_WAITING) {
-        print_error("[downcall] Nobody is waiting for this request!!!\n");
+        DbgP("[downcall] Nobody is waiting for this request!!!\n");
         switch(cur->opcode) {
         case NFS41_WRITE:
         case NFS41_READ:
@@ -1841,7 +1798,6 @@ NTSTATUS nfs41_downcall(
             break;
         }
     }
-    DbgP("[downcall] About to signal waiting IO thread\n");
     ExReleaseFastMutex(&cur->lock);
     if (cur->async_op) {
         if (cur->status == STATUS_SUCCESS) {
@@ -1861,7 +1817,6 @@ NTSTATUS nfs41_downcall(
 out_free:
     RxFreePool(tmp);
 out:
-    DbgEx();
     return status;
 }
 
@@ -1873,7 +1828,7 @@ NTSTATUS nfs41_shutdown_daemon(
 
     DbgEn();
     status = nfs41_UpcallCreate(NFS41_SHUTDOWN, NULL, INVALID_HANDLE_VALUE,
-        INVALID_HANDLE_VALUE, version, &entry);
+        INVALID_HANDLE_VALUE, version, NULL, &entry);
     if (status)
         goto out;
 
@@ -1995,7 +1950,9 @@ NTSTATUS GetConnectionHandle(
     IO_STATUS_BLOCK IoStatusBlock;
     OBJECT_ATTRIBUTES ObjectAttributes;
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+#endif
     InitializeObjectAttributes(&ObjectAttributes, ConnectionName,
         OBJ_CASE_INSENSITIVE|OBJ_KERNEL_HANDLE, NULL, NULL);
 
@@ -2005,10 +1962,10 @@ NTSTATUS GetConnectionHandle(
         FILE_OPEN_IF,
         FILE_CREATE_TREE_CONNECTION | FILE_SYNCHRONOUS_IO_NONALERT,
         EaBuffer, EaLength);
-    if (NT_SUCCESS(status))
-        DbgP("created handle %p\n", Handle);
 
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -2023,8 +1980,6 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     USHORT NameLength, EaPadding;
     ULONG EaLength, BufferLenExpected;
     PBYTE ptr;
-
-    DbgEn();
 
     /* make sure buffer is at least big enough for header */
     if (BufferLen < sizeof(USHORT) + sizeof(USHORT) + sizeof(ULONG)) {
@@ -2060,7 +2015,6 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     pConnectionName->Buffer = (PWCH)ptr;
     pConnectionName->Length = NameLength - sizeof(WCHAR);
     pConnectionName->MaximumLength = NameLength;
-    DbgP("connection name %wZ\n", pConnectionName);
 
     if (EaLength)
         *ppEaBuffer = ptr + NameLength + EaPadding;
@@ -2069,7 +2023,6 @@ NTSTATUS nfs41_GetConnectionInfoFromBuffer(
     *pEaLength = EaLength;
 
 out:
-    DbgEx();
     return status;
 }
 
@@ -2085,7 +2038,9 @@ NTSTATUS nfs41_CreateConnection(
     UNICODE_STRING FileName;
     BOOLEAN Wait = BooleanFlagOn(RxContext->Flags, RX_CONTEXT_FLAG_WAIT);
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+#endif
 
     if (!Wait) {
         //just post right now!
@@ -2104,7 +2059,9 @@ NTSTATUS nfs41_CreateConnection(
     if (!status && Handle != INVALID_HANDLE_VALUE)
         ZwClose(Handle);
 out:
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -2131,9 +2088,11 @@ NTSTATUS nfs41_unmount(
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+#endif
     status = nfs41_UpcallCreate(NFS41_UNMOUNT, NULL, session, 
-        INVALID_HANDLE_VALUE, version, &entry);
+        INVALID_HANDLE_VALUE, version, NULL, &entry);
     SeDeleteClientSecurity(&entry->sec_ctx);
     if (status)
         goto out;
@@ -2161,7 +2120,9 @@ out:
     print_op_stat("lock", &lock, 1);
     print_op_stat("unlock", &unlock, 1);
 #endif
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -2178,7 +2139,9 @@ NTSTATUS nfs41_DeleteConnection (
     PFILE_OBJECT pFileObject;
     BOOLEAN Wait = BooleanFlagOn(RxContext->Flags, RX_CONTEXT_FLAG_WAIT);
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+#endif
 
     if (!Wait) {
         //just post right now!
@@ -2196,20 +2159,20 @@ NTSTATUS nfs41_DeleteConnection (
     if (status != STATUS_SUCCESS)
         goto out;
 
-    DbgP("GetConnectionHandle returned success\n");
     status = ObReferenceObjectByHandle(Handle, 0L, NULL, KernelMode,
                 (PVOID *)&pFileObject, NULL);
     if (NT_SUCCESS(status)) {
         PV_NET_ROOT VNetRoot;
 
-        DbgP("ObReferenceObjectByHandle worked ok %p\n", pFileObject);
         // VNetRoot exists as FOBx in the FsContext2
         VNetRoot = (PV_NET_ROOT) pFileObject->FsContext2;
         // make sure the node looks right
         if (NodeType(VNetRoot) == RDBSS_NTC_V_NETROOT)
         {
+#ifdef DEBUG_MOUNT
             DbgP("Calling RxFinalizeConnection for NetRoot %p from VNetRoot %p\n",
                 VNetRoot->NetRoot, VNetRoot);
+#endif
             status = RxFinalizeConnection(VNetRoot->NetRoot, VNetRoot, TRUE);
         }
         else
@@ -2219,7 +2182,9 @@ NTSTATUS nfs41_DeleteConnection (
     }
     ZwClose(Handle);
 out:
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -2368,7 +2333,9 @@ NTSTATUS _nfs41_CreateSrvCall(
         (PMRX_SRVCALLDOWN_STRUCTURE)(SCCBC->SrvCalldownStructure);
     PNFS41_SERVER_ENTRY pServerEntry = NULL;
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+#endif
 
     pSrvCall = SrvCalldownStructure->SrvCall;
 
@@ -2377,8 +2344,10 @@ NTSTATUS _nfs41_CreateSrvCall(
     print_srv_call(0, pSrvCall);
 
     // validate the server name with the test name of 'pnfs'
+#ifdef DEBUG_MOUNT
     DbgP("SrvCall: Connection Name Length: %d %wZ\n",
         pSrvCall->pSrvCallName->Length, pSrvCall->pSrvCallName);
+#endif
 
     if (pSrvCall->pSrvCallName->Length > SERVER_NAME_BUFFER_SIZE) {
         print_error("Server name '%wZ' too long for server entry (max %u)\n",
@@ -2391,7 +2360,6 @@ NTSTATUS _nfs41_CreateSrvCall(
     pServerEntry = (PNFS41_SERVER_ENTRY)RxAllocatePoolWithTag(PagedPool, 
         sizeof(NFS41_SERVER_ENTRY), NFS41_MM_POOLTAG);
     if (pServerEntry == NULL) {
-        print_error("failed to allocate memory for pServerEntry\n");
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
@@ -2402,19 +2370,17 @@ NTSTATUS _nfs41_CreateSrvCall(
     pServerEntry->Name.MaximumLength = SERVER_NAME_BUFFER_SIZE;
     RtlCopyMemory(pServerEntry->Name.Buffer, pSrvCall->pSrvCallName->Buffer,
         pServerEntry->Name.Length);
-    DbgP("copying server name %wZ into server entry %p\n", 
-        &pServerEntry->Name, pServerEntry);
 
     pCallbackContext->RecommunicateContext = pServerEntry;
-    DbgP("saving pServerEntry %p in RecommunicateContext\n", pServerEntry);
     InterlockedExchangePointer(&pServerEntry->pRdbssSrvCall, pSrvCall);
-    DbgP("saving pSrvCall %p in pServerEntry's pRdbssSrvCall\n", pSrvCall);
 
 out:
     SCCBC->Status = status;
     SrvCalldownStructure->CallBack(SCCBC);
 
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -2424,8 +2390,6 @@ NTSTATUS nfs41_CreateSrvCall(
 {
     NTSTATUS status;
 
-    DbgEn();
-
     ASSERT( pSrvCall );
     ASSERT( NodeType(pSrvCall) == RDBSS_NTC_SRVCALL );
 
@@ -2433,7 +2397,6 @@ NTSTATUS nfs41_CreateSrvCall(
         DbgP("executing with RDBSS context\n");
         status = _nfs41_CreateSrvCall(pCallbackContext);
     } else {
-        DbgP("dispatching CreateSrvCall to a system thread\n");
         status = RxDispatchToWorkerThread(nfs41_dev, DelayedWorkQueue, 
             _nfs41_CreateSrvCall, pCallbackContext);
         if (status != STATUS_SUCCESS) {
@@ -2445,12 +2408,9 @@ NTSTATUS nfs41_CreateSrvCall(
         }
     }
     /* RDBSS expects MRxCreateSrvCall to return STATUS_PENDING */
-    if (status == STATUS_SUCCESS) {
-        DbgP("mapping SUCCESS returned status to PENDING\n");
+    if (status == STATUS_SUCCESS)
         status = STATUS_PENDING;
-    } 
 
-    DbgEx();
     return status;
 }
 
@@ -2462,7 +2422,6 @@ NTSTATUS nfs41_SrvCallWinnerNotify(
     NTSTATUS status = STATUS_SUCCESS;
     PNFS41_SERVER_ENTRY pServerEntry;
 
-    DbgEn();
     pServerEntry = (PNFS41_SERVER_ENTRY)pSrvCallContext;
 
     if (!ThisMinirdrIsTheWinner) {
@@ -2471,10 +2430,7 @@ NTSTATUS nfs41_SrvCallWinnerNotify(
     }
 
     pSrvCall->Context = pServerEntry;
-    DbgP("This minirdr is the winner SrvCall context %p points to server "
-         "entry %p\n", pSrvCall->Context, pServerEntry);
 out:
-    DbgEx();
     return status;
 }
 
@@ -2503,9 +2459,13 @@ NTSTATUS nfs41_mount(
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+    DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
+        config->SrvName, config->MntPt, sec_flavor);
+#endif
     status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, INVALID_HANDLE_VALUE,
-        INVALID_HANDLE_VALUE, *version, &entry);
+        INVALID_HANDLE_VALUE, *version, &config->MntPt, &entry);
     if (status)
         goto out;
     entry->u.Mount.srv_name = &config->SrvName;
@@ -2528,7 +2488,9 @@ NTSTATUS nfs41_mount(
         *version = entry->version;
     RxFreePool(entry);
 out:
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -2614,8 +2576,6 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
     LPWSTR Name;
     size_t NameLen;
     UNICODE_STRING  usValue;
-    DbgEn();
-
     Option = EaBuffer;
     while (status == STATUS_SUCCESS) {
         Name = (LPWSTR)Option->EaName;
@@ -2678,7 +2638,6 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
             ((PBYTE)Option + Option->NextEntryOffset);
     }
 
-    DbgEx();
     return status;
 }
 
@@ -2732,13 +2691,13 @@ NTSTATUS nfs41_GetLUID(
     status = SeCreateClientSecurityFromSubjectContext(&sec_ctx, &sec_qos, 1, 
                 &clnt_sec_ctx);
     if (status) {
-        DbgP("nfs41_GetLUID: SeCreateClientSecurityFromSubjectContext "
+        print_error("nfs41_GetLUID: SeCreateClientSecurityFromSubjectContext "
              "failed %x\n", status);
         goto release_sec_ctx;
     }
     status = SeQueryAuthenticationIdToken(clnt_sec_ctx.ClientToken, id);
     if (status) {
-        DbgP("SeQueryAuthenticationIdToken failed %x\n", status);
+        print_error("SeQueryAuthenticationIdToken failed %x\n", status);
         goto release_clnt_sec_ctx;
     }
 release_clnt_sec_ctx:
@@ -2767,7 +2726,9 @@ NTSTATUS nfs41_get_sec_ctx(
         print_error("SeCreateClientSecurityFromSubjectContext "
             "failed with %x\n", status);
     }
+#ifdef DEBUG_MOUNT
     DbgP("Created client security token %p\n", out_ctx->ClientToken);
+#endif
     SeReleaseSubjectContext(&ctx);
 
     return status;
@@ -2795,10 +2756,11 @@ NTSTATUS nfs41_CreateVNetRoot(
     ASSERT((NodeType(pNetRoot) == RDBSS_NTC_NETROOT) &&
         (NodeType(pNetRoot->pSrvCall) == RDBSS_NTC_SRVCALL));
 
+#ifdef DEBUG_MOUNT
     DbgEn();
     print_srv_call(0, pSrvCall);
     print_net_root(0, pNetRoot);
-    print_v_net_root(1, pVNetRoot);
+    print_v_net_root(0, pVNetRoot);
 
     DbgP("pVNetRoot=%p pNetRoot=%p pSrvCall=%p\n", pVNetRoot, pNetRoot, pSrvCall);
     DbgP("pNetRoot=%wZ Type=%d pSrvCallName=%wZ VirtualNetRootStatus=0x%x "
@@ -2806,9 +2768,11 @@ NTSTATUS nfs41_CreateVNetRoot(
         pNetRoot->Type, pSrvCall->pSrvCallName, 
         pCreateNetRootContext->VirtualNetRootStatus, 
         pCreateNetRootContext->NetRootStatus);
+#endif
 
     if (pNetRoot->Type != NET_ROOT_DISK && pNetRoot->Type != NET_ROOT_WILD) {
-        print_error("Unsupported NetRoot Type %u\n", pNetRoot->Type);
+        print_error("nfs41_CreateVNetRoot: Unsupported NetRoot Type %u\n", 
+            pNetRoot->Type);
         status = STATUS_NOT_SUPPORTED;
         goto out;
     }
@@ -2819,8 +2783,8 @@ NTSTATUS nfs41_CreateVNetRoot(
      * only claim paths of the form '\\server\nfs4\path' */
     status = has_nfs_prefix(pSrvCall->pSrvCallName, pNetRoot->pNetRootName);
     if (status) {
-        print_error("NetRootName %wZ doesn't match '\\nfs4'!\n",
-            pNetRoot->pNetRootName);
+        print_error("nfs41_CreateVNetRoot: NetRootName %wZ doesn't match "
+            "'\\nfs4'!\n", pNetRoot->pNetRootName);
         goto out;
     }
     pNetRoot->MRxNetRootState = MRX_NET_ROOT_STATE_GOOD;
@@ -2859,7 +2823,9 @@ NTSTATUS nfs41_CreateVNetRoot(
         goto out;
 
     if (!pNetRootContext->mounts_init) {
+#ifdef DEBUG_MOUNT
         DbgP("Initializing mount array\n");
+#endif
         ExInitializeFastMutex(&pNetRootContext->mountLock);
         pNetRootContext->mounts = RxAllocatePoolWithTag(NonPagedPool, 
             sizeof(nfs41_mount_list), NFS41_MM_POOLTAG);
@@ -2878,10 +2844,14 @@ NTSTATUS nfs41_CreateVNetRoot(
         while (pEntry != NULL) {
             existing_mount = (nfs41_mount_entry *)CONTAINING_RECORD(pEntry, 
                     nfs41_mount_entry, next);
+#ifdef DEBUG_MOUNT
             DbgP("comparing %x.%x with %x.%x\n", luid.HighPart, luid.LowPart,
                 existing_mount->login_id.HighPart, existing_mount->login_id.LowPart);
+#endif
             if (RtlEqualLuid(&luid, &existing_mount->login_id)) {
+#ifdef DEBUG_MOUNT
                 DbgP("Found a matching LUID entry\n");
+#endif
                 found_existing_mount = TRUE;
                 switch(pVNetRootContext->sec_flavor) {
                 case RPCSEC_AUTH_SYS:
@@ -2906,21 +2876,19 @@ NTSTATUS nfs41_CreateVNetRoot(
                     found_matching_flavor = 1;
                 break;                
             }
-            if (pEntry->Flink == &pNetRootContext->mounts->head) {
-                DbgP("reached end of the list\n");
+            if (pEntry->Flink == &pNetRootContext->mounts->head)
                 break;
-            }
             pEntry = pEntry->Flink;
         }
-        ExReleaseFastMutex(&pNetRootContext->mountLock); 
+        ExReleaseFastMutex(&pNetRootContext->mountLock);
+#ifdef DEBUG_MOUNT
         if (!found_matching_flavor)
             DbgP("Didn't find matching security flavor\n");
+#endif
     }
 
     if (!found_existing_mount || !found_matching_flavor) {
         /* send the mount upcall */
-        DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
-            &Config.SrvName, &Config.MntPt, &Config.SecFlavor);
         status = nfs41_mount(&Config, pVNetRootContext->sec_flavor,
             &pVNetRootContext->session, &nfs41d_version);
         if (status != STATUS_SUCCESS) {
@@ -2960,8 +2928,10 @@ NTSTATUS nfs41_CreateVNetRoot(
     } else if (!found_matching_flavor) {
         ASSERT(existing_mount != NULL);
         /* modify existing mount entry */
+#ifdef DEBUG_MOUNT
         DbgP("Using existing %d flavor session 0x%x\n", 
             pVNetRootContext->sec_flavor);
+#endif
         switch (pVNetRootContext->sec_flavor) {
         case RPCSEC_AUTH_SYS:
             existing_mount->authsys_session = pVNetRootContext->session; break;
@@ -2974,7 +2944,9 @@ NTSTATUS nfs41_CreateVNetRoot(
         }
     }
     pNetRootContext->nfs41d_version = nfs41d_version;
+#ifdef DEBUG_MOUNT
     DbgP("Saving new session 0x%x\n", pVNetRootContext->session);
+#endif
 #ifdef STORE_MOUNT_SEC_CONTEXT
     status = nfs41_get_sec_ctx(SecurityImpersonation, 
         &pVNetRootContext->mount_sec_ctx);
@@ -2984,14 +2956,14 @@ out:
     pCreateNetRootContext->VirtualNetRootStatus = status;
     if (pNetRoot->Context == NULL)
         pCreateNetRootContext->NetRootStatus = status;
-    DbgP("initiating net root callback with status %08lx\n", status);
     pCreateNetRootContext->Callback(pCreateNetRootContext);
 
     /* RDBSS expects that MRxCreateVNetRoot returns STATUS_PENDING 
      * on success or failure */
     status = STATUS_PENDING;
-
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -3005,11 +2977,6 @@ VOID nfs41_ExtractNetRootName(
     PWCH w = FilePathName->Buffer;
     PWCH wlimit = (PWCH)(((PCHAR)w)+length);
     PWCH wlow;
-
-    DbgEn();
-    DbgP("Input: pSrvCall %p\n", SrvCall);
-    DbgP("Input: FilePathName=%wZ SrvCallName=%wZ\n", 
-        FilePathName, SrvCall->pSrvCallName);
 
     w += (SrvCall->pSrvCallName->Length/sizeof(WCHAR));
     NetRootName->Buffer = wlow = w;
@@ -3027,8 +2994,10 @@ VOID nfs41_ExtractNetRootName(
 #endif
     NetRootName->Length = NetRootName->MaximumLength
                 = (USHORT)((PCHAR)w - (PCHAR)wlow);
-    DbgP("Output: NetRootName=%wZ\n", NetRootName);
-    DbgR();
+#ifdef DEBUG_MOUNT
+    DbgP("In: pSrvCall %p PathName=%wZ SrvCallName=%wZ Out: NetRootName=%wZ\n", 
+        SrvCall, FilePathName, SrvCall->pSrvCallName, NetRootName);
+#endif
     return;
 
 }
@@ -3040,7 +3009,9 @@ NTSTATUS nfs41_FinalizeSrvCall(
     NTSTATUS status = STATUS_SUCCESS;
     PNFS41_SERVER_ENTRY pServerEntry = (PNFS41_SERVER_ENTRY)(pSrvCall->Context);
 
+#ifdef DEBUG_MOUNT
     DbgEn();
+#endif
     print_srv_call(0, pSrvCall);
 
     if (pSrvCall->Context == NULL)
@@ -3048,13 +3019,13 @@ NTSTATUS nfs41_FinalizeSrvCall(
 
     InterlockedCompareExchangePointer(&pServerEntry->pRdbssSrvCall, 
         NULL, pSrvCall);
-    DbgP("freeing server name %wZ and server entry %p\n", 
-        &pServerEntry->Name, pServerEntry);
     RxFreePool(pServerEntry);
 
     pSrvCall->Context = NULL;
 out:
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -3068,8 +3039,10 @@ NTSTATUS nfs41_FinalizeNetRoot(
     nfs41_updowncall_entry *tmp;
     nfs41_mount_entry *mount_tmp;
     
+#ifdef DEBUG_MOUNT
     DbgEn();
     print_net_root(1, pNetRoot);
+#endif
 
     if (pNetRoot->Type != NET_ROOT_DISK && pNetRoot->Type != NET_ROOT_WILD) {
         status = STATUS_NOT_SUPPORTED;
@@ -3077,7 +3050,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
     }
 
     if (pNetRootContext == NULL || !pNetRootContext->mounts_init) {
-        print_error("No valid session has been established\n");
+        print_error("nfs41_FinalizeNetRoot: No valid session established\n");
         goto out;
     }
 
@@ -3092,9 +3065,10 @@ NTSTATUS nfs41_FinalizeNetRoot(
             pNetRootContext->mounts, mount_tmp);
         if (mount_tmp == NULL)
             break;
+#ifdef DEBUG_MOUNT
         DbgP("Removing entry luid %x.%x from mount list\n", 
             mount_tmp->login_id.HighPart, mount_tmp->login_id.LowPart);
-
+#endif
         if (mount_tmp->authsys_session != INVALID_HANDLE_VALUE) {
             status = nfs41_unmount(mount_tmp->authsys_session, 
                         pNetRootContext->nfs41d_version);
@@ -3153,7 +3127,9 @@ NTSTATUS nfs41_FinalizeNetRoot(
             break;
     } while (1);
 out:
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
@@ -3165,27 +3141,32 @@ NTSTATUS nfs41_FinalizeVNetRoot(
     NTSTATUS status = STATUS_SUCCESS;
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(pVNetRoot);
+#ifdef DEBUG_MOUNT
     DbgEn();
     print_v_net_root(1, pVNetRoot);
+#endif
     if (pVNetRoot->pNetRoot->Type != NET_ROOT_DISK && 
             pVNetRoot->pNetRoot->Type != NET_ROOT_WILD)
         status = STATUS_NOT_SUPPORTED;
 #ifdef STORE_MOUNT_SEC_CONTEXT
     else if (pVNetRootContext->session != INVALID_HANDLE_VALUE) {
-        DbgP("nfs41_FinalizeVNetRoot: deleting security context\n");
+#ifdef DEBUG_MOUNT
+        DbgP("nfs41_FinalizeVNetRoot: deleting security context: %p\n",
+            pVNetRootContext->mount_sec_ctx.ClientToken);
+#endif
         SeDeleteClientSecurity(&pVNetRootContext->mount_sec_ctx);
     }
 #endif
+#ifdef DEBUG_MOUNT
     DbgEx();
+#endif
     return status;
 }
 
 BOOLEAN isDataAccess(
     ACCESS_MASK mask) 
 {
-    if ((mask & FILE_READ_DATA) ||
-        (mask & FILE_WRITE_DATA) ||
-        (mask & FILE_APPEND_DATA))
+    if (mask & (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA))
         return TRUE;
     return FALSE;
 }
@@ -3250,7 +3231,6 @@ NTSTATUS nfs41_Create(
     NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
     PFILE_FULL_EA_INFORMATION eainfo = NULL;
     nfs3_attrs *attrs = NULL;
-    BOOLEAN file_changed = FALSE;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
@@ -3266,16 +3246,18 @@ NTSTATUS nfs41_Create(
 
     ASSERT( NodeType(SrvOpen) == RDBSS_NTC_SRVOPEN );
 
+#ifdef DEBUG_OPEN
     DbgEn();
     print_debug_header(RxContext);
     print_nt_create_params(1, RxContext->Create.NtCreateParameters);
-
     if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer)
-        print_ea_info(1, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
+        print_ea_info(0, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
+#endif
 
     if (Fcb->pNetRoot->Type != NET_ROOT_DISK && 
             Fcb->pNetRoot->Type != NET_ROOT_WILD) {
-        print_error("Unsupported NetRoot Type %u\n", Fcb->pNetRoot->Type);
+        print_error("nfs41_Create: Unsupported NetRoot Type %u\n", 
+            Fcb->pNetRoot->Type);
         status = STATUS_NOT_SUPPORTED;
         goto out;
     }
@@ -3287,7 +3269,7 @@ NTSTATUS nfs41_Create(
     }
     
     if (!pNetRootContext->mounts_init) {
-        print_error("No valid session established\n");
+        print_error("nfs41_Create: No valid session established\n");
         goto out;
     }
 
@@ -3305,7 +3287,8 @@ NTSTATUS nfs41_Create(
     status = nfs41_UpcallCreate(NFS41_OPEN, NULL,
 #endif
         pVNetRootContext->session, INVALID_HANDLE_VALUE, 
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, 
+        SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
@@ -3324,7 +3307,9 @@ NTSTATUS nfs41_Create(
                 RxContext->CurrentIrp->AssociatedIrp.SystemBuffer;
             if (AnsiStrEq(&NfsV3Attributes, eainfo->EaName, eainfo->EaNameLength)) {
                 attrs = (nfs3_attrs *)(eainfo->EaName + eainfo->EaNameLength + 1);
-                DbgP("creating file with mode %o\n", attrs->mode); 
+#ifdef DEBUG_OPEN
+                DbgP("creating file with mode %o\n", attrs->mode);
+#endif
                 entry->u.Open.mode = attrs->mode;
             }
         }
@@ -3381,9 +3366,11 @@ NTSTATUS nfs41_Create(
 
         status = RxPrepareToReparseSymbolicLink(RxContext,
             entry->u.Open.symlink_embedded, &AbsPath, TRUE, &ReparseRequired);
+#ifdef DEBUG_OPEN 
         DbgP("RxPrepareToReparseSymbolicLink(%u, '%wZ') returned %08lX, "
             "FileName is '%wZ'\n", entry->u.Open.symlink_embedded,
             &AbsPath, status, &RxContext->CurrentIrpSp->FileObject->FileName);
+#endif
         if (status == STATUS_SUCCESS)
             status = ReparseRequired ? STATUS_REPARSE :
                 STATUS_OBJECT_PATH_NOT_FOUND;
@@ -3393,7 +3380,9 @@ NTSTATUS nfs41_Create(
     status = map_open_errors(entry->status, 
                 SrvOpen->pAlreadyPrefixedName->Length);
     if (status) {
+#ifdef DEBUG_OPEN 
         print_open_error(1, status);
+#endif
         goto out_free;
     }
 
@@ -3407,7 +3396,9 @@ NTSTATUS nfs41_Create(
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out_free;
     }
-    print_fobx(1, RxContext->pFobx);
+#ifdef DEBUG_OPEN
+    DbgP("nfs41_Create: created FOBX %p\n", RxContext->pFobx);
+#endif
     nfs41_fobx = (PNFS41_FOBX)(RxContext->pFobx)->Context;
     nfs41_fobx->nfs41_open_state = entry->open_state;
 #ifndef USE_MOUNT_SEC_CONTEXT
@@ -3423,8 +3414,10 @@ NTSTATUS nfs41_Create(
     if (Fcb->OpenCount == 0 || 
             (Fcb->OpenCount > 0 && 
                 nfs41_fcb->changeattr != entry->u.Open.changeattr)) {
+#ifdef DEBUG_OPEN
         print_basic_info(1, &entry->u.Open.binfo);
         print_std_info(1, &entry->u.Open.sinfo);
+#endif
         RtlCopyMemory(&nfs41_fcb->BasicInfo, &entry->u.Open.binfo, 
             sizeof(entry->u.Open.binfo));
         RtlCopyMemory(&nfs41_fcb->StandardInfo, &entry->u.Open.sinfo, 
@@ -3452,6 +3445,7 @@ NTSTATUS nfs41_Create(
         RxFinishFcbInitialization(Fcb, RDBSS_STORAGE_NTC(StorageType), 
                                     &InitPacket);
     }
+#ifdef DEBUG_OPEN
     else {
         DbgP("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n");
         if (nfs41_fcb->Flags) {
@@ -3459,42 +3453,54 @@ NTSTATUS nfs41_Create(
             print_std_info(1, &nfs41_fcb->StandardInfo);
         }
     }
+#endif
 
     if (Fcb->OpenCount > 0 && 
             nfs41_fcb->changeattr != entry->u.Open.changeattr && 
                 !nfs41_fcb->StandardInfo.Directory) {
         ULONG flag = DISABLE_CACHING;
+#ifdef DEBUG_OPEN
         DbgP("nfs41_Create: reopening (changed) file %wZ\n", SrvOpen->pAlreadyPrefixedName);
+#endif
         RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
-    } else if (!file_changed && !nfs41_fcb->StandardInfo.Directory) {
+    } else if (!nfs41_fcb->StandardInfo.Directory && 
+                isDataAccess(params.DesiredAccess)) {
         nfs41_fobx->deleg_type = entry->u.Open.deleg_type;
+#ifdef DEBUG_OPEN
         DbgP("nfs41_Create: received delegation %d\n", entry->u.Open.deleg_type);
+#endif
         if (!(params.CreateOptions & FILE_WRITE_THROUGH) &&
                 !pVNetRootContext->write_thru &&
                 (entry->u.Open.deleg_type == 2 ||
                 (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)))) {
+#ifdef DEBUG_OPEN
             DbgP("nfs41_Create: enabling write buffering\n");
+#endif
             SrvOpen->BufferingFlags |= 
                 (FCB_STATE_WRITECACHING_ENABLED | 
                 FCB_STATE_WRITEBUFFERING_ENABLED);
         }
         if (entry->u.Open.deleg_type >= 1 ||
                 params.DesiredAccess & FILE_READ_DATA) {
+#ifdef DEBUG_OPEN
             DbgP("nfs41_Create: enabling read buffering\n");
+#endif
             SrvOpen->BufferingFlags |= 
                 (FCB_STATE_READBUFFERING_ENABLED | 
                 FCB_STATE_READCACHING_ENABLED);
         }
         if (pVNetRootContext->nocache || 
                 (params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)) {
+#ifdef DEBUG_OPEN
             DbgP("nfs41_Create: disabling buffering\n");
+#endif
             SrvOpen->BufferingFlags = FCB_STATE_DISABLE_LOCAL_BUFFERING;
-        } else if (!entry->u.Open.deleg_type && 
-                    (params.DesiredAccess & 
-                        (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA))) {
+        } else if (!entry->u.Open.deleg_type) {
             nfs41_srvopen_list_entry *oentry;
+#ifdef DEBUG_OPEN
             DbgP("nfs41_Create: received no delegations: srv_open=%p "
                 "ctime=%llu\n", SrvOpen, entry->u.Open.changeattr);
+#endif
             oentry = RxAllocatePoolWithTag(NonPagedPool, 
                 sizeof(nfs41_srvopen_list_entry), NFS41_MM_POOLTAG);
             if (oentry == NULL) {
@@ -3510,10 +3516,8 @@ NTSTATUS nfs41_Create(
     }
 
     if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
-            !pVNetRootContext->read_only) {
-        DbgP("We need to delete this file on close\n");
+            !pVNetRootContext->read_only)
         nfs41_fcb->StandardInfo.DeletePending = TRUE;
-    }
 
     RxContext->Create.ReturnedCreateInformation = 
         map_disposition_to_create_retval(params.Disposition, entry->errno);
@@ -3548,7 +3552,9 @@ out:
 #endif
     }
 #endif
+#ifdef DEBUG_OPEN
     DbgEx();
+#endif
     return status;
 }
 
@@ -3564,15 +3570,9 @@ NTSTATUS nfs41_CollapseOpen(
 NTSTATUS nfs41_ShouldTryToCollapseThisOpen(
     IN OUT PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_MORE_PROCESSING_REQUIRED;
-    DbgEn();
     if (RxContext->pRelevantSrvOpen == NULL) 
-        status = STATUS_SUCCESS;
-    else
-        print_debug_header(RxContext);
-
-    DbgEx();
-    return status;
+        return STATUS_SUCCESS;
+    else return STATUS_MORE_PROCESSING_REQUIRED;
 }
 
 ULONG nfs41_ExtendForCache(
@@ -3581,33 +3581,26 @@ ULONG nfs41_ExtendForCache(
     OUT PLARGE_INTEGER pNewAllocationSize)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
     __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
-
+#ifdef DEBUG_CACHE
+    PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
     DbgEn();
     print_debug_header(RxContext);
     DbgP("input: byte count 0x%x filesize 0x%x alloc size 0x%x\n", 
         LowIoContext->ParamsFor.ReadWrite.ByteCount, *pNewFileSize, 
         *pNewAllocationSize);
+#endif
     pNewAllocationSize->QuadPart = pNewFileSize->QuadPart + 8192;
     nfs41_fcb->StandardInfo.AllocationSize.QuadPart = 
         pNewAllocationSize->QuadPart;
     nfs41_fcb->StandardInfo.EndOfFile.QuadPart = pNewFileSize->QuadPart;
+#ifdef DEBUG_CACHE
     DbgP("new filesize 0x%x new allocation size 0x%x\n", *pNewFileSize, 
         *pNewAllocationSize);
-
+#endif
+#ifdef DEBUG_CACHE
     DbgEx();
-    return status;
-}
-
-ULONG nfs41_ExtendForNonCache(
-    IN OUT PRX_CONTEXT RxContext,
-    IN PLARGE_INTEGER pNewFileSize,
-    OUT PLARGE_INTEGER pNewAllocationSize)
-{
-    NTSTATUS status = STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
+#endif
     return status;
 }
 
@@ -3619,19 +3612,24 @@ VOID nfs41_remove_srvopen_entry(
     ExAcquireFastMutex(&srvopenLock);
 
     pEntry = openlist->head.Flink;
+#ifdef DEBUG_CLOSE
     DbgP("nfs41_remove_srvopen_entry: Looking for srv_open=%p\n", SrvOpen);
+#endif
     while (!IsListEmpty(&openlist->head)) {
         cur = (nfs41_srvopen_list_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_srvopen_list_entry, next);
         if (cur->srv_open == SrvOpen) {
+#ifdef DEBUG_CLOSE
             DbgP("nfs41_remove_srvopen_entry: Found match\n");
+#endif
             RemoveEntryList(pEntry);
             RxFreePool(cur);
             break;
         }
-        /* place an upcall for this srv_open */
         if (pEntry->Flink == &openlist->head) {
+#ifdef DEBUG_CLOSE
             DbgP("nfs41_remove_srvopen_entry: reached end of the list\n");
+#endif
             break;
         }
         pEntry = pEntry->Flink;
@@ -3671,8 +3669,10 @@ NTSTATUS nfs41_CloseSrvOpen(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_CLOSE
     DbgEn();
     print_debug_header(RxContext);
+#endif
 
     if (!nfs41_fobx->deleg_type && !nfs41_fcb->StandardInfo.Directory &&
             (SrvOpen->DesiredAccess & 
@@ -3682,21 +3682,17 @@ NTSTATUS nfs41_CloseSrvOpen(
 
     status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.Close.srv_open = SrvOpen;
-    if (!RxContext->pFcb->OpenCount) {
+    entry->u.Close.filename = SrvOpen->pAlreadyPrefixedName;
+    if (!RxContext->pFcb->OpenCount || 
+            (nfs41_fcb->StandardInfo.DeletePending &&
+                nfs41_fcb->StandardInfo.Directory))
         entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
+    if (!RxContext->pFcb->OpenCount)
         entry->u.Close.renamed = nfs41_fcb->Renamed;
-        entry->u.Close.filename = 
-            GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-    } else if (nfs41_fcb->StandardInfo.DeletePending &&
-                nfs41_fcb->StandardInfo.Directory) {
-        entry->u.Close.remove = nfs41_fcb->StandardInfo.DeletePending;
-        entry->u.Close.filename = 
-            GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-    }
 
     status = nfs41_UpcallWaitForReply(entry);
 #ifndef USE_MOUNT_SEC_CONTEXT
@@ -3720,17 +3716,16 @@ out:
         t2.QuadPart - t1.QuadPart, close.tops, close.ticks);
 #endif
 #endif
+#ifdef DEBUG_CLOSE
     DbgEx();
+#endif
     return status;
 }
 
 NTSTATUS nfs41_Flush(
     IN OUT PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS nfs41_DeallocateForFcb(
@@ -3806,8 +3801,10 @@ NTSTATUS nfs41_QueryDirectory(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_DIR_QUERY
     DbgEn();
     print_querydir_args(RxContext);
+#endif
 
     switch (InfoClass) {
     /* classes handled in readdir_copy_entry() and readdir_size_for_entry() */
@@ -3819,13 +3816,14 @@ NTSTATUS nfs41_QueryDirectory(
     case FileIdBothDirectoryInformation:
         break;
     default:
-        print_error("unhandled dir query class %d\n", InfoClass);
+        print_error("nfs41_QueryDirectory: unhandled dir query class %d\n", 
+            InfoClass);
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
     status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.QueryFile.InfoClass = InfoClass;
@@ -3853,7 +3851,7 @@ NTSTATUS nfs41_QueryDirectory(
     MmUnlockPages(entry->u.QueryFile.mdl);
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        print_error("ERROR: buffer too small provided %d need %d\n", 
+        DbgP("nfs41_QueryDirectory: buffer too small provided %d need %d\n", 
             RxContext->Info.LengthRemaining, entry->u.QueryFile.buf_len);
         RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
@@ -3880,7 +3878,9 @@ out:
         t2.QuadPart - t1.QuadPart, readdir.tops, readdir.ticks);
 #endif
 #endif
+#ifdef DEBUG_DIR_QUERY
     DbgEx();
+#endif
     return status;
 }
 
@@ -3942,8 +3942,10 @@ NTSTATUS nfs41_QueryVolumeInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_VOLUME_QUERY
     DbgEn();
     print_queryvolume_args(RxContext);
+#endif
 
     switch (InfoClass) {
     case FileFsVolumeInformation:
@@ -4001,7 +4003,7 @@ NTSTATUS nfs41_QueryVolumeInformation(
     }
     status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.Volume.query = InfoClass;
@@ -4059,7 +4061,9 @@ out:
         t2.QuadPart - t1.QuadPart, volume.tops, volume.ticks);
 #endif
 #endif
+#ifdef DEBUG_VOLUME_QUERY
     DbgEx();
+#endif
     return status;
 }
 
@@ -4071,20 +4075,29 @@ VOID nfs41_update_srvopen_list(
     nfs41_srvopen_list_entry *cur;
     ExAcquireFastMutex(&srvopenLock); 
     pEntry = openlist->head.Flink;
+#if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
+    defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
     DbgP("nfs41_update_srvopen_list: Looking for srv_open=%p\n", SrvOpen);
+#endif
     while (!IsListEmpty(&openlist->head)) {
         cur = (nfs41_srvopen_list_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_srvopen_list_entry, next);
         if (cur->srv_open == SrvOpen && 
                 cur->ChangeTime != ChangeTime) {
+#if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
+    defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
             DbgP("nfs41_update_srvopen_list: Found match: updating %llu to "
                 "%llu\n", cur->ChangeTime, ChangeTime);
+#endif
             cur->ChangeTime = ChangeTime;
             break;
         }
         /* place an upcall for this srv_open */
         if (pEntry->Flink == &openlist->head) {
+#if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
+    defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
             DbgP("nfs41_update_srvopen_list: reached end of the list\n");
+#endif
             break;
         }
         pEntry = pEntry->Flink;
@@ -4173,9 +4186,11 @@ NTSTATUS nfs41_SetEaInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_EA_SET
     DbgEn();
     print_debug_header(RxContext);
     print_ea_info(1, eainfo);
+#endif
 
     if (pVNetRootContext->read_only) {
         DbgP("Read-only mount\n");
@@ -4185,14 +4200,16 @@ NTSTATUS nfs41_SetEaInformation(
 
     status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
 
     if (AnsiStrEq(&NfsV3Attributes, eainfo->EaName, eainfo->EaNameLength)) {
         attrs = (nfs3_attrs *)(eainfo->EaName + eainfo->EaNameLength + 1);
+#ifdef DEBUG_EA_SET
         print_nfs3_attrs(attrs);
         DbgP("old mode is %o new mode is %o\n", nfs41_fcb->mode, attrs->mode);
+#endif
         entry->u.SetEa.mode = nfs41_fcb->mode = attrs->mode;
     } else {
         entry->u.SetEa.mode = 0;
@@ -4235,7 +4252,9 @@ out:
         t2.QuadPart - t1.QuadPart, setexattr.tops, setexattr.ticks);
 #endif
 #endif
+#ifdef DEBUG_EA_SET
     DbgEx();
+#endif
     return status;
 }
 
@@ -4262,13 +4281,16 @@ NTSTATUS nfs41_QueryEaInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_EA_QUERY
     DbgEn();
     print_debug_header(RxContext);
+#endif
     if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList == NULL)
         goto out;
 
-    DbgP("Looking for a specific EA?\n");
+#ifdef DEBUG_EA_QUERY
     print_get_ea(1, query);
+#endif
 
     if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
         nfs3_attrs attrs;
@@ -4282,8 +4304,9 @@ NTSTATUS nfs41_QueryEaInformation(
         }
 
         create_nfs3_attrs(&attrs, nfs41_fcb);
-        DbgP("returning fake v3attrs EA\n");
+#ifdef DEBUG_EA_QUERY
         print_nfs3_attrs(&attrs);
+#endif
 
         info->NextEntryOffset = 0;
         info->Flags = 0;
@@ -4310,7 +4333,6 @@ NTSTATUS nfs41_QueryEaInformation(
             goto out;
         }
 
-        DbgP("returning fake link EA\n");
         info->NextEntryOffset = 0;
         info->Flags = 0;
         info->EaNameLength = (UCHAR)NfsActOnLink.Length;
@@ -4323,7 +4345,7 @@ NTSTATUS nfs41_QueryEaInformation(
 
     status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out; 
     entry->u.QueryEa.filename = FileName;  
@@ -4364,7 +4386,9 @@ out:
         t2.QuadPart - t1.QuadPart, getexattr.tops, getexattr.ticks);
 #endif
 #endif
+#ifdef DEBUG_EA_QUERY
     DbgEx();
+#endif
     return status;
 }
 
@@ -4402,9 +4426,11 @@ NTSTATUS nfs41_QuerySecurityInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_ACL_QUERY
     DbgEn();
     print_debug_header(RxContext);
     print_acl_args(info_class);
+#endif
 
     /* we don't support sacls */
     if (info_class == SACL_SECURITY_INFORMATION || 
@@ -4414,8 +4440,10 @@ NTSTATUS nfs41_QuerySecurityInformation(
     if (nfs41_fobx->acl && nfs41_fobx->acl_len) {
         LARGE_INTEGER current_time;
         KeQuerySystemTime(&current_time);
-        DbgP("CurrentTime %x Saved Acl time %x\n", 
+#ifdef DEBUG_ACL_QUERY
+        DbgP("CurrentTime %lx Saved Acl time %lx\n", 
             current_time.QuadPart, nfs41_fobx->time.QuadPart);
+#endif
         if (current_time.QuadPart - nfs41_fobx->time.QuadPart <= 20*1000) {         
             PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
                 RxContext->CurrentIrp->UserBuffer;
@@ -4437,7 +4465,7 @@ NTSTATUS nfs41_QuerySecurityInformation(
 
     status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.Acl.query = info_class;
@@ -4445,7 +4473,6 @@ NTSTATUS nfs41_QuerySecurityInformation(
      * because it becomes an invalid pointer with that execution context
      */
     entry->u.Acl.buf_len = RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length;
-    DbgP("security buffer len %d\n", entry->u.Acl.buf_len); 
 
     if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
         status = STATUS_INTERNAL_ERROR;
@@ -4453,10 +4480,12 @@ NTSTATUS nfs41_QuerySecurityInformation(
     }
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
+#ifdef DEBUG_ACL_QUERY
         DbgP("nfs41_QuerySecurityInformation: provided buffer size=%d but we "
              "need %d\n", 
              RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, 
              entry->u.Acl.buf_len);
+#endif
         status = STATUS_BUFFER_OVERFLOW;
         RxContext->InformationToReturn = entry->u.Acl.buf_len;
 
@@ -4495,8 +4524,9 @@ out:
         t2.QuadPart - t1.QuadPart, getacl.tops, getacl.ticks);
 #endif
 #endif
+#ifdef DEBUG_ACL_QUERY
     DbgEx();
-
+#endif
     return status;
 }
 
@@ -4521,9 +4551,11 @@ NTSTATUS nfs41_SetSecurityInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_ACL_SET
     DbgEn();
     print_debug_header(RxContext);
     print_acl_args(info_class);
+#endif
 
     if (pVNetRootContext->read_only) {
         DbgP("Read-only mount\n");
@@ -4554,7 +4586,7 @@ NTSTATUS nfs41_SetSecurityInformation(
 
     status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.Acl.query = info_class;
@@ -4588,7 +4620,9 @@ out:
         t2.QuadPart - t1.QuadPart, setacl.tops, setacl.ticks);
 #endif
 #endif
+#ifdef DEBUG_ACL_SET
     DbgEx();
+#endif
     return status;
 }
 
@@ -4624,7 +4658,10 @@ NTSTATUS nfs41_QueryFileInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_FILE_QUERY
     DbgEn();
+    print_debug_filedirquery_header(RxContext);
+#endif
     switch (InfoClass) {
     case FileEaInformation:
     {
@@ -4666,11 +4703,10 @@ NTSTATUS nfs41_QueryFileInformation(
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
-    print_debug_filedirquery_header(RxContext);
 
     status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.QueryFile.InfoClass = InfoClass;
@@ -4699,7 +4735,9 @@ NTSTATUS nfs41_QueryFileInformation(
             RtlCopyMemory(&nfs41_fcb->BasicInfo, RxContext->Info.Buffer, 
                 sizeof(nfs41_fcb->BasicInfo));
             nfs41_fcb->Flags |= FCB_BASIC_INFO_CACHED;
+#ifdef DEBUG_FILE_QUERY
             print_basic_info(1, &nfs41_fcb->BasicInfo);
+#endif
             break;
         case FileStandardInformation:
 #ifndef FCB_ATTR_CACHING
@@ -4714,15 +4752,19 @@ NTSTATUS nfs41_QueryFileInformation(
             std_info = (PFILE_STANDARD_INFORMATION)RxContext->Info.Buffer;
             if (nfs41_fcb->StandardInfo.AllocationSize.QuadPart > 
                     std_info->AllocationSize.QuadPart) {
+#ifdef DEBUG_FILE_QUERY
                 DbgP("Old AllocationSize is bigger: saving %x\n", 
                     nfs41_fcb->StandardInfo.AllocationSize.QuadPart);
+#endif
                 std_info->AllocationSize.QuadPart = 
                     nfs41_fcb->StandardInfo.AllocationSize.QuadPart;
             }
             if (nfs41_fcb->StandardInfo.EndOfFile.QuadPart > 
                     std_info->EndOfFile.QuadPart) {
+#ifdef DEBUG_FILE_QUERY
                 DbgP("Old EndOfFile is bigger: saving %x\n", 
                     nfs41_fcb->StandardInfo.EndOfFile);
+#endif
                 std_info->EndOfFile.QuadPart = 
                     nfs41_fcb->StandardInfo.EndOfFile.QuadPart;
             }
@@ -4734,7 +4776,9 @@ NTSTATUS nfs41_QueryFileInformation(
                 sizeof(nfs41_fcb->StandardInfo));
             nfs41_fcb->StandardInfo.DeletePending = DeletePending;
             nfs41_fcb->Flags |= FCB_STANDARD_INFO_CACHED;
+#ifdef DEBUG_FILE_QUERY
             print_std_info(1, &nfs41_fcb->StandardInfo);
+#endif
             break;
         }
     } else {
@@ -4751,7 +4795,9 @@ out:
         t2.QuadPart - t1.QuadPart, getattr.tops, getattr.ticks);
 #endif
 #endif
+#ifdef DEBUG_FILE_QUERY
     DbgEx();
+#endif
     return status;
 }
 
@@ -4798,8 +4844,10 @@ NTSTATUS nfs41_SetFileInformation(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_FILE_SET
     DbgEn();
     print_debug_filedirquery_header(RxContext);
+#endif
 
     if (pVNetRootContext->read_only) {
         DbgP("Read-only mount\n");
@@ -4825,13 +4873,15 @@ NTSTATUS nfs41_SetFileInformation(
     {
         PFILE_RENAME_INFORMATION rinfo = 
             (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
+#ifdef DEBUG_FILE_SET
         UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
             (USHORT)rinfo->FileNameLength, rinfo->FileName };
+        DbgP("Attempting to rename to '%wZ'\n", &dst);
+#endif
         if (rinfo->RootDirectory) {
             status = STATUS_NOT_SUPPORTED;
             goto out;
         }
-        DbgP("Attempting to rename to '%wZ'\n", &dst);
         nfs41_fcb->Flags = 0;
     }
     break;
@@ -4839,13 +4889,15 @@ NTSTATUS nfs41_SetFileInformation(
     {
         PFILE_LINK_INFORMATION linfo = 
             (PFILE_LINK_INFORMATION)RxContext->Info.Buffer;
+#ifdef DEBUG_FILE_SET
         UNICODE_STRING dst = { (USHORT)linfo->FileNameLength,
             (USHORT)linfo->FileNameLength, linfo->FileName };
+        DbgP("Attempting to add link as '%wZ'\n", &dst);
+#endif
         if (linfo->RootDirectory) {
             status = STATUS_NOT_SUPPORTED;
             goto out;
         }
-        DbgP("Attempting to add link as '%wZ'\n", &dst);
         nfs41_fcb->Flags = 0;
     }
     break;
@@ -4893,7 +4945,7 @@ NTSTATUS nfs41_SetFileInformation(
 
     status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.SetFile.filename = FileName;
@@ -4936,7 +4988,9 @@ out:
         t2.QuadPart - t1.QuadPart, setattr.tops, setattr.ticks);
 #endif
 #endif
+#ifdef DEBUG_FILE_SET
     DbgEx();
+#endif
     return status;
 }
 
@@ -4954,10 +5008,7 @@ NTSTATUS nfs41_IsValidDirectory (
     IN OUT PRX_CONTEXT RxContext,
     IN PUNICODE_STRING DirectoryName)
 {
-    NTSTATUS status = STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS nfs41_ComputeNewBufferingState(
@@ -4969,7 +5020,8 @@ NTSTATUS nfs41_ComputeNewBufferingState(
     ULONG flag;
     DbgEn();
     flag = PtrToUlong(pMRxContext);
-    DbgP("pSrvOpen %p Flags %08x\n", pSrvOpen, pSrvOpen->BufferingFlags);
+    DbgP("nfs41_ComputeNewBufferingState: pSrvOpen %p Flags %08x\n", 
+        pSrvOpen, pSrvOpen->BufferingFlags);
     switch(flag) {
     case DISABLE_CACHING:
         if (pSrvOpen->BufferingFlags & 
@@ -4997,7 +5049,8 @@ NTSTATUS nfs41_ComputeNewBufferingState(
             (FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED | 
             FCB_STATE_WRITECACHING_ENABLED | FCB_STATE_WRITEBUFFERING_ENABLED);
     }
-    DbgP("new Flags %08x\n", pSrvOpen->BufferingFlags);
+    DbgP("nfs41_ComputeNewBufferingState: new Flags %08x\n", 
+        pSrvOpen->BufferingFlags);
     *pNewBufferingState = pSrvOpen->BufferingFlags;
 
     DbgEx();
@@ -5008,14 +5061,8 @@ void print_readwrite_args(
     PRX_CONTEXT RxContext)
 {
     PLOWIO_CONTEXT LowIoContext  = &RxContext->LowIoContext;
-    PIO_STACK_LOCATION IrpSp = RxContext->CurrentIrpSp;
-    PIRP Irp = RxContext->CurrentIrp;
 
     print_debug_header(RxContext);
-    DbgP("Irp flags: paging io %ld noncachedio %ld syncio %ld\n", 
-        FlagOn(Irp->Flags, IRP_PAGING_IO), 
-        FlagOn(Irp->Flags, IRP_NOCACHE), 
-        FlagOn(IrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO));
     DbgP("Bytecount 0x%x Byteoffset 0x%x Buffer %p\n", 
         LowIoContext->ParamsFor.ReadWrite.ByteCount, 
         LowIoContext->ParamsFor.ReadWrite.ByteOffset, 
@@ -5118,12 +5165,14 @@ NTSTATUS nfs41_Read(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_READ
     DbgEn();
     print_readwrite_args(RxContext);
+#endif
 
     status = nfs41_UpcallCreate(NFS41_READ, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
@@ -5180,7 +5229,9 @@ out:
         read.tops, read.ticks);
 #endif
 #endif
+#ifdef DEBUG_READ
     DbgEx();
+#endif
     return status;
 }
 
@@ -5203,8 +5254,10 @@ NTSTATUS nfs41_Write(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_WRITE
     DbgEn();
     print_readwrite_args(RxContext);
+#endif
 
     if (pVNetRootContext->read_only) {
         DbgP("Read-only mount\n");
@@ -5214,7 +5267,7 @@ NTSTATUS nfs41_Write(
 
     status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
@@ -5280,7 +5333,9 @@ out:
         write.tops, write.ticks);
 #endif
 #endif
+#ifdef DEBUG_WRITE
     DbgEx();
+#endif
     return status;
 }
 
@@ -5291,17 +5346,21 @@ NTSTATUS nfs41_IsLockRealizable(
     IN ULONG  LowIoLockFlags)
 {
     NTSTATUS status = STATUS_SUCCESS;
+#ifdef DEBUG_LOCK
     DbgEn();
     DbgP("offset 0x%llx, length 0x%llx, exclusive=%u, blocking=%u\n",
         ByteOffset->QuadPart,Length->QuadPart,
         BooleanFlagOn(LowIoLockFlags, SL_EXCLUSIVE_LOCK),
         !BooleanFlagOn(LowIoLockFlags, SL_FAIL_IMMEDIATELY));
+#endif
 
     /* NFS lock operations with length=0 MUST fail with NFS4ERR_INVAL */
     if (Length->QuadPart == 0)
         status = STATUS_NOT_SUPPORTED;
 
+#ifdef DEBUG_LOCK
     DbgEx();
+#endif
     return status;
 }
 
@@ -5377,15 +5436,17 @@ NTSTATUS nfs41_Lock(
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
 
+#ifdef DEBUG_LOCK
     DbgEn();
     print_lock_args(RxContext);
+#endif
 
 /*  RxReleaseFcbResourceForThreadInMRx(RxContext, RxContext->pFcb,
         LowIoContext->ResourceThreadId); */
 
     status = nfs41_UpcallCreate(NFS41_LOCK, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
     entry->u.Lock.offset = LowIoContext->ParamsFor.Locks.ByteOffset;
@@ -5423,7 +5484,9 @@ out:
         lock.tops, lock.ticks);
 #endif
 #endif
+#ifdef DEBUG_LOCK
     DbgEx();
+#endif
     return status;
 }
 
@@ -5474,16 +5537,17 @@ NTSTATUS nfs41_Unlock(
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
 #endif
-
+#ifdef DEBUG_LOCK
     DbgEn();
     print_lock_args(RxContext);
+#endif
 
 /*  RxReleaseFcbResourceForThreadInMRx(RxContext, RxContext->pFcb,
         LowIoContext->ResourceThreadId); */
 
     status = nfs41_UpcallCreate(NFS41_UNLOCK, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
 
@@ -5519,7 +5583,9 @@ out:
         unlock.tops, unlock.ticks);
 #endif
 #endif
+#ifdef DEBUG_LOCK
     DbgEx();
+#endif
     return status;
 }
 
@@ -5587,8 +5653,10 @@ NTSTATUS nfs41_SetReparsePoint(
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     nfs41_updowncall_entry *entry;
 
+#ifdef DEBUG_SYMLINK
     DbgEn();
     print_reparse_buffer(Reparse);
+#endif
 
     if (Reparse->ReparseTag != IO_REPARSE_TAG_SYMLINK) {
         status = STATUS_IO_REPARSE_TAG_MISMATCH;
@@ -5602,7 +5670,7 @@ NTSTATUS nfs41_SetReparsePoint(
 
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
         VNetRoot->session, Fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
 
@@ -5617,7 +5685,9 @@ NTSTATUS nfs41_SetReparsePoint(
     status = map_symlink_errors(entry->status);
     RxFreePool(entry);
 out:
+#ifdef DEBUG_SYMLINK
     DbgEx();
+#endif
     return status;
 }
 
@@ -5637,7 +5707,9 @@ NTSTATUS nfs41_GetReparsePoint(
     const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
         SymbolicLinkReparseBuffer.PathBuffer);
 
+#ifdef DEBUG_SYMLINK
     DbgEn();
+#endif
 
     if (!BooleanFlagOn(RxContext->pFcb->Attributes,
         FILE_ATTRIBUTE_REPARSE_POINT)) {
@@ -5658,7 +5730,7 @@ NTSTATUS nfs41_GetReparsePoint(
 
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
         VNetRoot->session, Fobx->nfs41_open_state,
-        pNetRootContext->nfs41d_version, &entry);
+        pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status)
         goto out;
 
@@ -5695,7 +5767,9 @@ NTSTATUS nfs41_GetReparsePoint(
     }
     RxFreePool(entry);
 out:
+#ifdef DEBUG_SYMLINK
     DbgEx();
+#endif
     return status;
 }
 
@@ -5707,12 +5781,10 @@ NTSTATUS nfs41_FsCtl(
     print_debug_header(RxContext);
     switch (RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode) {
     case FSCTL_SET_REPARSE_POINT:
-        DbgP("FSCTL_SET_REPARSE_POINT\n");
         status = nfs41_SetReparsePoint(RxContext);
         break;
 
     case FSCTL_GET_REPARSE_POINT:
-        DbgP("FSCTL_GET_REPARSE_POINT\n");
         status = nfs41_GetReparsePoint(RxContext);
         break;
     default:
@@ -5934,7 +6006,8 @@ VOID srvopen_main(PVOID ctx)
             status = nfs41_UpcallCreate(NFS41_FILE_QUERY, 
                 &cur->nfs41_fobx->sec_ctx, pVNetRootContext->session, 
                 cur->nfs41_fobx->nfs41_open_state,
-                pNetRootContext->nfs41d_version, &entry);
+                pNetRootContext->nfs41d_version, 
+                cur->srv_open->pAlreadyPrefixedName, &entry);
             if (status)
                 goto out;
             entry->u.QueryFile.InfoClass = FileBasicInformation;
@@ -5949,7 +6022,8 @@ VOID srvopen_main(PVOID ctx)
                 ULONG flag = DISABLE_CACHING;
                 DbgP("srvopen_main: old ctime=%llu new_ctime=%llu\n", 
                     cur->ChangeTime, entry->u.QueryFile.ChangeTime);
-                DbgP("************ Invalidate the cache ************\n");
+                DbgP("srvopen_main: ************ Invalidate the cache for %wZ "
+                     "************\n", cur->srv_open->pAlreadyPrefixedName);
                 RxChangeBufferingState((PSRV_OPEN)cur->srv_open, 
                     ULongToPtr(flag), 1);
                 cur->ChangeTime = entry->u.QueryFile.ChangeTime;

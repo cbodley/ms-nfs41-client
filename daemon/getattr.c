@@ -168,6 +168,7 @@ static int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcal
     }
     status = safe_write(&buffer, length, &args->ctime, sizeof(args->ctime));
     if (status) goto out;
+    dprintf(1, "NFS41_FILE_QUERY: downcall changattr=%llu\n", args->ctime);
 out:
     return status;
 }

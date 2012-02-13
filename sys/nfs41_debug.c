@@ -200,7 +200,7 @@ void print_driver_state(int state)
 void print_basic_info(int on, PFILE_BASIC_INFORMATION info)
 {
     if (!on) return;
-    DbgP("BASIC_INFO: Create=%x Access=%x Write=%x Change=%x Attr=%x\n",
+    DbgP("BASIC_INFO: Create=%lx Access=%lx Write=%lx Change=%lx Attr=%x\n",
         info->CreationTime.QuadPart, info->LastAccessTime.QuadPart,
         info->LastWriteTime.QuadPart, info->ChangeTime.QuadPart, 
         info->FileAttributes);
@@ -208,9 +208,10 @@ void print_basic_info(int on, PFILE_BASIC_INFORMATION info)
 void print_std_info(int on, PFILE_STANDARD_INFORMATION info)
 {
     if (!on) return;
-    DbgP("STD_INFO: Type=%s #Links=%d Alloc=%x EOF=%x Delete=%d\n",
+    DbgP("STD_INFO: Type=%s #Links=%d Alloc=%lx EOF=%lx Delete=%d\n",
         info->Directory?"DIR":"FILE", info->NumberOfLinks, 
-        info->AllocationSize, info->EndOfFile, info->DeletePending);
+        info->AllocationSize.QuadPart, info->EndOfFile.QuadPart, 
+        info->DeletePending);
 }
 
 void print_ea_info(int on, PFILE_FULL_EA_INFORMATION info)
@@ -668,6 +669,7 @@ void print_open_error(int on, int status)
 void print_wait_status(int on, const char *prefix, NTSTATUS status, 
                        const char *opcode, PVOID entry, LONGLONG xid)
 {
+    if (!on) return;
     switch (status) {
     case STATUS_SUCCESS:
         if (opcode)

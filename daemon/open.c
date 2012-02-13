@@ -655,7 +655,7 @@ static int marshall_open(unsigned char *buffer, uint32_t *length, nfs41_upcall *
             goto out;
         }
     }
-    dprintf(2, "NFS41_OPEN: passing open_state=0x%p mode %o changeattr 0x%x\n", 
+    dprintf(2, "NFS41_OPEN: downcall open_state=0x%p mode %o changeattr 0x%llu\n", 
         upcall->state_ref, args->mode, args->changeattr);
 out:
     return status;
