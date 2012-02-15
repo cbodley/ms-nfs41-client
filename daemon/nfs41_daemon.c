@@ -185,7 +185,7 @@ static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
     int i;
 
     /* set defaults. */
-    out->debug_level = 2;
+    out->debug_level = 1;
     out->ldap_enable = TRUE;
 
     /* parse command line */
