@@ -97,6 +97,11 @@ LONG open_owner_id = 1;
     const CHAR _var ## _buffer[] = _string; \
     const ANSI_STRING _var = { sizeof(_string) - sizeof(CHAR), \
         sizeof(_string), (PCH) _var ## _buffer }
+#define RELATIVE(wait) (-(wait))
+#define NANOSECONDS(nanos) (((signed __int64)(nanos)) / 100L)
+#define MICROSECONDS(micros) (((signed __int64)(micros)) * NANOSECONDS(1000L))
+#define MILLISECONDS(milli) (((signed __int64)(milli)) * MICROSECONDS(1000L))
+#define SECONDS(seconds) (((signed __int64)(seconds)) * MILLISECONDS(1000L))
 
 DECLARE_CONST_ANSI_STRING(NfsV3Attributes, "NfsV3Attributes");
 DECLARE_CONST_ANSI_STRING(NfsSymlinkTargetName, "NfsSymlinkTargetName");
@@ -1430,6 +1435,8 @@ NTSTATUS nfs41_UpcallWaitForReply(
     nfs41_AddEntry(upcallLock, upcall, entry);
     KeSetEvent(&upcallEvent, 0, FALSE);
     if (!entry->async_op) {
+        LARGE_INTEGER timeout;
+        timeout.QuadPart = RELATIVE(SECONDS(120));
         /* 02/03/2011 AGLO: it is not clear what the "right" waiting design 
          * should be. Having non-interruptable waiting seems to be the right 
          * approach. However, when things go wrong, the only wait to proceed 
@@ -1446,9 +1453,15 @@ NTSTATUS nfs41_UpcallWaitForReply(
         if (entry->opcode == NFS41_CLOSE || entry->opcode == NFS41_UNLOCK)
             status = KeWaitForSingleObject(&entry->cond, Executive, 
                         KernelMode, FALSE, NULL);
-        else
+        else {
             status = KeWaitForSingleObject(&entry->cond, Executive, 
-                        UserMode, TRUE, NULL);
+                        UserMode, TRUE, &timeout);
+            if (status != STATUS_SUCCESS) {
+                print_wait_status(1, "[downcall]", status, 
+                    opcode2string(entry->opcode), entry, entry->xid);
+                entry->status = status;
+            }
+        }
 #else
 
         status = KeWaitForSingleObject(&entry->cond, Executive, KernelMode, FALSE, NULL);
@@ -6033,12 +6046,6 @@ NTSTATUS nfs41_init_ops()
     DbgR();
     return(STATUS_SUCCESS);
 }
-
-#define RELATIVE(wait) (-(wait))
-#define NANOSECONDS(nanos) (((signed __int64)(nanos)) / 100L)
-#define MICROSECONDS(micros) (((signed __int64)(micros)) * NANOSECONDS(1000L))
-#define MILLISECONDS(milli) (((signed __int64)(milli)) * MICROSECONDS(1000L))
-#define SECONDS(seconds) (((signed __int64)(seconds)) * MILLISECONDS(1000L))
 
 KSTART_ROUTINE fcbopen_main;
 VOID fcbopen_main(PVOID ctx)
