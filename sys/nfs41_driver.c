@@ -417,6 +417,7 @@ typedef struct _NFS41_FOBX {
     DWORD acl_len;
     LARGE_INTEGER time; 
     DWORD deleg_type;
+    BOOLEAN write_thru;
 } NFS41_FOBX, *PNFS41_FOBX;
 #define NFS41GetFobxExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
@@ -3548,7 +3549,9 @@ NTSTATUS nfs41_Create(
             SrvOpen->BufferingFlags |= 
                 (FCB_STATE_WRITECACHING_ENABLED | 
                 FCB_STATE_WRITEBUFFERING_ENABLED);
-        }
+        } else if (params.CreateOptions & FILE_WRITE_THROUGH ||
+                    pVNetRootContext->write_thru)
+            nfs41_fobx->write_thru = TRUE;
         if (entry->u.Open.deleg_type >= 1 ||
                 params.DesiredAccess & FILE_READ_DATA) {
 #ifdef DEBUG_OPEN
@@ -5147,10 +5150,12 @@ void enable_caching(
 
     if (SrvOpen->DesiredAccess & FILE_READ_DATA)
         flag = ENABLE_READ_CACHING;
-    if (SrvOpen->DesiredAccess & FILE_WRITE_DATA)
+    if ((SrvOpen->DesiredAccess & FILE_WRITE_DATA) && 
+            !nfs41_fobx->write_thru)
         flag = ENABLE_WRITE_CACHING;
     if ((SrvOpen->DesiredAccess & FILE_READ_DATA) && 
-        (SrvOpen->DesiredAccess & FILE_WRITE_DATA))
+            (SrvOpen->DesiredAccess & FILE_WRITE_DATA) &&
+            !nfs41_fobx->write_thru)
         flag = ENABLE_READWRITE_CACHING;
 
 #if defined(DEBUG_TIME_BASED_COHERENCY) || \
@@ -5383,14 +5388,15 @@ NTSTATUS nfs41_Write(
         nfs41_fcb->changeattr = entry->u.ReadWrite.ChangeTime;
 
         //re-enable write buffering
-        if ((!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
+        if (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
                 (SrvOpen->DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) &&
                 !pVNetRootContext->write_thru &&
                 !pVNetRootContext->nocache &&
+                !nfs41_fobx->write_thru &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_WRITEBUFFERING_ENABLED | 
-                 FCB_STATE_WRITECACHING_ENABLED)))) {
+                 FCB_STATE_WRITECACHING_ENABLED))) {
             enable_caching(SrvOpen, nfs41_fobx, nfs41_fcb->changeattr, 
                 pVNetRootContext->session);
         } else if (!nfs41_fobx->deleg_type) 
