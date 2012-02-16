@@ -52,7 +52,7 @@ void print_basic_info(int on, PFILE_BASIC_INFORMATION info);
 void print_std_info(int on, PFILE_STANDARD_INFORMATION info);
 void print_ea_info(int on, PFILE_FULL_EA_INFORMATION info);
 void print_get_ea(int on, PFILE_GET_EA_INFORMATION info);
-void print_caching_level(int on, ULONG flag);
+void print_caching_level(int on, ULONG flag, PUNICODE_STRING s);
 const char *opcode2string(int opcode);
 void print_open_error(int on, int status);
 void print_wait_status(int on, const char *str, NTSTATUS status, 

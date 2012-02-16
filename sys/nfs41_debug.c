@@ -575,21 +575,21 @@ unsigned char *print_fs_information_class(int InfoClass)
     }
 }
 
-void print_caching_level(int on, ULONG flag)
+void print_caching_level(int on, ULONG flag, PUNICODE_STRING name)
 {
     if (!on) return;
     switch(flag) {
         case 0: 
-            DbgP("DISABLE_CACHING\n");
+            DbgP("enable_caching: DISABLE_CACHING %wZ\n", name);
             break;
         case 1:
-            DbgP("ENABLE_READ_CACHING\n");
+            DbgP("enable_caching: ENABLE_READ_CACHING %wZ\n", name);
             break;
         case 2:
-            DbgP("ENABLE_WRITE_CACHING\n");
+            DbgP("enable_caching: ENABLE_WRITE_CACHING %wZ\n", name);
             break;
         case 3:
-            DbgP("ENABLE_READWRITE_CACHING\n");
+            DbgP("enable_caching: ENABLE_READWRITE_CACHING %wZ\n", name);
             break;   
     }
 }

@@ -38,9 +38,12 @@
 #define USE_MOUNT_SEC_CONTEXT
 
 /* debugging printout defines */
+//#define DEBUG_MARSHAL_HEADER
+//#define DEBUG_MARSHAL_DETAIL
 //#define DEBUG_OPEN
 //#define DEBUG_CLOSE
 //#define DEBUG_CACHE
+//#define DEBUG_INVALIDATE_CACHE
 //#define DEBUG_READ
 //#define DEBUG_WRITE
 //#define DEBUG_DIR_QUERY
@@ -51,6 +54,8 @@
 //#define DEBUG_EA_QUERY
 //#define DEBUG_EA_SET
 //#define DEBUG_LOCK
+//#define DEBUG_MISC
+//#define DEBUG_TIME_BASED_COHERENCY
 
 //#define ENABLE_TIMINGS
 //#define ENABLE_INDV_TIMINGS
@@ -547,10 +552,12 @@ NTSTATUS marshal_nfs41_header(
     RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
 
+#ifdef DEBUG_MARSHAL_HEADER
     DbgP("[upcall header] xid=%lld opcode=%s filename=%wZ version=%d "
         "session=0x%x open_state=0x%x\n", entry->xid, 
         opcode2string(entry->opcode), entry->filename,
         entry->version, entry->session, entry->open_state);
+#endif
 out:
     return status;
 }
@@ -606,10 +613,12 @@ NTSTATUS marshal_nfs41_mount(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_mount: server name=%wZ mount point=%wZ sec_flavor=%s "
          "rsize=%d wsize=%d\n", entry->u.Mount.srv_name, entry->u.Mount.root, 
          secflavorop2name(entry->u.Mount.sec_flavor), entry->u.Mount.rsize,
          entry->u.Mount.wsize);
+#endif
 out:
     return status;
 }
@@ -667,12 +676,14 @@ NTSTATUS marshal_nfs41_open(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_open: name=%wZ mask=0x%x access=0x%x attrs=0x%x "
          "opts=0x%x dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p\n", 
          entry->u.Open.filename, entry->u.Open.access_mask, 
          entry->u.Open.access_mode, entry->u.Open.attrs, entry->u.Open.copts, 
          entry->u.Open.disp, entry->u.Open.open_owner_id, entry->u.Open.mode,
          entry->u.Open.srv_open); 
+#endif
 out:
     return status;
 }
@@ -725,9 +736,11 @@ NTSTATUS marshal_nfs41_rw(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_rw: len=%u offset=%lu MdlAddress=%p Userspace=%p\n", 
          entry->u.ReadWrite.len, entry->u.ReadWrite.offset, 
          entry->u.ReadWrite.MdlAddress, entry->u.ReadWrite.buf);
+#endif
 out:
     return status;
 }
@@ -764,9 +777,11 @@ NTSTATUS marshal_nfs41_lock(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_lock: offset=%llx length=%llx exclusive=%u "
          "blocking=%u\n", entry->u.Lock.offset, entry->u.Lock.length,
          entry->u.Lock.exclusive, entry->u.Lock.blocking);
+#endif
 out:
     return status;
 }
@@ -808,7 +823,9 @@ NTSTATUS marshal_nfs41_unlock(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_unlock: count=%u\n", entry->u.Unlock.count);
+#endif
 out:
     return status;
 }
@@ -851,9 +868,11 @@ NTSTATUS marshal_nfs41_close(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_close: name=%wZ remove=%d srv_open=%p renamed=%d\n", 
         entry->u.Close.filename->Length?entry->u.Close.filename:&SLASH, 
         entry->u.Close.remove, entry->u.Close.srv_open, entry->u.Close.renamed);
+#endif
 out:
     return status;
 }
@@ -912,11 +931,13 @@ NTSTATUS marshal_nfs41_dirquery(
     RtlCopyMemory(tmp, &entry->u.QueryFile.mdl_buf, sizeof(HANDLE));
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_dirquery: filter='%wZ'class=%d len=%d "
          "1st\\restart\\single=%d\\%d\\%d\n", entry->u.QueryFile.filter, 
          entry->u.QueryFile.InfoClass, entry->u.QueryFile.buf_len, 
          entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan, 
          entry->u.QueryFile.return_single);
+#endif
 out:
     return status;
 }
@@ -951,7 +972,9 @@ NTSTATUS marshal_nfs41_filequery(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_filequery: class=%d\n", entry->u.QueryFile.InfoClass);
+#endif
 out:
     return status;
 }
@@ -988,10 +1011,12 @@ NTSTATUS marshal_nfs41_fileset(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_fileset: filename='%wZ' class=%d\n",
         entry->u.SetFile.filename, entry->u.SetFile.InfoClass);
     print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf,
         entry->u.SetFile.buf_len);
+#endif
 out:
     return status;
 }
@@ -1028,8 +1053,10 @@ NTSTATUS marshal_nfs41_easet(
     
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_easet: filename=%wZ, buflen=%d mode=0x%x\n", 
         entry->u.SetEa.filename, entry->u.SetEa.buf_len, entry->u.SetEa.mode);
+#endif
 out:
     return status;
 }
@@ -1071,10 +1098,12 @@ NTSTATUS marshal_nfs41_eaget(
 
     *len = header_len; 
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_eaget: filename=%wZ, index=%d list_len=%d "
         "rescan=%d single=%d\n", entry->u.QueryEa.filename, 
         entry->u.QueryEa.EaIndex, entry->u.QueryEa.EaListLength, 
         entry->u.QueryEa.RestartScan, entry->u.QueryEa.ReturnSingleEntry);
+#endif
 out:
     return status;
 }
@@ -1111,9 +1140,11 @@ NTSTATUS marshal_nfs41_symlink(
 
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_symlink: name %wZ symlink target %wZ\n", 
          entry->u.Symlink.filename, 
          entry->u.Symlink.set?entry->u.Symlink.target : NULL);
+#endif
 out:
     return status;
 }
@@ -1142,7 +1173,9 @@ NTSTATUS marshal_nfs41_volume(
     RtlCopyMemory(tmp, &entry->u.Volume.query, sizeof(FS_INFORMATION_CLASS));
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_volume: class=%d\n", entry->u.Volume.query);
+#endif
 out:
     return status;
 }
@@ -1171,7 +1204,9 @@ NTSTATUS marshal_nfs41_getacl(
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_getacl: class=0x%x\n", entry->u.Acl.query);
+#endif
 out:
     return status;
 }
@@ -1205,8 +1240,10 @@ NTSTATUS marshal_nfs41_setacl(
     RtlCopyMemory(tmp, entry->u.Acl.buf, entry->u.Acl.buf_len);
     *len = header_len;
 
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_setacl: class=0x%x sec_desc_len=%d\n", 
          entry->u.Acl.query, entry->u.Acl.buf_len);
+#endif
 out:
     return status;
 }
@@ -1229,13 +1266,15 @@ NTSTATUS nfs41_invalidate_cache (
     ULONG flag = DISABLE_CACHING;
     PMRX_SRV_OPEN srv_open;
 
-    DbgEn();
     RtlCopyMemory(&srv_open, buf, sizeof(HANDLE));
 
-    DbgP("nfs41_invalidate_cache: received srv_open=%p\n", srv_open);
+#ifdef DEBUG_INVALIDATE_CACHE
+    DbgP("nfs41_invalidate_cache: received srv_open=%p %wZ\n", 
+        srv_open, srv_open->pAlreadyPrefixedName);
+#endif
     if (MmIsAddressValid(srv_open))
         RxChangeBufferingState((PSRV_OPEN)srv_open, ULongToPtr(flag), 1);
-    DbgEx();
+
     return status;
 }
 
@@ -1496,8 +1535,10 @@ void unmarshal_nfs41_header(
     *buf += sizeof(tmp->status);
     RtlCopyMemory(&tmp->errno, *buf, sizeof(tmp->errno));
     *buf += sizeof(tmp->errno);
+#ifdef DEBUG_MARSHAL_HEADER
     DbgP("[downcall header] xid=%lld opcode=%s status=%d errno=%d\n", tmp->xid, 
         opcode2string(tmp->opcode), tmp->status, tmp->errno);
+#endif
 }
 
 void unmarshal_nfs41_mount(
@@ -1507,8 +1548,10 @@ void unmarshal_nfs41_mount(
     RtlCopyMemory(&cur->session, *buf, sizeof(HANDLE));
     *buf += sizeof(HANDLE);
     RtlCopyMemory(&cur->version, *buf, sizeof(DWORD));
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_mount: session pointer 0x%x version %d\n", cur->session, 
         cur->version);
+#endif
 }
 
 VOID unmarshal_nfs41_setattr(
@@ -1517,7 +1560,9 @@ VOID unmarshal_nfs41_setattr(
     unsigned char **buf)
 {
     RtlCopyMemory(dest_buf, *buf, sizeof(ULONGLONG));
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_setattr: returned ChangeTime %llu\n", *dest_buf);
+#endif
 }
 
 NTSTATUS unmarshal_nfs41_rw(
@@ -1529,8 +1574,10 @@ NTSTATUS unmarshal_nfs41_rw(
     RtlCopyMemory(&cur->u.ReadWrite.len, *buf, sizeof(cur->u.ReadWrite.len));
     *buf += sizeof(cur->u.ReadWrite.len);
     RtlCopyMemory(&cur->u.ReadWrite.ChangeTime, *buf, sizeof(ULONGLONG));
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_rw: returned len %lu ChangeTime %llu\n", 
         cur->u.ReadWrite.len, cur->u.ReadWrite.ChangeTime);
+#endif
 #if 1
     /* 08/27/2010: it looks like we really don't need to call 
         * MmUnmapLockedPages() eventhough we called 
@@ -1585,11 +1632,15 @@ NTSTATUS unmarshal_nfs41_open(
         }
         RtlCopyMemory(cur->u.Open.symlink.Buffer, *buf, 
             cur->u.Open.symlink.MaximumLength);
+#ifdef DEBUG_MARSHAL_DETAIL
         DbgP("unmarshal_nfs41_open: ERROR_REPARSE -> '%wZ'\n", &cur->u.Open.symlink);
+#endif
     }
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_open: open_state 0x%x mode %o changeattr %llu "
         "deleg_type %d\n", cur->open_state, cur->u.Open.mode, 
         cur->u.Open.changeattr, cur->u.Open.deleg_type);
+#endif
 out:
     return status;
 }
@@ -1602,7 +1653,9 @@ NTSTATUS unmarshal_nfs41_dirquery(
     ULONG buf_len;
     
     RtlCopyMemory(&buf_len, *buf, sizeof(ULONG));
+#ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_dirquery: reply size %d\n", buf_len);
+#endif
     *buf += sizeof(ULONG);
     __try {
         MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, cur->u.QueryFile.mdl);
@@ -1644,8 +1697,10 @@ void unmarshal_nfs41_getattr(
     unmarshal_nfs41_attrget(cur, cur->u.QueryFile.buf, 
         &cur->u.QueryFile.buf_len, buf);
     RtlCopyMemory(&cur->u.QueryFile.ChangeTime, *buf, sizeof(LONGLONG));
+#ifdef DEBUG_MARSHAL_DETAIL
     if (cur->u.QueryFile.InfoClass == FileBasicInformation)
         DbgP("[unmarshal_nfs41_getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
+#endif
 }
 
 NTSTATUS unmarshal_nfs41_getacl(
@@ -3614,15 +3669,12 @@ VOID nfs41_remove_fcb_entry(
     ExAcquireFastMutex(&fcblistLock);
 
     pEntry = openlist->head.Flink;
-#ifdef DEBUG_CLOSE
-    DbgP("nfs41_remove_srvopen_entry: Looking for fcb=%p\n", fcb);
-#endif
     while (!IsListEmpty(&openlist->head)) {
         cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_fcb_list_entry, next);
         if (cur->fcb == fcb) {
 #ifdef DEBUG_CLOSE
-            DbgP("nfs41_remove_srvopen_entry: Found match\n");
+            DbgP("nfs41_remove_srvopen_entry: Found match for fcb=%p\n", fcb);
 #endif
             RemoveEntryList(pEntry);
             RxFreePool(cur);
@@ -3630,7 +3682,8 @@ VOID nfs41_remove_fcb_entry(
         }
         if (pEntry->Flink == &openlist->head) {
 #ifdef DEBUG_CLOSE
-            DbgP("nfs41_remove_srvopen_entry: reached end of the list\n");
+            DbgP("nfs41_remove_srvopen_entry: reached EOL looking for fcb "
+                "%p\n", fcb);
 #endif
             break;
         }
@@ -3976,6 +4029,9 @@ NTSTATUS nfs41_QueryVolumeInformation(
         status = STATUS_SUCCESS;
         goto out;
     }
+    case FileAccessInformation:
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
 
     case FileFsAttributeInformation:
         /* used cached fs attributes if available */
@@ -3998,7 +4054,7 @@ NTSTATUS nfs41_QueryVolumeInformation(
         break;
 
     default:
-        print_error("unhandled fs query class %d\n", InfoClass);
+        print_error("nfs41_QueryVolumeInformation: unhandled class %d\n", InfoClass);
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
@@ -4076,10 +4132,6 @@ VOID nfs41_update_fcb_list(
     nfs41_fcb_list_entry *cur;
     ExAcquireFastMutex(&fcblistLock); 
     pEntry = openlist->head.Flink;
-#if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
-    defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
-    DbgP("nfs41_update_fcb_list: Looking for fcb=%p\n", fcb);
-#endif
     while (!IsListEmpty(&openlist->head)) {
         cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_fcb_list_entry, next);
@@ -4087,8 +4139,8 @@ VOID nfs41_update_fcb_list(
                 cur->ChangeTime != ChangeTime) {
 #if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
     defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
-            DbgP("nfs41_update_fcb_list: Found match: updating %llu to "
-                "%llu\n", cur->ChangeTime, ChangeTime);
+            DbgP("nfs41_update_fcb_list: Found match for fcb %p: updating "
+                "%llu to %llu\n", fcb, cur->ChangeTime, ChangeTime);
 #endif
             cur->ChangeTime = ChangeTime;
             break;
@@ -4097,7 +4149,8 @@ VOID nfs41_update_fcb_list(
         if (pEntry->Flink == &openlist->head) {
 #if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
     defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
-            DbgP("nfs41_update_fcb_list: reached end of the list\n");
+            DbgP("nfs41_update_fcb_list: reached EOL loooking for "
+                "fcb=%p\n", fcb);
 #endif
             break;
         }
@@ -4700,7 +4753,7 @@ NTSTATUS nfs41_QueryFileInformation(
     case FileAttributeTagInformation:
         break;
     default:
-        print_error("unhandled file query class %d\n", InfoClass);
+        print_error("nfs41_QueryFileInformation: unhandled class %d\n", InfoClass);
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
@@ -4939,7 +4992,7 @@ NTSTATUS nfs41_SetFileInformation(
         break;
     }
     default:
-        print_error("unknown set_file information class %d\n", InfoClass);
+        print_error("nfs41_SetFileInformation: unhandled class %d\n", InfoClass);
         status = STATUS_NOT_SUPPORTED;
         goto out;
     }
@@ -5018,11 +5071,8 @@ NTSTATUS nfs41_ComputeNewBufferingState(
     OUT ULONG *pNewBufferingState)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    ULONG flag;
-    DbgEn();
-    flag = PtrToUlong(pMRxContext);
-    DbgP("nfs41_ComputeNewBufferingState: pSrvOpen %p Flags %08x\n", 
-        pSrvOpen, pSrvOpen->BufferingFlags);
+    ULONG flag = PtrToUlong(pMRxContext), oldFlags = pSrvOpen->BufferingFlags;
+
     switch(flag) {
     case DISABLE_CACHING:
         if (pSrvOpen->BufferingFlags & 
@@ -5050,11 +5100,12 @@ NTSTATUS nfs41_ComputeNewBufferingState(
             (FCB_STATE_READBUFFERING_ENABLED | FCB_STATE_READCACHING_ENABLED | 
             FCB_STATE_WRITECACHING_ENABLED | FCB_STATE_WRITEBUFFERING_ENABLED);
     }
-    DbgP("nfs41_ComputeNewBufferingState: new Flags %08x\n", 
-        pSrvOpen->BufferingFlags);
+#ifdef DEBUG_TIME_BASED_COHERENCY
+    DbgP("nfs41_ComputeNewBufferingState: %wZ pSrvOpen %p Old %08x New %08x\n", 
+         pSrvOpen->pAlreadyPrefixedName, pSrvOpen, oldFlags,
+         pSrvOpen->BufferingFlags);
     *pNewBufferingState = pSrvOpen->BufferingFlags;
-
-    DbgEx();
+#endif
     return status;
 }
 
@@ -5089,7 +5140,10 @@ void enable_caching(
         (SrvOpen->DesiredAccess & FILE_WRITE_DATA))
         flag = ENABLE_READWRITE_CACHING;
 
-    print_caching_level(1, flag);
+#if defined(DEBUG_TIME_BASED_COHERENCY) || \
+        defined(DEBUG_WRITE) || defined(DEBUG_READ)
+    print_caching_level(1, flag, SrvOpen->pAlreadyPrefixedName);
+#endif
 
     if (!flag)
         return;
@@ -5098,25 +5152,32 @@ void enable_caching(
 
     ExAcquireFastMutex(&fcblistLock);
     pEntry = openlist->head.Flink;
-    DbgP("enable_caching: Looking for fcb=%p\n", SrvOpen->pFcb);
     while (!IsListEmpty(&openlist->head)) {
         cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry,
                 nfs41_fcb_list_entry, next);
         if (cur->fcb == SrvOpen->pFcb) {
-            DbgP("enable_caching: Found match\n");
+#ifdef DEBUG_TIME_BASED_COHERENCY
+            DbgP("enable_caching: Looked&Found match for fcb=%p %wZ\n",
+                SrvOpen->pFcb, SrvOpen->pAlreadyPrefixedName);
+#endif
             cur->skip = FALSE;
             found = TRUE;
             break;
         }
         if (pEntry->Flink == &openlist->head) {
-            DbgP("enable_caching: reached end of the list\n");
+#ifdef DEBUG_TIME_BASED_COHERENCY
+            DbgP("enable_caching: reached EOL looking for fcb=%p %wZ\n",
+                SrvOpen->pFcb, SrvOpen->pAlreadyPrefixedName);
+#endif
             break;
         }
         pEntry = pEntry->Flink;
     }
     if (!found && nfs41_fobx->deleg_type) {
         nfs41_fcb_list_entry *oentry;
+#ifdef DEBUG_TIME_BASED_COHERENCY
         DbgP("enable_caching: delegation recalled: srv_open=%p\n", SrvOpen);
+#endif
         oentry = RxAllocatePoolWithTag(NonPagedPool, 
             sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG);
         if (oentry == NULL) return;
@@ -5782,8 +5843,10 @@ NTSTATUS nfs41_FsCtl(
     IN OUT PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
+#ifdef DEBUG_MISC
     DbgEn();
     print_debug_header(RxContext);
+#endif
     switch (RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode) {
     case FSCTL_SET_REPARSE_POINT:
         status = nfs41_SetReparsePoint(RxContext);
@@ -5792,11 +5855,15 @@ NTSTATUS nfs41_FsCtl(
     case FSCTL_GET_REPARSE_POINT:
         status = nfs41_GetReparsePoint(RxContext);
         break;
+#ifdef DEBUG_MISC
     default:
         DbgP("FsControlCode: %d\n", 
              RxContext->LowIoContext.ParamsFor.FsCtl.FsControlCode);
+#endif
     }
+#ifdef DEBUG_MISC
     DbgEx();
+#endif
     return status;
 }
 
@@ -5805,10 +5872,7 @@ NTSTATUS nfs41_CompleteBufferingStateChangeRequest(
     IN OUT PMRX_SRV_OPEN SrvOpen,
     IN PVOID pContext)
 {
-    NTSTATUS status = STATUS_SUCCESS;
-    DbgEn();
-    DbgEx();
-    return status;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS nfs41_FsdDispatch (
@@ -5998,9 +6062,11 @@ VOID fcbopen_main(PVOID ctx)
             cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry, 
                     nfs41_fcb_list_entry, next);
 
+#ifdef DEBUG_TIME_BASED_COHERENCY
             DbgP("fcbopen_main: Checking attributes for fcb=%p "
                 "change_time=%llu skipping=%d\n", cur->fcb, 
                 cur->ChangeTime, cur->skip);
+#endif
             if (cur->skip) goto out;
             pNetRootContext = 
                 NFS41GetNetRootExtension(cur->fcb->pNetRoot);
@@ -6023,8 +6089,10 @@ VOID fcbopen_main(PVOID ctx)
                 ULONG flag = DISABLE_CACHING;
                 PMRX_SRV_OPEN srv_open;
                 PLIST_ENTRY psrvEntry;
+#ifdef DEBUG_TIME_BASED_COHERENCY
                 DbgP("fcbopen_main: old ctime=%llu new_ctime=%llu\n", 
                     cur->ChangeTime, entry->u.QueryFile.ChangeTime);
+#endif
                 cur->ChangeTime = entry->u.QueryFile.ChangeTime;
                 cur->skip = TRUE;
                 psrvEntry = &cur->fcb->SrvOpenList;
@@ -6034,15 +6102,19 @@ VOID fcbopen_main(PVOID ctx)
                             MRX_SRV_OPEN, SrvOpenQLinks);
                     if (srv_open->DesiredAccess & 
                             (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)) {
+#ifdef DEBUG_TIME_BASED_COHERENCY
                         DbgP("fcbopen_main: ************ Invalidate the cache %wZ"
                              "************\n", srv_open->pAlreadyPrefixedName);
+#endif
                         RxIndicateChangeOfBufferingStateForSrvOpen(
                             cur->fcb->pNetRoot->pSrvCall, srv_open,
                             srv_open->Key, ULongToPtr(flag));
                     }
                     if (psrvEntry->Flink == &cur->fcb->SrvOpenList) {
+#ifdef DEBUG_TIME_BASED_COHERENCY
                         DbgP("fcbopen_main: reached end of srvopen for fcb %p\n",
                             cur->fcb);
+#endif
                         break;
                     }
                     pEntry = pEntry->Flink;
@@ -6053,7 +6125,9 @@ VOID fcbopen_main(PVOID ctx)
             RxFreePool(entry);
 out:
             if (pEntry->Flink == &openlist->head) {
+#ifdef DEBUG_TIME_BASED_COHERENCY
                 DbgP("fcbopen_main: reached end of the fcb list\n");
+#endif
                 break;
             }
             pEntry = pEntry->Flink;
