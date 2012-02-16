@@ -3888,7 +3888,7 @@ NTSTATUS nfs41_QueryDirectory(
     default:
         print_error("nfs41_QueryDirectory: unhandled dir query class %d\n", 
             InfoClass);
-        status = STATUS_INVALID_PARAMETER;
+        status = STATUS_NOT_SUPPORTED;
         goto out;
     }
     status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx,
@@ -4046,7 +4046,7 @@ NTSTATUS nfs41_QueryVolumeInformation(
         goto out;
     }
     case FileAccessInformation:
-        status = STATUS_INVALID_PARAMETER;
+        status = STATUS_NOT_SUPPORTED;
         goto out;
 
     case FileFsAttributeInformation:
@@ -4071,7 +4071,7 @@ NTSTATUS nfs41_QueryVolumeInformation(
 
     default:
         print_error("nfs41_QueryVolumeInformation: unhandled class %d\n", InfoClass);
-        status = STATUS_INVALID_PARAMETER;
+        status = STATUS_NOT_SUPPORTED;
         goto out;
     }
     status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx,
@@ -4770,7 +4770,7 @@ NTSTATUS nfs41_QueryFileInformation(
         break;
     default:
         print_error("nfs41_QueryFileInformation: unhandled class %d\n", InfoClass);
-        status = STATUS_INVALID_PARAMETER;
+        status = STATUS_NOT_SUPPORTED;
         goto out;
     }
 
