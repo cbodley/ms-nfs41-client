@@ -801,7 +801,7 @@ int nfs41_delegation_getattr(
     }
     ReleaseSRWLockShared(&deleg->lock);
     if (status)
-        goto out;
+        goto out_deleg;
 
     ZeroMemory(info, sizeof(nfs41_file_info));
 
@@ -810,8 +810,10 @@ int nfs41_delegation_getattr(
         client_name_cache(client), fileid, info);
     if (status) {
         status = NFS4ERR_BADHANDLE;
-        goto out;
+        goto out_deleg;
     }
+out_deleg:
+    nfs41_delegation_deref(deleg);
 out:
     dprintf(DGLVL, "<-- nfs41_delegation_getattr() returning %s\n",
         nfs_error_string(status));
