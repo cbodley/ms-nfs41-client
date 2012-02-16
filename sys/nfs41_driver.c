@@ -38,12 +38,12 @@
 #define USE_MOUNT_SEC_CONTEXT
 
 /* debugging printout defines */
-//#define DEBUG_MARSHAL_HEADER
-//#define DEBUG_MARSHAL_DETAIL
+#define DEBUG_MARSHAL_HEADER
+#define DEBUG_MARSHAL_DETAIL
 //#define DEBUG_OPEN
 //#define DEBUG_CLOSE
 //#define DEBUG_CACHE
-//#define DEBUG_INVALIDATE_CACHE
+#define DEBUG_INVALIDATE_CACHE
 //#define DEBUG_READ
 //#define DEBUG_WRITE
 //#define DEBUG_DIR_QUERY
@@ -55,7 +55,7 @@
 //#define DEBUG_EA_SET
 //#define DEBUG_LOCK
 //#define DEBUG_MISC
-//#define DEBUG_TIME_BASED_COHERENCY
+#define DEBUG_TIME_BASED_COHERENCY
 
 //#define ENABLE_TIMINGS
 //#define ENABLE_INDV_TIMINGS
