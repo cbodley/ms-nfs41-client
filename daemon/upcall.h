@@ -69,7 +69,7 @@ typedef struct __close_upcall_args {
 
 typedef struct __readwrite_upcall_args {
     unsigned char *buffer;
-    LONGLONG offset;
+    ULONGLONG offset;
     ULONG len;
     ULONG out_len;
     ULONGLONG ctime;

@@ -172,7 +172,7 @@ typedef struct _updowncall_entry {
         struct {                       
             PMDL MdlAddress;
             PVOID buf;
-            LONGLONG offset;
+            ULONGLONG offset;
             ULONG len;
             PRX_CONTEXT rxcontext;
             ULONGLONG ChangeTime;
@@ -743,7 +743,7 @@ NTSTATUS marshal_nfs41_rw(
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
-    DbgP("marshal_nfs41_rw: len=%u offset=%lu MdlAddress=%p Userspace=%p\n", 
+    DbgP("marshal_nfs41_rw: len=%lu offset=%llu MdlAddress=%p Userspace=%p\n", 
          entry->u.ReadWrite.len, entry->u.ReadWrite.offset, 
          entry->u.ReadWrite.MdlAddress, entry->u.ReadWrite.buf);
 #endif

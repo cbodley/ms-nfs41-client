@@ -53,7 +53,7 @@ static int parse_rw(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall
     status = safe_read(&buffer, &length, &args->buffer, sizeof(args->buffer));
     if (status) goto out;
 
-    dprintf(1, "parsing %s len=%ld offset=%ld buf=%p\n", 
+    dprintf(1, "parsing %s len=%lu offset=%llu buf=%p\n", 
             opcode2string(upcall->opcode), args->len, args->offset, args->buffer);
 out:
     return status;
