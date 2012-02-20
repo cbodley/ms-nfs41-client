@@ -311,7 +311,6 @@ static bool_t op_cb_recall_args(XDR *xdr, struct cb_recall_args *args)
 {
     bool_t result;
 
-    dprintf(1, "decoding recall args\n");
     result = common_stateid(xdr, &args->stateid);
     if (!result) { CBX_ERR("recall.stateid"); goto out; }
 
