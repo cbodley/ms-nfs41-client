@@ -462,7 +462,6 @@ static int handle_readdir(nfs41_upcall *upcall)
     dprintf(1, "-> handle_nfs41_dirquery(%s,%d,%d,%d)\n",
         args->filter, args->initial, args->restart, args->single);
 
-    args->buf = NULL;
     args->query_reply_len = 0;
 
     if (args->initial || args->restart) {
@@ -618,7 +617,6 @@ out:
             dprintf(1, "error code %d.\n", status);
             break;
         }
-        args->buf = NULL;
     } else {
         dprintf(1, "success!\n");
     }

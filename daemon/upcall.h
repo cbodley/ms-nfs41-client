@@ -134,7 +134,6 @@ typedef struct __readdir_upcall_args {
     const char *filter;
     nfs41_root *root;
     nfs41_open_state *state;
-    unsigned char *buf;
     int buf_len;
     int query_class;
     int query_reply_len;
