@@ -236,19 +236,22 @@ static int recover_open(
     if (status == NFS4_OK) /* use existing delegation */
         goto out;
 
-    if (*grace)
+    if (*grace) {
         status = recover_open_grace(session, &open->parent, &open->file,
             &open->owner, open->share_access, open->share_deny,
             &stateid, &delegation);
-    else
-        status = NFS4ERR_NO_GRACE;
-
-    if (status == NFS4ERR_NO_GRACE) {
-        *grace = FALSE;
+        if (status == NFS4ERR_NO_GRACE) {
+            *grace = FALSE;
+            /* send RECLAIM_COMPLETE before any out-of-grace recovery */
+            nfs41_reclaim_complete(session);
+        }
+    }
+    if (!*grace) {
         status = recover_open_no_grace(session, &open->parent, &open->file,
             &open->owner, open->share_access, open->share_deny,
             &stateid, &delegation);
     }
+
     if (status)
         goto out;
 
@@ -304,15 +307,17 @@ static int recover_locks(
         if (lock->delegated)
             continue;
 
-        if (*grace)
+        if (*grace) {
             status = nfs41_lock(session, &open->file, &open->owner, 
                 lock->exclusive ? WRITE_LT : READ_LT, lock->offset, 
                 lock->length, TRUE, FALSE, &stateid);
-        else
-            status = NFS4ERR_NO_GRACE;
-
-        if (status == NFS4ERR_NO_GRACE) {
-            *grace = FALSE;
+            if (status == NFS4ERR_NO_GRACE) {
+                *grace = FALSE;
+                /* send RECLAIM_COMPLETE before any out-of-grace recovery */
+                nfs41_reclaim_complete(session);
+            }
+        }
+        if (!*grace) {
             /* attempt out-of-grace recovery with a normal LOCK */
             status = nfs41_lock(session, &open->file, &open->owner, 
                 lock->exclusive ? WRITE_LT : READ_LT, lock->offset, 
@@ -361,11 +366,13 @@ static int recover_delegation_want(
 
         status = nfs41_want_delegation(session, &deleg->file, &claim, 
             want_flags, FALSE, &delegation);
-    } else
-        status = NFS4ERR_NO_GRACE;
-
-    if (status == NFS4ERR_NO_GRACE) {
-        *grace = FALSE;
+        if (status == NFS4ERR_NO_GRACE) {
+            *grace = FALSE;
+            /* send RECLAIM_COMPLETE before any out-of-grace recovery */
+            nfs41_reclaim_complete(session);
+        }
+    }
+    if (!*grace) {
         /* attempt out-of-grace recovery with with CLAIM_DELEG_PREV_FH */
         claim.claim = CLAIM_DELEG_PREV_FH;
 
@@ -418,14 +425,16 @@ static int recover_delegation_open(
     memcpy(owner.owner + sizeof(time_t), deleg, sizeof(deleg));
     owner.owner_len = sizeof(time_t) + sizeof(deleg);
 
-    if (*grace)
+    if (*grace) {
         status = recover_open_grace(session, &deleg->parent, &deleg->file,
             &owner, access, deny, &stateid.stateid, &delegation);
-    else
-        status = NFS4ERR_NO_GRACE;
-
-    if (status == NFS4ERR_NO_GRACE) {
-        *grace = FALSE;
+        if (status == NFS4ERR_NO_GRACE) {
+            *grace = FALSE;
+            /* send RECLAIM_COMPLETE before any out-of-grace recovery */
+            nfs41_reclaim_complete(session);
+        }
+    }
+    if (!*grace) {
         status = recover_open_no_grace(session, &deleg->parent, &deleg->file,
             &owner, access, deny, &stateid.stateid, &delegation);
     }
@@ -535,10 +544,7 @@ unlock:
 
     if (grace && status != NFS4ERR_BADSESSION) {
         /* send reclaim_complete, but don't fail on errors */
-        status = nfs41_reclaim_complete(session);
-        if (status && status == NFS4ERR_NOTSUPP)
-            eprintf("nfs41_reclaim_complete() failed with %s\n",
-                nfs_error_string(status));
+        nfs41_reclaim_complete(session);
     }
     return status;
 }
