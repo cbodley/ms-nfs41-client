@@ -381,7 +381,7 @@ out_return: /* return the delegation on failure */
 
 #define deleg_entry(pos) list_container(pos, nfs41_delegation_state, client_entry)
 
-static int deleg_fh_cmp(const struct list_entry *entry, const void *value)
+static int deleg_file_cmp(const struct list_entry *entry, const void *value)
 {
     const nfs41_fh *lhs = &deleg_entry(entry)->file.fh;
     const nfs41_fh *rhs = (const nfs41_fh*)value;
@@ -484,7 +484,7 @@ int nfs41_delegate_open(
     int status;
 
     /* search for a delegation with this filehandle */
-    status = delegation_find(client, &file->fh, deleg_fh_cmp, &deleg);
+    status = delegation_find(client, &file->fh, deleg_file_cmp, &deleg);
     if (status)
         goto out;
 
@@ -622,7 +622,7 @@ void nfs41_delegation_remove_srvopen(
     nfs41_delegation_state *deleg = NULL;
 
     /* find a delegation for this file */
-    if (delegation_find(session->client, &file->fh, deleg_fh_cmp, &deleg) || !deleg)
+    if (delegation_find(session->client, &file->fh, deleg_file_cmp, &deleg))
         return;
     dprintf(1, "nfs41_delegation_remove_srvopen: removing reference to "
         "srv_open=%x\n", deleg->srv_open);
@@ -645,7 +645,7 @@ int nfs41_delegation_return(
     int status;
 
     /* find a delegation for this file */
-    status = delegation_find(client, &file->fh, deleg_fh_cmp, &deleg);
+    status = delegation_find(client, &file->fh, deleg_file_cmp, &deleg);
     if (status)
         goto out;
 
@@ -717,7 +717,7 @@ int nfs41_delegation_recall(
     dprintf(2, "--> nfs41_delegation_recall()\n");
 
     /* search for the delegation by stateid instead of filehandle;
-     * deleg_fh_cmp() relies on a proper superblock and fileid,
+     * deleg_file_cmp() relies on a proper superblock and fileid,
      * which we don't get with CB_RECALL */
     status = delegation_find(client, stateid, deleg_stateid_cmp, &deleg);
     if (status)
@@ -775,6 +775,14 @@ out_deleg:
     goto out;
 }
 
+
+static int deleg_fh_cmp(const struct list_entry *entry, const void *value)
+{
+    const nfs41_fh *lhs = &deleg_entry(entry)->file.fh;
+    const nfs41_fh *rhs = (const nfs41_fh*)value;
+    if (lhs->len != rhs->len) return -1;
+    return memcmp(lhs->fh, rhs->fh, lhs->len);
+}
 
 int nfs41_delegation_getattr(
     IN nfs41_client *client,

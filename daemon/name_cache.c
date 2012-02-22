@@ -337,6 +337,13 @@ static void copy_attrs(
     dst->numlinks = src->numlinks;
     dst->mode = src->mode;
     dst->fileid = src->fileid;
+
+    dst->attrmask.count = 2;
+    dst->attrmask.arr[0] = FATTR4_WORD0_TYPE | FATTR4_WORD0_CHANGE
+        | FATTR4_WORD0_SIZE | FATTR4_WORD0_FILEID;
+    dst->attrmask.arr[1] = FATTR4_WORD1_MODE
+        | FATTR4_WORD1_NUMLINKS | FATTR4_WORD1_TIME_ACCESS
+        | FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY;
 }
 
 
