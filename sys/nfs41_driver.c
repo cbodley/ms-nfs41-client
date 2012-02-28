@@ -2963,7 +2963,8 @@ NTSTATUS nfs41_CreateVNetRoot(
         status = nfs41_mount(&Config, pVNetRootContext->sec_flavor,
             &pVNetRootContext->session, &nfs41d_version);
         if (status != STATUS_SUCCESS) {
-            if (!found_existing_mount) {
+            if (!found_existing_mount && 
+                    IsListEmpty(&pNetRootContext->mounts->head)) {
                 RxFreePool(pNetRootContext->mounts);
                 pNetRootContext->mounts_init = FALSE;
                 pVNetRootContext->session = INVALID_HANDLE_VALUE;
