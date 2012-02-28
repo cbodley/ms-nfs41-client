@@ -234,7 +234,14 @@ retry_write:
             if (retries--) goto retry_write;
             goto out_verify_failed;
         }
-    }
+    } else if (stable == UNSTABLE4) {
+		nfs41_file_info info;
+        bitmap4 attr_request; 
+        init_getattr_request(&attr_request);
+		status = nfs41_getattr(session, file, &attr_request, &info);
+		if (status)
+			goto out;
+	}
     args->ctime = info.change;
 out:
     args->out_len = len;
