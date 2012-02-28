@@ -776,7 +776,7 @@ static int handle_setacl(nfs41_upcall *upcall)
 
     /* break read delegations before SETATTR */
     nfs41_delegation_return(state->session, &state->file,
-        OPEN_DELEGATE_READ, FALSE);
+        OPEN_DELEGATE_WRITE, FALSE);
 
     nfs41_open_stateid_arg(state, &stateid);
     status = nfs41_setattr(state->session, &state->file, &stateid, &info);
