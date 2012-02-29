@@ -2532,8 +2532,8 @@ NTSTATUS nfs41_mount(
 
 #ifdef DEBUG_MOUNT
     DbgEn();
-    DbgP("Server Name %wZ Mount Point %wZ SecFlavor %wZ\n",
-        config->SrvName, config->MntPt, sec_flavor);
+    DbgP("Server Name %wZ Mount Point %wZ SecFlavor %d\n",
+        &config->SrvName, &config->MntPt, sec_flavor);
 #endif
     status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, INVALID_HANDLE_VALUE,
         INVALID_HANDLE_VALUE, *version, &config->MntPt, &entry);
@@ -2604,7 +2604,7 @@ NTSTATUS nfs41_MountConfig_ParseBoolean(
         *Value = FALSE;
 
     DbgP("    '%ls' -> '%wZ' -> %u\n",
-        (LPWSTR)Option->EaName, *usValue, *Value);
+        (LPWSTR)Option->EaName, usValue, *Value);
     return status;
 }
 
@@ -2626,12 +2626,12 @@ NTSTATUS nfs41_MountConfig_ParseDword(
                 *Value = Minimum;
             if (*Value > Maximum)
                 *Value = Maximum;
-            DbgP("    '%ls' -> '%wZ' -> %lu\n", Name, *usValue, *Value);
+            DbgP("    '%ls' -> '%wZ' -> %lu\n", Name, usValue, *Value);
 #endif
         }
         else
             print_error("Failed to convert %s='%wZ' to unsigned long.\n",
-                Name, *usValue);
+                Name, usValue);
     }
 
     return status;
