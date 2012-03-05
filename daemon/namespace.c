@@ -357,7 +357,7 @@ int nfs41_root_mount_addrs(
         goto out;
 
     /* create an rpc client */
-    status = nfs41_rpc_clnt_create(addrs, root->wsize, root->rsize, !is_data, 
+    status = nfs41_rpc_clnt_create(addrs, root->wsize, root->rsize,
         root->uid, root->gid, root->sec_flavor, &rpc);
     if (status) {
         eprintf("nfs41_rpc_clnt_create() failed %d\n", status);

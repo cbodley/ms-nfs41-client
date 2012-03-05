@@ -151,7 +151,6 @@ int nfs41_rpc_clnt_create(
     IN const multi_addr4 *addrs,
     IN uint32_t wsize,
     IN uint32_t rsize,
-    bool_t needcb,
     IN uint32_t uid,
     IN uint32_t gid,
     IN uint32_t sec_flavor,
@@ -163,6 +162,7 @@ int nfs41_rpc_clnt_create(
     int status;
     char machname[MAXHOSTNAMELEN + 1];
     gid_t gids[1];
+    bool_t needcb = 1;
 
     rpc = calloc(1, sizeof(nfs41_rpc_clnt));
     if (rpc == NULL) {

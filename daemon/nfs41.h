@@ -443,7 +443,6 @@ int nfs41_rpc_clnt_create(
     IN const multi_addr4 *addrs,
     IN uint32_t wsize,
     IN uint32_t rsize,
-    IN bool_t needcb,
     IN uint32_t uid,
     IN uint32_t gid,
     IN uint32_t sec_flavor,
