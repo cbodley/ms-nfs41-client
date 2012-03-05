@@ -169,6 +169,7 @@ typedef struct _updowncall_entry {
             DWORD sec_flavor;
             DWORD rsize;
             DWORD wsize;
+            DWORD lease_time;
         } Mount;
         struct {                       
             PMDL MdlAddress;
@@ -333,12 +334,12 @@ DECLARE_CONST_UNICODE_STRING(AUTHGSS_KRB5P_NAME, L"krb5p");
 DECLARE_CONST_UNICODE_STRING(SLASH, L"\\");
 DECLARE_CONST_UNICODE_STRING(EMPTY_STRING, L"");
 
-#define SERVER_NAME_BUFFER_SIZE     1024
-
+#define SERVER_NAME_BUFFER_SIZE         1024
 #define MOUNT_CONFIG_RW_SIZE_MIN        1024
 #define MOUNT_CONFIG_RW_SIZE_DEFAULT    1048576
 #define MOUNT_CONFIG_RW_SIZE_MAX        1048576
-#define MAX_SEC_FLAVOR_LEN 12
+#define MAX_SEC_FLAVOR_LEN              12
+#define UPCALL_TIMEOUT_DEFAULT          20  /* in seconds */
 
 typedef struct _NFS41_MOUNT_CONFIG {
     DWORD ReadSize;
@@ -352,6 +353,7 @@ typedef struct _NFS41_MOUNT_CONFIG {
     UNICODE_STRING MntPt;
     WCHAR sec_flavor[MAX_SEC_FLAVOR_LEN];
     UNICODE_STRING SecFlavor;
+    DWORD timeout;
 } NFS41_MOUNT_CONFIG, *PNFS41_MOUNT_CONFIG;
 
 typedef struct _NFS41_NETROOT_EXTENSION {
@@ -383,6 +385,7 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     BYTE                    FsAttrs[FS_ATTR_LEN];
     LONG                    FsAttrsLen;
     DWORD                   sec_flavor;
+    DWORD                   timeout;
     BOOLEAN                 read_only;
     BOOLEAN                 write_thru;
     BOOLEAN                 nocache;
@@ -1430,7 +1433,8 @@ out:
 }
 
 NTSTATUS nfs41_UpcallWaitForReply(
-    IN nfs41_updowncall_entry *entry)
+    IN nfs41_updowncall_entry *entry,
+    IN DWORD secs)
 {
     NTSTATUS status = STATUS_SUCCESS;
 
@@ -1438,7 +1442,7 @@ NTSTATUS nfs41_UpcallWaitForReply(
     KeSetEvent(&upcallEvent, 0, FALSE);
     if (!entry->async_op) {
         LARGE_INTEGER timeout;
-        timeout.QuadPart = RELATIVE(SECONDS(120));
+        timeout.QuadPart = RELATIVE(SECONDS(secs));
         /* 02/03/2011 AGLO: it is not clear what the "right" waiting design 
          * should be. Having non-interruptable waiting seems to be the right 
          * approach. However, when things go wrong, the only wait to proceed 
@@ -1454,15 +1458,16 @@ NTSTATUS nfs41_UpcallWaitForReply(
 #ifdef MAKE_WAITONCLOSE_NONITERRUPTABLE
         if (entry->opcode == NFS41_CLOSE || entry->opcode == NFS41_UNLOCK)
             status = KeWaitForSingleObject(&entry->cond, Executive, 
-                        KernelMode, FALSE, NULL);
+                        KernelMode, FALSE, &timeout);
         else {
             status = KeWaitForSingleObject(&entry->cond, Executive, 
                         UserMode, TRUE, &timeout);
-            if (status != STATUS_SUCCESS) {
-                print_wait_status(1, "[downcall]", status, 
-                    opcode2string(entry->opcode), entry, entry->xid);
-                entry->status = status;
-            }
+        }
+        if (status != STATUS_SUCCESS) {
+            print_wait_status(1, "[downcall]", status, 
+                opcode2string(entry->opcode), entry, entry->xid);
+            if (status == STATUS_TIMEOUT)
+                status = STATUS_NETWORK_UNREACHABLE;
         }
 #else
 
@@ -1563,9 +1568,11 @@ void unmarshal_nfs41_mount(
     RtlCopyMemory(&cur->session, *buf, sizeof(HANDLE));
     *buf += sizeof(HANDLE);
     RtlCopyMemory(&cur->version, *buf, sizeof(DWORD));
+    *buf += sizeof(DWORD);
+    RtlCopyMemory(&cur->u.Mount.lease_time, *buf, sizeof(DWORD));
 #ifdef DEBUG_MARSHAL_DETAIL
-    DbgP("unmarshal_nfs41_mount: session pointer 0x%x version %d\n", cur->session, 
-        cur->version);
+    DbgP("unmarshal_nfs41_mount: session pointer 0x%x version %d lease_time "
+         "%d\n", cur->session, cur->version, cur->u.Mount.lease_time);
 #endif
 }
 
@@ -1900,15 +1907,12 @@ NTSTATUS nfs41_shutdown_daemon(
     DbgEn();
     status = nfs41_UpcallCreate(NFS41_SHUTDOWN, NULL, INVALID_HANDLE_VALUE,
         INVALID_HANDLE_VALUE, version, NULL, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
 
-    status = nfs41_UpcallWaitForReply(entry);
+    status = nfs41_UpcallWaitForReply(entry, UPCALL_TIMEOUT_DEFAULT);
     SeDeleteClientSecurity(&entry->sec_ctx);
-    if (status != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    if (status) goto out;
+
     RxFreePool(entry);
 out:
     DbgEx();
@@ -2154,7 +2158,8 @@ void print_op_stat(
 #endif
 NTSTATUS nfs41_unmount(
     HANDLE session, 
-    DWORD version)
+    DWORD version,
+    DWORD timeout)
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
@@ -2165,13 +2170,9 @@ NTSTATUS nfs41_unmount(
     status = nfs41_UpcallCreate(NFS41_UNMOUNT, NULL, session, 
         INVALID_HANDLE_VALUE, version, NULL, &entry);
     SeDeleteClientSecurity(&entry->sec_ctx);
-    if (status)
-        goto out;
+    if (status) goto out;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    nfs41_UpcallWaitForReply(entry, timeout);
     RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS
@@ -2537,21 +2538,20 @@ NTSTATUS nfs41_mount(
 #endif
     status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, INVALID_HANDLE_VALUE,
         INVALID_HANDLE_VALUE, *version, &config->MntPt, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Mount.srv_name = &config->SrvName;
     entry->u.Mount.root = &config->MntPt;
     entry->u.Mount.rsize = config->ReadSize;
     entry->u.Mount.wsize = config->WriteSize;
     entry->u.Mount.sec_flavor = sec_flavor;
 
-    status = nfs41_UpcallWaitForReply(entry);
+    status = nfs41_UpcallWaitForReply(entry, config->timeout);
     SeDeleteClientSecurity(&entry->sec_ctx);
-    if (status != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    if (status) goto out;
     *session = entry->session;
+    if (entry->u.Mount.lease_time > config->timeout)
+        config->timeout = entry->u.Mount.lease_time;
 
     /* map windows ERRORs to NTSTATUS */
     status = map_mount_errors(entry->status);
@@ -2587,6 +2587,7 @@ void nfs41_MountConfig_InitDefaults(
     Config->SecFlavor.MaximumLength = MAX_SEC_FLAVOR_LEN;
     Config->SecFlavor.Buffer = Config->sec_flavor;
     RtlCopyUnicodeString(&Config->SecFlavor, &AUTH_SYS_NAME);
+    Config->timeout = UPCALL_TIMEOUT_DEFAULT;
 }
 
 NTSTATUS nfs41_MountConfig_ParseBoolean(
@@ -2667,6 +2668,11 @@ NTSTATUS nfs41_MountConfig_ParseOptions(
         else if (wcsncmp(L"nocache", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseBoolean(Option, &usValue,
                 &Config->nocache);
+        }
+        else if (wcsncmp(L"timeout", Name, NameLen) == 0) {
+            status = nfs41_MountConfig_ParseDword(Option, &usValue,
+                &Config->timeout, UPCALL_TIMEOUT_DEFAULT,
+                UPCALL_TIMEOUT_DEFAULT);
         }
         else if (wcsncmp(L"rsize", Name, NameLen) == 0) {
             status = nfs41_MountConfig_ParseDword(Option, &usValue,
@@ -2873,7 +2879,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             goto out;
         pVNetRootContext->read_only = Config.ReadOnly;
         pVNetRootContext->write_thru = Config.write_thru;
-        pVNetRootContext->nocache = Config.nocache;
+        pVNetRootContext->nocache = Config.nocache;        
     } else {
         /* use the SRV_CALL name (without leading \) as the hostname */
         Config.SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
@@ -2882,6 +2888,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         Config.SrvName.MaximumLength =
             pSrvCall->pSrvCallName->MaximumLength - sizeof(WCHAR);
     }
+    pVNetRootContext->timeout = Config.timeout;
 
     status = map_sec_flavor(&Config.SecFlavor, &pVNetRootContext->sec_flavor);
     if (status != STATUS_SUCCESS) {
@@ -2971,6 +2978,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             }
             goto out;
         }
+        pVNetRootContext->timeout = Config.timeout;
     } 
 
     if (!found_existing_mount) {
@@ -3143,27 +3151,27 @@ NTSTATUS nfs41_FinalizeNetRoot(
 #endif
         if (mount_tmp->authsys_session != INVALID_HANDLE_VALUE) {
             status = nfs41_unmount(mount_tmp->authsys_session, 
-                        pNetRootContext->nfs41d_version);
+                pNetRootContext->nfs41d_version, UPCALL_TIMEOUT_DEFAULT);
             if (status)
                 print_error("nfs41_unmount AUTH_SYS failed with %d\n", status);
         }
         if (mount_tmp->gss_session != INVALID_HANDLE_VALUE) {
             status = nfs41_unmount(mount_tmp->gss_session, 
-                        pNetRootContext->nfs41d_version);
+                pNetRootContext->nfs41d_version, UPCALL_TIMEOUT_DEFAULT);
             if (status)
                 print_error("nfs41_unmount RPCSEC_GSS_KRB5 failed with %d\n", 
                             status);
         }
         if (mount_tmp->gssi_session != INVALID_HANDLE_VALUE) {
             status = nfs41_unmount(mount_tmp->gssi_session, 
-                        pNetRootContext->nfs41d_version);
+                pNetRootContext->nfs41d_version, UPCALL_TIMEOUT_DEFAULT);
             if (status)
                 print_error("nfs41_unmount RPCSEC_GSS_KRB5I failed with %d\n", 
                             status);
         }
         if (mount_tmp->gssp_session != INVALID_HANDLE_VALUE) {
             status = nfs41_unmount(mount_tmp->gssp_session, 
-                        pNetRootContext->nfs41d_version);
+                pNetRootContext->nfs41d_version, UPCALL_TIMEOUT_DEFAULT);
             if (status)
                 print_error("nfs41_unmount RPCSEC_GSS_KRB5P failed with %d\n", 
                             status);
@@ -3361,8 +3369,8 @@ NTSTATUS nfs41_Create(
         pVNetRootContext->session, INVALID_HANDLE_VALUE, 
         pNetRootContext->nfs41d_version, 
         SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Open.access_mask = params.DesiredAccess;
     entry->u.Open.access_mode = params.ShareAccess;
@@ -3389,14 +3397,11 @@ NTSTATUS nfs41_Create(
             entry->u.Open.mode = 0777;
     }
 
-    status = nfs41_UpcallWaitForReply(entry);
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
 #ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&entry->sec_ctx);
 #endif
-    if (status != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    if (status) goto out;
 
     if (entry->status == NO_ERROR && entry->errno == ERROR_REPARSE) {
         /* symbolic link handling. when attempting to open a symlink when the
@@ -3755,8 +3760,8 @@ NTSTATUS nfs41_CloseSrvOpen(
     status = nfs41_UpcallCreate(NFS41_CLOSE, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Close.srv_open = SrvOpen;
     entry->u.Close.filename = SrvOpen->pAlreadyPrefixedName;
     if (!RxContext->pFcb->OpenCount || 
@@ -3766,14 +3771,11 @@ NTSTATUS nfs41_CloseSrvOpen(
     if (!RxContext->pFcb->OpenCount)
         entry->u.Close.renamed = nfs41_fcb->Renamed;
 
-    status = nfs41_UpcallWaitForReply(entry);
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
 #ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&nfs41_fobx->sec_ctx);
 #endif
-    if (status != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    if (status) goto out;
 
     /* map windows ERRORs to NTSTATUS */
     status = map_close_errors(entry->status);
@@ -3896,8 +3898,8 @@ NTSTATUS nfs41_QueryDirectory(
     status = nfs41_UpcallCreate(NFS41_DIR_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.QueryFile.InfoClass = InfoClass;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
@@ -3916,10 +3918,8 @@ NTSTATUS nfs41_QueryDirectory(
     entry->u.QueryFile.restart_scan = RxContext->QueryDirectory.RestartScan;
     entry->u.QueryFile.return_single = RxContext->QueryDirectory.ReturnSingleEntry;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
     MmUnlockPages(entry->u.QueryFile.mdl);
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
@@ -4079,16 +4079,14 @@ NTSTATUS nfs41_QueryVolumeInformation(
     status = nfs41_UpcallCreate(NFS41_VOLUME_QUERY, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state, 
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Volume.query = InfoClass;
     entry->u.Volume.buf = RxContext->Info.Buffer;
     entry->u.Volume.buf_len = RxContext->Info.LengthRemaining;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
         RxContext->InformationToReturn = entry->u.Volume.buf_len;
@@ -4273,8 +4271,7 @@ NTSTATUS nfs41_SetEaInformation(
     status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
 
     if (AnsiStrEq(&NfsV3Attributes, eainfo->EaName, eainfo->EaNameLength)) {
         attrs = (nfs3_attrs *)(eainfo->EaName + eainfo->EaNameLength + 1);
@@ -4294,11 +4291,9 @@ NTSTATUS nfs41_SetEaInformation(
     entry->u.SetEa.buf = eainfo;
     entry->u.SetEa.buf_len = buflen;
     entry->u.SetEa.filename = FileName;
-     
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 #ifdef ENABLE_TIMINGS
     if (entry->status == STATUS_SUCCESS) {
         InterlockedIncrement(&setexattr.sops); 
@@ -4418,8 +4413,8 @@ NTSTATUS nfs41_QueryEaInformation(
     status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out; 
+    if (status) goto out;
+
     entry->u.QueryEa.filename = FileName;  
     entry->u.QueryEa.buf_len = buflen; 
     entry->u.QueryEa.buf = RxContext->Info.Buffer; 
@@ -4429,10 +4424,8 @@ NTSTATUS nfs41_QueryEaInformation(
     entry->u.QueryEa.RestartScan = RxContext->QueryEa.RestartScan;
     entry->u.QueryEa.ReturnSingleEntry = RxContext->QueryEa.ReturnSingleEntry;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
         RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
@@ -4538,18 +4531,16 @@ NTSTATUS nfs41_QuerySecurityInformation(
     status = nfs41_UpcallCreate(NFS41_ACL_QUERY, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Acl.query = info_class;
     /* we can't provide RxContext->CurrentIrp->UserBuffer to the upcall thread 
      * because it becomes an invalid pointer with that execution context
      */
     entry->u.Acl.buf_len = RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
 #ifdef DEBUG_ACL_QUERY
@@ -4659,8 +4650,8 @@ NTSTATUS nfs41_SetSecurityInformation(
     status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Acl.query = info_class;
     entry->u.Acl.buf = sec_desc;
     entry->u.Acl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
@@ -4669,10 +4660,9 @@ NTSTATUS nfs41_SetSecurityInformation(
     InterlockedAdd64(&setacl.size, entry->u.Acl.buf_len);    
 #endif
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
+ 
     status = map_query_acl_error(entry->status);
     if (!status) {
         if (!nfs41_fobx->deleg_type && entry->u.Acl.ChangeTime &&
@@ -4779,16 +4769,14 @@ NTSTATUS nfs41_QueryFileInformation(
     status = nfs41_UpcallCreate(NFS41_FILE_QUERY, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.QueryFile.InfoClass = InfoClass;
     entry->u.QueryFile.buf = RxContext->Info.Buffer;
     entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
         RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
@@ -5018,8 +5006,8 @@ NTSTATUS nfs41_SetFileInformation(
     status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.SetFile.filename = FileName;
     entry->u.SetFile.InfoClass = InfoClass;
 
@@ -5036,10 +5024,8 @@ NTSTATUS nfs41_SetFileInformation(
     InterlockedAdd64(&setattr.size, entry->u.SetFile.buf_len);
 #endif
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     status = map_setfile_error(entry->status);
     if (!status) {
@@ -5244,6 +5230,7 @@ NTSTATUS nfs41_Read(
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
     __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    DWORD io_delay;
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -5257,8 +5244,8 @@ NTSTATUS nfs41_Read(
     status = nfs41_UpcallCreate(NFS41_READ, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
@@ -5268,10 +5255,12 @@ NTSTATUS nfs41_Read(
         async = entry->async_op = TRUE;
     }
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    /* assume network speed is 100MB/s and disk speed is 100MB/s so add
+     * time to transfer requested bytes over the network and read from disk
+     */
+    io_delay = pVNetRootContext->timeout + 2 * entry->u.ReadWrite.len / 104857600;
+    status = nfs41_UpcallWaitForReply(entry, io_delay);
+    if (status) goto out;
 
     if (async) {
         DbgP("This is asynchronous read, returning control back to the user\n");
@@ -5334,6 +5323,7 @@ NTSTATUS nfs41_Write(
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
     __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    DWORD io_delay;
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -5353,8 +5343,8 @@ NTSTATUS nfs41_Write(
     status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
     entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
@@ -5365,10 +5355,12 @@ NTSTATUS nfs41_Write(
         async = entry->async_op = TRUE;
     }
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    /* assume network speed is 100MB/s and disk speed is 100MB/s so add
+     * time to transfer requested bytes over the network and write to disk
+     */
+    io_delay = pVNetRootContext->timeout + 2 * entry->u.ReadWrite.len / 104857600;
+    status = nfs41_UpcallWaitForReply(entry, io_delay);
+    if (status) goto out;
 
     if (async) {
         DbgP("This is asynchronous write, returning control back to the user\n");
@@ -5534,18 +5526,16 @@ NTSTATUS nfs41_Lock(
     status = nfs41_UpcallCreate(NFS41_LOCK, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
+
     entry->u.Lock.offset = LowIoContext->ParamsFor.Locks.ByteOffset;
     entry->u.Lock.length = LowIoContext->ParamsFor.Locks.Length;
     entry->u.Lock.exclusive = BooleanFlagOn(flags, SL_EXCLUSIVE_LOCK);
     entry->u.Lock.blocking = !BooleanFlagOn(flags, SL_FAIL_IMMEDIATELY);
 
 retry_upcall:
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     /* blocking locks keep trying until it succeeds */
     if (entry->status == ERROR_LOCK_FAILED && entry->u.Lock.blocking) {
@@ -5635,8 +5625,7 @@ NTSTATUS nfs41_Unlock(
     status = nfs41_UpcallCreate(NFS41_UNLOCK, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
 
     if (LowIoContext->Operation == LOWIO_OP_UNLOCK_MULTIPLE) {
         entry->u.Unlock.count = unlock_list_count(
@@ -5652,10 +5641,8 @@ NTSTATUS nfs41_Unlock(
             LowIoContext->ParamsFor.Locks.Length;
     }
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
+    if (status) goto out;
 
     status = map_lock_errors(entry->status);
     RxContext->CurrentIrp->IoStatus.Status = status;
@@ -5758,17 +5745,15 @@ NTSTATUS nfs41_SetReparsePoint(
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
         VNetRoot->session, Fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
 
     entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = TRUE;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, VNetRoot->timeout);
+    if (status) goto out;
+
     status = map_symlink_errors(entry->status);
     RxFreePool(entry);
 out:
@@ -5818,17 +5803,14 @@ NTSTATUS nfs41_GetReparsePoint(
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
         VNetRoot->session, Fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
-    if (status)
-        goto out;
+    if (status) goto out;
 
     entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = FALSE;
 
-    if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-        status = STATUS_INTERNAL_ERROR;
-        goto out;
-    }
+    status = nfs41_UpcallWaitForReply(entry, VNetRoot->timeout);
+    if (status) goto out;
 
     status = map_symlink_errors(entry->status);
     if (status == STATUS_SUCCESS) {
@@ -6090,16 +6072,15 @@ VOID fcbopen_main(PVOID ctx)
                 &cur->nfs41_fobx->sec_ctx, cur->session, 
                 cur->nfs41_fobx->nfs41_open_state,
                 pNetRootContext->nfs41d_version, NULL, &entry);
-            if (status)
-                goto out;
+            if (status) goto out;
+
             entry->u.QueryFile.InfoClass = FileBasicInformation;
             entry->u.QueryFile.buf = &binfo;
             entry->u.QueryFile.buf_len = sizeof(binfo);
 
-            if (nfs41_UpcallWaitForReply(entry) != STATUS_SUCCESS) {
-                status = STATUS_INTERNAL_ERROR;
-                goto out;
-            }
+            status = nfs41_UpcallWaitForReply(entry, UPCALL_TIMEOUT_DEFAULT);
+            if (status) goto out;
+
             if (cur->ChangeTime != entry->u.QueryFile.ChangeTime) {
                 ULONG flag = DISABLE_CACHING;
                 PMRX_SRV_OPEN srv_open;

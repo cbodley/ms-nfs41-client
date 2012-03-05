@@ -39,6 +39,7 @@ typedef struct __mount_upcall_args {
     DWORD       sec_flavor;
     DWORD       rsize;
     DWORD       wsize;
+    DWORD       lease_time;
 } mount_upcall_args;
 
 typedef struct __open_upcall_args {

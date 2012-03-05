@@ -109,6 +109,7 @@ static int handle_mount(nfs41_upcall *upcall)
 
     upcall->root_ref = root;
     nfs41_root_ref(upcall->root_ref);
+    args->lease_time = client->session->lease_time;
 out:
     return status;
 
@@ -119,12 +120,15 @@ out_err:
 
 static int marshall_mount(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
+    mount_upcall_args *args = &upcall->args.mount;
     int status;
-    dprintf(2, "NFS41_MOUNT: writing pointer to nfs41_root %p and version %d\n", 
-        upcall->root_ref, NFS41D_VERSION);
+    dprintf(2, "NFS41_MOUNT: writing pointer to nfs41_root %p, version %d, "
+        "lease_time %d\n", upcall->root_ref, NFS41D_VERSION, args->lease_time);
     status = safe_write(&buffer, length, &upcall->root_ref, sizeof(HANDLE));
     if (status) goto out;
     status = safe_write(&buffer, length, &NFS41D_VERSION, sizeof(DWORD));
+    if (status) goto out;
+    status = safe_write(&buffer, length, &args->lease_time, sizeof(DWORD));
 out:
     return status;
 }
