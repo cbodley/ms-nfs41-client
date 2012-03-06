@@ -199,6 +199,9 @@ static int cl_exid_compare(
     if (strncmp(info->exchangeid->server_scope,
         client->server->scope, NFS4_OPAQUE_LIMIT) != 0)
         goto out;
+    /* match clientid */
+    if (info->exchangeid->clientid != client->clnt_id)
+        goto out;
 
     status = NO_ERROR;
 out:
