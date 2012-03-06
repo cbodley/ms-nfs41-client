@@ -147,7 +147,7 @@ typedef struct __rpc_client {
 	void 			*cl_private;	/* private stuff */
 	char			*cl_netid;	/* network token */
 	char			*cl_tp;		/* device name */
-    HANDLE          *cb_thread;
+    HANDLE          cb_thread;
     int             (*cb_xdr)(void *, void *);
     int             (*cb_fn)(void *, void *, void **);
     void            *cb_args;
