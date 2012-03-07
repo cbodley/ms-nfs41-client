@@ -65,7 +65,8 @@ static VOID PrintUsage(LPTSTR pProcess)
         TEXT("\twsize=#\twrite buffer size in bytes\n")
         TEXT("\tsec=krb5:krb5i:krb5p\tspecify gss security flavor\n")
         TEXT("\twritethru\tturns off rdbss caching for writes\n")
-        TEXT("\tnocache\tturns off rdbss caching\n"),
+        TEXT("\tnocache\tturns off rdbss caching\n")
+        TEXT("\ttimeout=#\tspecify upcall timeout value in seconds (default 120s)\n"),
         pProcess, pProcess, pProcess);
 }
 
