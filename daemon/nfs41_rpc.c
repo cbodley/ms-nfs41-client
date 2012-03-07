@@ -286,7 +286,7 @@ static int rpc_reconnect(
     AcquireSRWLockExclusive(&rpc->lock);
 
     status = get_client_for_multi_addr(&rpc->addrs, rpc->wsize, rpc->rsize, 
-                rpc, NULL, &client, &addr_index);
+                rpc->needcb?rpc:NULL, NULL, &client, &addr_index);
     if (status)
         goto out_unlock;
 
