@@ -429,6 +429,17 @@ retry:
             }
         }
     }
+    if (compound->res.resarray[0].op == OP_SEQUENCE) {
+        nfs41_sequence_res *seq = 
+            (nfs41_sequence_res *)compound->res.resarray[0].res;
+        if (seq->sr_status == NFS4_OK && session->client->rpc->needcb &&
+                (seq->sr_resok4.sr_status_flags & SEQ4_STATUS_CB_PATH_DOWN)) {
+            nfs41_session_free_slot(session, args->sa_slotid);
+            nfs41_bind_conn_to_session(session->client->rpc,
+                session->session_id, CDFC4_BACK_OR_BOTH);
+            goto out;
+        }
+    }
 out_free_slot:
     if (op1 == OP_SEQUENCE)
         nfs41_session_free_slot(session, args->sa_slotid);
