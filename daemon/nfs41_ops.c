@@ -33,9 +33,6 @@
 #include "daemon_debug.h"
 #include "util.h"
 
-#define BUF_SIZE 1024
-
-
 int nfs41_exchange_id(
     IN nfs41_rpc_clnt *rpc,
     IN client_owner4 *owner,

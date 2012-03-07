@@ -31,9 +31,6 @@
 #include "rpc/rpc.h"
 #include "rpc/auth_sspi.h"
 
-#define BUF_SIZE 1024
-
-
 int compound_error(int status)
 {
     if (status != NFS4_OK)
