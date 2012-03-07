@@ -47,6 +47,8 @@ static const char FILE_NETCONFIG[] = "C:\\etc\\netconfig";
 
 /* Globals */
 char localdomain_name[NFS41_HOSTNAME_LEN];
+int default_uid = 666;
+int default_gid = 777;
 
 #ifndef STANDALONE_NFSD //make sure to define it in "sources" not here
 #include "service.h"
@@ -72,8 +74,8 @@ static int map_user_to_ids(nfs41_idmapper *idmapper, uid_t *uid, gid_t *gid)
 
     if (nfs41_idmap_name_to_ids(idmapper, username, uid, gid)) {
         /* instead of failing for auth_sys, fall back to 'nobody' uid/gid */
-        *uid = 666;
-        *gid = 777;
+        *uid = default_uid;
+        *gid = default_gid;
     }
 out:
     return status;
@@ -178,7 +180,8 @@ static bool_t check_for_files()
 
 static void PrintUsage()
 {
-    fprintf(stderr, "Usage: nfsd.exe -d <debug_level> --noldap\n");
+    fprintf(stderr, "Usage: nfsd.exe -d <debug_level> --noldap "
+        "--uid <non-zero value> --gid\n");
 }
 static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
 {
@@ -206,6 +209,29 @@ static bool_t parse_cmdlineargs(int argc, TCHAR *argv[], nfsd_args *out)
             }
             else if (_tcscmp(argv[i], TEXT("--noldap")) == 0) { /* no LDAP */
                 out->ldap_enable = FALSE;
+            }
+            else if (_tcscmp(argv[i], TEXT("--uid")) == 0) { /* no LDAP, setting default uid */
+                ++i;
+                if (i >= argc) {
+                    fprintf(stderr, "Missing uid value\n");
+                    PrintUsage();
+                    return FALSE;
+                }
+                default_uid = _ttoi(argv[i]);
+                if (!default_uid) {
+                    fprintf(stderr, "Invalid (or missing) anonymous uid value of %d\n", 
+                        default_uid);
+                    return FALSE;
+                }
+            }
+            else if (_tcscmp(argv[i], TEXT("--gid")) == 0) { /* no LDAP, setting default gid */
+                ++i;
+                if (i >= argc) {
+                    fprintf(stderr, "Missing gid value\n");
+                    PrintUsage();
+                    return FALSE;
+                }
+                default_gid = _ttoi(argv[i]);
             }
             else
                 fprintf(stderr, "Unrecognized option '%s', disregarding.\n", argv[i]);
