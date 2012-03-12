@@ -381,7 +381,9 @@ static int readdir_add_dots(
     case 0:
         if (entry_buf_len < entry_len + 2) {
             status = ERROR_BUFFER_OVERFLOW;
-            dprintf(1, "not enough room for '.' entry.\n");
+            dprintf(1, "not enough room for '.' entry. received %d need %d\n",
+                    entry_buf_len, entry_len + 2);
+            args->query_reply_len = entry_len + 2;
             goto out;
         }
 
@@ -409,7 +411,9 @@ static int readdir_add_dots(
     case COOKIE_DOT:
         if (entry_buf_len < entry_len + 3) {
             status = ERROR_BUFFER_OVERFLOW;
-            dprintf(1, "not enough room for '..' entry.\n");
+            dprintf(1, "not enough room for '..' entry. received %d need %d\n",
+                    entry_buf_len, entry_len);
+            args->query_reply_len = entry_len + 2;
             goto out;
         }
         /* XXX: this skips '..' when listing root fh */
@@ -607,6 +611,10 @@ out:
             break;
         case ERROR_NO_MORE_FILES:
             dprintf(1, "ERROR_NO_MORE_FILES.\n");
+            break;
+        case ERROR_BUFFER_OVERFLOW:
+            upcall->last_error = status;
+            status = ERROR_SUCCESS;
             break;
         default:
             dprintf(1, "error code %d.\n", status);
