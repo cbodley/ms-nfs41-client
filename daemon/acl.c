@@ -33,7 +33,7 @@
 //#define DEBUG_ACLS
 #define ACLLVL 2 /* dprintf level for acl logging */
 
-extern char *localdomain_name;
+extern char localdomain_name[NFS41_HOSTNAME_LEN];
 
 static int parse_getacl(unsigned char *buffer, uint32_t length, 
                         nfs41_upcall *upcall)
