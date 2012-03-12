@@ -457,6 +457,9 @@ static int handle_readdir(nfs41_upcall *upcall)
     uint32_t entry_buf_len;
     bitmap4 attr_request;
     bool_t eof;
+    /* make sure we allocate enough space for one nfs41_readdir_entry */
+    const uint32_t max_buf_len = max(args->buf_len,
+        sizeof(nfs41_readdir_entry) + NFS41_MAX_COMPONENT_SIZE);
 
     dprintf(1, "-> handle_nfs41_dirquery(%s,%d,%d,%d)\n",
         args->filter, args->initial, args->restart, args->single);
@@ -479,13 +482,13 @@ static int handle_readdir(nfs41_upcall *upcall)
         goto out;
     }
 
-    entry_buf = malloc(args->buf_len);
+    entry_buf = malloc(max_buf_len);
     if (entry_buf == NULL) {
         status = GetLastError();
         goto out_free_cookie;
     }
 fetch_entries:
-    entry_buf_len = args->buf_len;
+    entry_buf_len = max_buf_len;
 
     init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_RDATTR_ERROR;
