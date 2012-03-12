@@ -5727,6 +5727,11 @@ NTSTATUS nfs41_SetReparsePoint(
     print_reparse_buffer(Reparse);
 #endif
 
+    if (!Reparse) {
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
+    }
+
     if (Reparse->ReparseTag != IO_REPARSE_TAG_SYMLINK) {
         status = STATUS_IO_REPARSE_TAG_MISMATCH;
         goto out;
