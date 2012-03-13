@@ -1278,8 +1278,9 @@ NTSTATUS nfs41_invalidate_cache (
         srv_open, srv_open->pAlreadyPrefixedName);
 #endif
     if (MmIsAddressValid(srv_open))
-        RxChangeBufferingState((PSRV_OPEN)srv_open, ULongToPtr(flag), 1);
-
+        RxIndicateChangeOfBufferingStateForSrvOpen(
+            srv_open->pFcb->pNetRoot->pSrvCall, srv_open,
+            srv_open->Key, ULongToPtr(flag));
     return status;
 }
 
