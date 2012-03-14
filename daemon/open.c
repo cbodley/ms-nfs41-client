@@ -498,7 +498,7 @@ static int handle_open(nfs41_upcall *upcall)
             if (args->create_opts & FILE_NON_DIRECTORY_FILE) {
                 eprintf("trying to open directory %s as a file\n", 
                     state->path.path);
-                status = ERROR_ACCESS_DENIED;
+                status = ERROR_DIRECTORY;
                 goto out_free_state;
             }
         } else if (info.type == NF4REG) {

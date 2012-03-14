@@ -3276,6 +3276,7 @@ NTSTATUS map_open_errors(
     case ERROR_SHARING_VIOLATION:       return STATUS_SHARING_VIOLATION;
     case ERROR_REPARSE:                 return STATUS_REPARSE;
     case ERROR_TOO_MANY_LINKS:          return STATUS_TOO_MANY_LINKS;
+    case ERROR_DIRECTORY:               return STATUS_FILE_IS_A_DIRECTORY;
     default:
         print_error("[ERROR] nfs41_Create: upcall returned %d returning "
             "STATUS_INSUFFICIENT_RESOURCES\n", status);
@@ -3394,7 +3395,7 @@ NTSTATUS nfs41_Create(
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
     entry->u.Open.srv_open = SrvOpen;
-    if (isDataAccess(params.DesiredAccess) || isOpen2Create(params.Disposition)) {
+    if (isDataAccess(params.DesiredAccess) || isOpen2Create(params.Disposition))
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
     if (params.Disposition != FILE_OPEN && params.Disposition != FILE_OVERWRITE) {
