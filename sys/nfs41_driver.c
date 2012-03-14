@@ -3277,6 +3277,7 @@ NTSTATUS map_open_errors(
     case ERROR_REPARSE:                 return STATUS_REPARSE;
     case ERROR_TOO_MANY_LINKS:          return STATUS_TOO_MANY_LINKS;
     case ERROR_DIRECTORY:               return STATUS_FILE_IS_A_DIRECTORY;
+    case ERROR_BAD_FILE_TYPE:           return STATUS_NOT_A_DIRECTORY;
     default:
         print_error("[ERROR] nfs41_Create: upcall returned %d returning "
             "STATUS_INSUFFICIENT_RESOURCES\n", status);

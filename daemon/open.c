@@ -507,7 +507,7 @@ static int handle_open(nfs41_upcall *upcall)
                 eprintf("trying to open file %s as a directory\n",
                     state->path.path);
 #ifdef NOTEPAD_OPEN_FILE_AS_DIRFILE_FIXED
-                status = ERROR_ACCESS_DENIED;
+                status = ERROR_BAD_FILE_TYPE;
                 goto out_free_state;
 #endif
             }
