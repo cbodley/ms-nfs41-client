@@ -303,7 +303,11 @@ static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask,
     if ((access_mask & FILE_READ_DATA) ||
             (access_mask & FILE_WRITE_DATA) ||
             (access_mask & FILE_APPEND_DATA) ||
-            (access_mask & FILE_EXECUTE))
+            (access_mask & FILE_EXECUTE) ||
+            disposition == FILE_CREATE ||
+            disposition == FILE_OVERWRITE_IF ||
+            disposition == FILE_SUPERSEDE ||
+            disposition == FILE_OPEN_IF)
         return FALSE;
     else {
         dprintf(1, "Open call that wants to manage attributes\n");
@@ -363,7 +367,7 @@ static int map_disposition_2_nfsopen(ULONG disposition, int in_status, bool_t pe
 }
 
 static void map_access_2_allowdeny(ULONG access_mask, ULONG access_mode,
-                                   uint32_t *allow, uint32_t *deny)
+                                   ULONG disposition, uint32_t *allow, uint32_t *deny)
 {
     if ((access_mask & 
             (FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_ATTRIBUTES)) &&
@@ -374,6 +378,16 @@ static void map_access_2_allowdeny(ULONG access_mask, ULONG access_mode,
     else if (access_mask & 
                 (FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_ATTRIBUTES))
         *allow = OPEN4_SHARE_ACCESS_WRITE;
+    /* if we are creating a file and no data access is specified, then 
+     * do an open and request no delegations. example open with share access 0
+     * and share deny 0 (ie deny_both).
+     */
+    if ((disposition == FILE_CREATE || disposition == FILE_OPEN_IF || 
+            disposition == FILE_OVERWRITE_IF || disposition == FILE_SUPERSEDE) &&
+            !(access_mask & (FILE_WRITE_DATA | FILE_APPEND_DATA | 
+            FILE_WRITE_ATTRIBUTES | FILE_READ_DATA | FILE_EXECUTE)))
+        *allow = OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
+
 #define FIX_ALLOW_DENY_WIN2NFS_CONVERSION
 #ifdef FIX_ALLOW_DENY_WIN2NFS_CONVERSION
     if ((access_mode & FILE_SHARE_READ) &&
@@ -570,7 +584,7 @@ static int handle_open(nfs41_upcall *upcall)
         uint32_t create = 0, createhowmode = 0;
 
         map_access_2_allowdeny(args->access_mask, args->access_mode,
-            &state->share_access, &state->share_deny);
+            args->disposition, &state->share_access, &state->share_deny);
         status = map_disposition_2_nfsopen(args->disposition, status, 
                     state->session->flags & CREATE_SESSION4_FLAG_PERSIST, 
                     &create, &createhowmode, &upcall->last_error);

@@ -3247,6 +3247,15 @@ BOOLEAN isDataAccess(
     return FALSE;
 }
 
+BOOLEAN isOpen2Create(
+    ULONG disposition)
+{
+    if (disposition == FILE_CREATE || disposition == FILE_OPEN_IF ||
+            disposition == FILE_OVERWRITE_IF || disposition == FILE_SUPERSEDE)
+        return TRUE;
+    return FALSE;
+}
+
 NTSTATUS map_open_errors(
     DWORD status, 
     USHORT len)
@@ -3357,6 +3366,17 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
+    /* http://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
+     * If FILE_SHARE_DELETE flag is not specified, but the file or device has been 
+     * opened for delete access, the function fails.
+     */
+    if (Fcb->OpenCount && nfs41_fcb->StandardInfo.DeletePending &&
+            !(params.ShareAccess & FILE_SHARE_DELETE)) {
+        DbgP("File opened already and marked for deletion\n");
+        status = STATUS_DELETE_PENDING;
+        goto out;
+    }
+
 #if defined(STORE_MOUNT_SEC_CONTEXT) && defined (USE_MOUNT_SEC_CONTEXT)
     status = nfs41_UpcallCreate(NFS41_OPEN, &pVNetRootContext->mount_sec_ctx,
 #else
@@ -3374,7 +3394,7 @@ NTSTATUS nfs41_Create(
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
     entry->u.Open.srv_open = SrvOpen;
-    if (isDataAccess(params.DesiredAccess))
+    if (isDataAccess(params.DesiredAccess) || isOpen2Create(params.Disposition)) {
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
     if (params.Disposition != FILE_OPEN && params.Disposition != FILE_OVERWRITE) {
