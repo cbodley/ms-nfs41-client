@@ -3256,6 +3256,27 @@ BOOLEAN isOpen2Create(
     return FALSE;
 }
 
+BOOLEAN isFilenameTooLong(
+    PUNICODE_STRING name, 
+    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext)
+{
+    PFILE_FS_ATTRIBUTE_INFORMATION attrs =
+        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+    LONG len = attrs->MaximumComponentNameLength, count = 1, i;
+    PWCH p = name->Buffer;
+    if (!pVNetRootContext->FsAttrsLen) len = 64;
+    for (i = 0; i < name->Length / 2; i++) {
+        if (p[0] == L'\\') count = 1;
+        else { 
+            if (p[0] == L'\0') return FALSE;
+            if (count > len) return TRUE;
+            count++;
+        }
+        p++;
+    }
+    return FALSE;
+}
+
 NTSTATUS map_open_errors(
     DWORD status, 
     USHORT len)
@@ -3379,6 +3400,10 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
+    if (isFilenameTooLong(SrvOpen->pAlreadyPrefixedName, pVNetRootContext)) {
+        status = STATUS_OBJECT_NAME_INVALID;
+        goto out;
+    }
 #if defined(STORE_MOUNT_SEC_CONTEXT) && defined (USE_MOUNT_SEC_CONTEXT)
     status = nfs41_UpcallCreate(NFS41_OPEN, &pVNetRootContext->mount_sec_ctx,
 #else
@@ -4951,11 +4976,15 @@ NTSTATUS nfs41_SetFileInformation(
     {
         PFILE_RENAME_INFORMATION rinfo = 
             (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
-#ifdef DEBUG_FILE_SET
         UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
             (USHORT)rinfo->FileNameLength, rinfo->FileName };
+#ifdef DEBUG_FILE_SET
         DbgP("Attempting to rename to '%wZ'\n", &dst);
 #endif
+        if (isFilenameTooLong(&dst, pVNetRootContext)) {
+            status = STATUS_OBJECT_NAME_INVALID;
+            goto out;
+        }
         if (rinfo->RootDirectory) {
             status = STATUS_NOT_SUPPORTED;
             goto out;
@@ -4967,11 +4996,15 @@ NTSTATUS nfs41_SetFileInformation(
     {
         PFILE_LINK_INFORMATION linfo = 
             (PFILE_LINK_INFORMATION)RxContext->Info.Buffer;
-#ifdef DEBUG_FILE_SET
         UNICODE_STRING dst = { (USHORT)linfo->FileNameLength,
             (USHORT)linfo->FileNameLength, linfo->FileName };
+#ifdef DEBUG_FILE_SET
         DbgP("Attempting to add link as '%wZ'\n", &dst);
 #endif
+        if (isFilenameTooLong(&dst, pVNetRootContext)) {
+            status = STATUS_OBJECT_NAME_INVALID;
+            goto out;
+        }
         if (linfo->RootDirectory) {
             status = STATUS_NOT_SUPPORTED;
             goto out;
