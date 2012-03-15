@@ -288,10 +288,13 @@ out:
 }
 
 static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask, 
-                                   ULONG disposition)
+                                   ULONG disposition, int status)
 {
     if (type == NF4DIR) {
-        if (disposition == FILE_OPEN || disposition == FILE_OVERWRITE) {
+        if (disposition == FILE_OPEN || disposition == FILE_OVERWRITE ||
+                (!status && (disposition == FILE_OPEN_IF || 
+                    disposition == FILE_OVERWRITE_IF || 
+                    disposition == FILE_SUPERSEDE))) {
             dprintf(1, "Opening a directory\n");
             return TRUE;
         } else {
@@ -570,7 +573,7 @@ static int handle_open(nfs41_upcall *upcall)
 
         status = NO_ERROR;
     } else if (open_for_attributes(state->type, args->access_mask, 
-                args->disposition)) {
+                args->disposition, status)) {
         if (status) {
             dprintf(1, "nfs41_lookup failed with %d\n", status);
             goto out_free_state;
