@@ -324,22 +324,20 @@ static int map_disposition_2_nfsopen(ULONG disposition, int in_status, bool_t pe
 {
     int status = NO_ERROR;
     if (disposition == FILE_SUPERSEDE) {
-        if (in_status == NFS4ERR_NOENT) {
-            *create = OPEN4_CREATE;
+        if (in_status == NFS4ERR_NOENT)           
             *last_error = ERROR_FILE_NOT_FOUND;
-        }
-        else // we need to truncate the file file then open it
-            *create = OPEN4_NOCREATE;
+        //remove and recreate the file
+        *create = OPEN4_CREATE;
+        if (persistent) *createhowmode = GUARDED4;
+        else *createhowmode = EXCLUSIVE4_1;
     } else if (disposition == FILE_CREATE) {
         // if lookup succeeded which means the file exist, return an error
         if (!in_status)
             status = ERROR_FILE_EXISTS;
         else {
             *create = OPEN4_CREATE;
-            if (persistent)
-                *createhowmode = GUARDED4;
-            else
-                *createhowmode = EXCLUSIVE4_1;
+            if (persistent) *createhowmode = GUARDED4;
+            else *createhowmode = EXCLUSIVE4_1;
         }
     } else if (disposition == FILE_OPEN) {
         if (in_status == NFS4ERR_NOENT)
@@ -584,7 +582,7 @@ static int handle_open(nfs41_upcall *upcall)
         args->mode = info.mode;
         args->changeattr = info.change;
     } else {
-        uint32_t create = 0, createhowmode = 0;
+        uint32_t create = 0, createhowmode = 0, lookup_status = status;
 
         map_access_2_allowdeny(args->access_mask, args->access_mode,
             args->disposition, &state->share_access, &state->share_deny);
@@ -596,6 +594,21 @@ static int handle_open(nfs41_upcall *upcall)
 
         if (args->access_mask & FILE_EXECUTE && state->file.fh.len) {
             status = check_execute_access(state);
+            if (status)
+                goto out_free_state;
+        }
+
+supersede_retry:
+        // XXX file exists and we have to remove it first
+        if (args->disposition == FILE_SUPERSEDE && lookup_status == NO_ERROR) {
+            nfs41_component *name = &state->file.name;
+            if (!(args->create_opts & FILE_DIRECTORY_FILE))
+                nfs41_delegation_return(state->session, &state->file,
+                    OPEN_DELEGATE_WRITE, TRUE);
+
+            dprintf(1, "open for FILE_SUPERSEDE removing %s first\n", name->name);
+            status = nfs41_remove(state->session, &state->parent,
+                name, state->file.fh.fileid);
             if (status)
                 goto out_free_state;
         }
@@ -621,6 +634,8 @@ static int handle_open(nfs41_upcall *upcall)
             dprintf(1, "%s failed with %s\n", (create == OPEN4_CREATE && 
                 (args->create_opts & FILE_DIRECTORY_FILE))?"nfs41_create":"nfs41_open",
                 nfs_error_string(status));
+            if (args->disposition == FILE_SUPERSEDE && status == NFS4ERR_EXIST)
+                goto supersede_retry;
             status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
             goto out_free_state;
         }
