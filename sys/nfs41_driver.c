@@ -3407,6 +3407,13 @@ NTSTATUS nfs41_Create(
         status = STATUS_OBJECT_NAME_INVALID;
         goto out;
     }
+
+    if (params.Disposition == FILE_OPEN && 
+            (params.FileAttributes & FILE_ATTRIBUTE_READONLY) && 
+            (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
 #if defined(STORE_MOUNT_SEC_CONTEXT) && defined (USE_MOUNT_SEC_CONTEXT)
     status = nfs41_UpcallCreate(NFS41_OPEN, &pVNetRootContext->mount_sec_ctx,
 #else
@@ -3441,8 +3448,9 @@ NTSTATUS nfs41_Create(
         }
         if (!entry->u.Open.mode)
             entry->u.Open.mode = 0777;
+        if (params.FileAttributes & FILE_ATTRIBUTE_READONLY)
+            entry->u.Open.mode = 0444;
     }
-
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
 #ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&entry->sec_ctx);
