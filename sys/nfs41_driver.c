@@ -558,10 +558,13 @@ NTSTATUS marshal_nfs41_header(
     tmp += sizeof(HANDLE);
 
 #ifdef DEBUG_MARSHAL_HEADER
-    DbgP("[upcall header] xid=%lld opcode=%s filename=%wZ version=%d "
-        "session=0x%x open_state=0x%x\n", entry->xid, 
-        opcode2string(entry->opcode), entry->filename,
-        entry->version, entry->session, entry->open_state);
+    if (MmIsAddressValid(entry->filename))
+        DbgP("[upcall header] xid=%lld opcode=%s filename=%wZ version=%d "
+            "session=0x%x open_state=0x%x\n", entry->xid, 
+            opcode2string(entry->opcode), entry->filename,
+            entry->version, entry->session, entry->open_state);
+    else
+        status = STATUS_INTERNAL_ERROR;
 #endif
 out:
     return status;
