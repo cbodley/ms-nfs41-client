@@ -418,6 +418,7 @@ typedef struct _NFS41_FOBX {
     LARGE_INTEGER time; 
     DWORD deleg_type;
     BOOLEAN write_thru;
+    BOOLEAN nocache;
 } NFS41_FOBX, *PNFS41_FOBX;
 #define NFS41GetFobxExtension(pFobx)  \
         (((pFobx) == NULL) ? NULL : (PNFS41_FOBX)((pFobx)->Context))
@@ -3629,6 +3630,7 @@ NTSTATUS nfs41_Create(
             DbgP("nfs41_Create: disabling buffering\n");
 #endif
             SrvOpen->BufferingFlags = FCB_STATE_DISABLE_LOCAL_BUFFERING;
+            nfs41_fobx->nocache = TRUE;
         } else if (!entry->u.Open.deleg_type && !Fcb->OpenCount) {
             nfs41_fcb_list_entry *oentry;
 #ifdef DEBUG_OPEN
@@ -5344,7 +5346,7 @@ NTSTATUS nfs41_Read(
         if ((!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
                 (SrvOpen->DesiredAccess & FILE_READ_DATA) &&
-                !pVNetRootContext->nocache &&
+                !pVNetRootContext->nocache && !nfs41_fobx->nocache &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_READBUFFERING_ENABLED | 
                  FCB_STATE_READCACHING_ENABLED)))) {
@@ -5451,7 +5453,7 @@ NTSTATUS nfs41_Write(
                 (SrvOpen->DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) &&
                 !pVNetRootContext->write_thru &&
                 !pVNetRootContext->nocache &&
-                !nfs41_fobx->write_thru &&
+                !nfs41_fobx->write_thru && !nfs41_fobx->nocache &&
                 !(SrvOpen->BufferingFlags & 
                 (FCB_STATE_WRITEBUFFERING_ENABLED | 
                  FCB_STATE_WRITECACHING_ENABLED))) {
