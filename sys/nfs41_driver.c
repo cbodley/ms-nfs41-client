@@ -4082,8 +4082,9 @@ NTSTATUS nfs41_QueryVolumeInformation(
             RxContext->Info.LengthRemaining -= DevExt->VolAttrsLen;
             status = STATUS_SUCCESS;
         } else {
-            RxContext->InformationToReturn = DevExt->VolAttrsLen;
-            status = STATUS_BUFFER_TOO_SMALL;            
+            RtlCopyMemory(RxContext->Info.Buffer, DevExt->VolAttrs, 
+                RxContext->Info.LengthRemaining);
+            status = STATUS_BUFFER_OVERFLOW;
         }
         goto out;
     case FileFsDeviceInformation:
