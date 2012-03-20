@@ -4141,8 +4141,10 @@ NTSTATUS nfs41_QueryVolumeInformation(
         if (pVNetRootContext->FsAttrsLen) {
             const LONG len = pVNetRootContext->FsAttrsLen;
             if (RxContext->Info.LengthRemaining < len) {
-                RxContext->InformationToReturn = len;
-                status = STATUS_BUFFER_TOO_SMALL;
+                RtlCopyMemory(RxContext->Info.Buffer,
+                    pVNetRootContext->FsAttrs, 
+                    RxContext->Info.LengthRemaining);
+                status = STATUS_BUFFER_OVERFLOW;
                 goto out;
             }
             RtlCopyMemory(RxContext->Info.Buffer,
