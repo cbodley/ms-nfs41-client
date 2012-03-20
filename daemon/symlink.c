@@ -225,6 +225,7 @@ static int handle_symlink(nfs41_upcall *upcall)
     int status = NO_ERROR;
 
     if (args->set) {
+        nfs41_file_info info;
         /* don't send windows slashes to the server */
         char *p;
         for (p = args->target_set; *p; p++) if (*p == '\\') *p = '/';
@@ -241,7 +242,7 @@ static int handle_symlink(nfs41_upcall *upcall)
 
         /* create the symlink */
         status = nfs41_create(state->session, NF4LNK, 0777,
-            args->target_set, &state->parent, &state->file);
+            args->target_set, &state->parent, &state->file, &info);
         if (status) {
             eprintf("nfs41_create() for symlink=%s failed with %s\n",
                 args->target_set, nfs_error_string(status));

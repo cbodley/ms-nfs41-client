@@ -615,20 +615,13 @@ supersede_retry:
 
         if (create == OPEN4_CREATE && (args->create_opts & FILE_DIRECTORY_FILE)) {
             status = nfs41_create(state->session, NF4DIR, args->mode, NULL, 
-                &state->parent, &state->file);
-            args->std_info.Directory = 1;
+                &state->parent, &state->file, &info);
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
             status = open_or_delegate(state, create, createhowmode, args->mode, 
                 TRUE, &info);
-            if (status == NFS4_OK) {
-                nfs_to_basic_info(&info, &args->basic_info);
-                nfs_to_standard_info(&info, &args->std_info);
-                args->mode = info.mode;
-                args->changeattr = info.change;
-                if (state->delegation.state)
+            if (status == NFS4_OK && state->delegation.state)
                     args->deleg_type = state->delegation.state->state.type;
-            }
         }
         if (status) {
             dprintf(1, "%s failed with %s\n", (create == OPEN4_CREATE && 
@@ -638,6 +631,11 @@ supersede_retry:
                 goto supersede_retry;
             status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
             goto out_free_state;
+        } else {
+            nfs_to_basic_info(&info, &args->basic_info);
+            nfs_to_standard_info(&info, &args->std_info);
+            args->mode = info.mode;
+            args->changeattr = info.change;
         }
     }
     upcall->state_ref = state;

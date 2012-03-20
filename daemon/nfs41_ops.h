@@ -1057,7 +1057,8 @@ int nfs41_create(
     IN uint32_t mode,
     IN OPTIONAL const char *symlink,
     IN nfs41_path_fh *parent,
-    OUT nfs41_path_fh *file);
+    OUT nfs41_path_fh *file,
+    OUT nfs41_file_info *info);
 
 int nfs41_close(
     IN nfs41_session *session,

@@ -532,7 +532,8 @@ int nfs41_create(
     IN uint32_t mode,
     IN OPTIONAL const char *symlink,
     IN nfs41_path_fh *parent,
-    OUT nfs41_path_fh *file)
+    OUT nfs41_path_fh *file,
+    OUT nfs41_file_info *info)
 {
     int status;
     nfs41_compound compound;
@@ -548,7 +549,7 @@ int nfs41_create(
     nfs41_getattr_args getattr_args;
     nfs41_getattr_res getattr_res, pgetattr_res;
     bitmap4 attr_request;
-    nfs41_file_info file_info, dir_info;
+    nfs41_file_info dir_info;
     nfs41_savefh_res savefh_res;
     nfs41_restorefh_res restorefh_res;
 
@@ -585,7 +586,7 @@ int nfs41_create(
     compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
     getattr_args.attr_request = &attr_request;
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    getattr_res.info = &file_info;
+    getattr_res.info = info;
 
     compound_add_op(&compound, OP_RESTOREFH, NULL, &restorefh_res);
 
@@ -602,7 +603,7 @@ int nfs41_create(
         goto out;
 
     /* fill in the file handle's fileid and superblock */
-    file->fh.fileid = file_info.fileid;
+    file->fh.fileid = info->fileid;
     file->fh.superblock = parent->fh.superblock;
 
     /* update the attributes of the parent directory */
@@ -612,12 +613,12 @@ int nfs41_create(
         parent->fh.fileid, &dir_info);
 
     /* add the new file handle and attributes to the name cache */
-    memcpy(&file_info.attrmask, &getattr_res.obj_attributes.attrmask,
+    memcpy(&info->attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));
     AcquireSRWLockShared(&file->path->lock);
     nfs41_name_cache_insert(session_name_cache(session),
         file->path->path, &file->name, &file->fh,
-        &file_info, &create_res.cinfo, OPEN_DELEGATE_NONE);
+        info, &create_res.cinfo, OPEN_DELEGATE_NONE);
     ReleaseSRWLockShared(&file->path->lock);
 
     nfs41_superblock_space_changed(file->fh.superblock);
