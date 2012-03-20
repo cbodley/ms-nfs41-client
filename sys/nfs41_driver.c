@@ -3282,6 +3282,27 @@ BOOLEAN isFilenameTooLong(
     return FALSE;
 }
 
+BOOLEAN areOpenParamsValid(NT_CREATE_PARAMETERS *params)
+{
+    /* from ms-fsa page 52 */
+    if ((params->CreateOptions & FILE_DELETE_ON_CLOSE) && 
+            !(params->DesiredAccess & DELETE))
+        return FALSE;
+    if ((params->CreateOptions & FILE_DIRECTORY_FILE) &&
+            (params->Disposition == FILE_SUPERSEDE || 
+                params->Disposition == FILE_OVERWRITE ||
+                params->Disposition == FILE_OVERWRITE_IF))
+        return FALSE;
+    if ((params->CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) &&
+            (params->DesiredAccess & FILE_APPEND_DATA))
+        return FALSE;
+    /* from ms-fsa 3.1.5.1.1 page 56 */
+    if ((params->CreateOptions & FILE_DIRECTORY_FILE) &&
+            (params->FileAttributes & FILE_ATTRIBUTE_TEMPORARY))
+        return FALSE;
+    return TRUE;
+}
+
 NTSTATUS map_open_errors(
     DWORD status, 
     USHORT len)
@@ -3386,10 +3407,10 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    if (pVNetRootContext->read_only && 
-            ((params.DesiredAccess & FILE_WRITE_DATA) ||
-            (params.DesiredAccess & FILE_APPEND_DATA))) {
-        DbgP("Read-only mount\n");
+    if ((pVNetRootContext->read_only || 
+            ((params.FileAttributes & FILE_ATTRIBUTE_READONLY) &&
+            params.Disposition == FILE_OPEN)) && 
+            (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
         status = STATUS_ACCESS_DENIED;
         goto out;
     }
@@ -3410,12 +3431,18 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    if (params.Disposition == FILE_OPEN && 
-            (params.FileAttributes & FILE_ATTRIBUTE_READONLY) && 
-            (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
-        status = STATUS_ACCESS_DENIED;
+    if (!areOpenParamsValid(&params)) {
+        status = STATUS_INVALID_PARAMETER;
         goto out;
     }
+
+    /* from ms-fsa 3.1.5.1.1 page 56 */
+    if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) &&
+            (params.FileAttributes & FILE_ATTRIBUTE_READONLY)) {
+        status = STATUS_CANNOT_DELETE;
+        goto out;
+    }
+
 #if defined(STORE_MOUNT_SEC_CONTEXT) && defined (USE_MOUNT_SEC_CONTEXT)
     status = nfs41_UpcallCreate(NFS41_OPEN, &pVNetRootContext->mount_sec_ctx,
 #else
