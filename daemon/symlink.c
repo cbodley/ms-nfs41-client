@@ -214,6 +214,8 @@ static int map_symlink_errors(int status)
     case NFS4ERR_BADCHAR:
     case NFS4ERR_BADNAME:       return ERROR_INVALID_REPARSE_DATA;
     case NFS4ERR_WRONG_TYPE:    return ERROR_NOT_A_REPARSE_POINT;
+    case NFS4ERR_ACCESS:        return ERROR_ACCESS_DENIED;
+    case NFS4ERR_NOTEMPTY:      return ERROR_NOT_EMPTY;
     default: return nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
     }
 }
@@ -236,8 +238,14 @@ static int handle_symlink(nfs41_upcall *upcall)
             eprintf("handle_symlink: attempting to create a symlink when "
                 "the file=%s was already created on open; sending REMOVE "
                 "first\n", state->file.path->path);
-            nfs41_remove(state->session, &state->parent,
+            status = nfs41_remove(state->session, &state->parent,
                 &state->file.name, state->file.fh.fileid);
+            if (status) {
+                eprintf("nfs41_remove() for symlink=%s failed with %s\n",
+                    args->target_set, nfs_error_string(status));
+                status = map_symlink_errors(status);
+                goto out;
+            }
         }
 
         /* create the symlink */
