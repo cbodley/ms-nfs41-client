@@ -5820,18 +5820,44 @@ NTSTATUS nfs41_SetReparsePoint(
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    const ULONG HeaderLen = REPARSE_DATA_BUFFER_HEADER_SIZE;
     nfs41_updowncall_entry *entry;
 
 #ifdef DEBUG_SYMLINK
     DbgEn();
     print_reparse_buffer(Reparse);
 #endif
-
-    if (!Reparse) {
-        status = STATUS_INVALID_PARAMETER;
+    /* access checks */
+    if (VNetRoot->read_only) {
+        status = STATUS_MEDIA_WRITE_PROTECTED;
+        goto out;
+    }
+    if (!(SrvOpen->DesiredAccess & (FILE_WRITE_DATA|FILE_WRITE_ATTRIBUTES))) {
+        status = STATUS_ACCESS_DENIED;
         goto out;
     }
 
+    /* validate input buffer and length */
+    if (!Reparse) {
+        status = STATUS_INVALID_BUFFER_SIZE;
+        goto out;
+    }
+
+    if (FsCtl->InputBufferLength < HeaderLen ||
+        FsCtl->InputBufferLength > MAXIMUM_REPARSE_DATA_BUFFER_SIZE) {
+        status = STATUS_IO_REPARSE_DATA_INVALID;
+        goto out;
+    }
+    if (FsCtl->InputBufferLength != HeaderLen + Reparse->ReparseDataLength) {
+        status = STATUS_IO_REPARSE_DATA_INVALID;
+        goto out;
+    }
+
+    /* validate reparse tag */
+    if (!IsReparseTagValid(Reparse->ReparseTag)) {
+        status = STATUS_IO_REPARSE_TAG_INVALID;
+        goto out;
+    }
     if (Reparse->ReparseTag != IO_REPARSE_TAG_SYMLINK) {
         status = STATUS_IO_REPARSE_TAG_MISMATCH;
         goto out;
@@ -5883,6 +5909,10 @@ NTSTATUS nfs41_GetReparsePoint(
     DbgEn();
 #endif
 
+    if (!FsCtl->pOutputBuffer) {
+        status = STATUS_INVALID_USER_BUFFER;
+        goto out;
+    }
     if (!BooleanFlagOn(RxContext->pFcb->Attributes,
         FILE_ATTRIBUTE_REPARSE_POINT)) {
         status = STATUS_NOT_A_REPARSE_POINT;
