@@ -5089,7 +5089,7 @@ NTSTATUS nfs41_SetFileInformation(
             goto out;
         }
         if (rinfo->RootDirectory) {
-            status = STATUS_NOT_SUPPORTED;
+            status = STATUS_INVALID_PARAMETER;
             goto out;
         }
         nfs41_fcb->Flags = 0;
@@ -5109,7 +5109,7 @@ NTSTATUS nfs41_SetFileInformation(
             goto out;
         }
         if (linfo->RootDirectory) {
-            status = STATUS_NOT_SUPPORTED;
+            status = STATUS_INVALID_PARAMETER;
             goto out;
         }
         nfs41_fcb->Flags = 0;
