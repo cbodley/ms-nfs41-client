@@ -401,8 +401,9 @@ typedef struct _NFS41_FCB {
     FILE_BASIC_INFORMATION  BasicInfo;
     FILE_STANDARD_INFORMATION StandardInfo;
     BOOLEAN                 Renamed;
+    BOOLEAN                 DeletePending;
     DWORD                   mode;
-    ULONGLONG                changeattr;
+    ULONGLONG                changeattr;    
 } NFS41_FCB, *PNFS41_FCB;
 #define NFS41GetFcbExtension(pFcb)      \
         (((pFcb) == NULL) ? NULL : (PNFS41_FCB)((pFcb)->Context))
@@ -3373,6 +3374,7 @@ NTSTATUS nfs41_Create(
     __notnull PMRX_FCB Fcb = RxContext->pFcb;
     __notnull PNFS41_FCB nfs41_fcb = (PNFS41_FCB)Fcb->Context;
     PNFS41_FOBX nfs41_fobx = NULL;
+    BOOLEAN oldDeletePending = nfs41_fcb->StandardInfo.DeletePending;
 #ifdef ENABLE_TIMINGS
     LARGE_INTEGER t1, t2;
     t1 = KeQueryPerformanceCounter(NULL);
@@ -3415,14 +3417,21 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
-    /* http://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
-     * If FILE_SHARE_DELETE flag is not specified, but the file or device has been 
-     * opened for delete access, the function fails.
+    /* if FCB was marked for deletion and opened multiple times, as soon 
+     * as first close happen, FCB transitions into delete_pending state 
+     * no more opens allowed
      */
-    if (Fcb->OpenCount && nfs41_fcb->StandardInfo.DeletePending &&
-            !(params.ShareAccess & FILE_SHARE_DELETE)) {
-        DbgP("File opened already and marked for deletion\n");
+    if (Fcb->OpenCount && nfs41_fcb->DeletePending) {
         status = STATUS_DELETE_PENDING;
+        goto out;
+    }
+
+    /* ms-fsa: 3.1.5.1.2.1 page 68 */
+    if (Fcb->OpenCount && nfs41_fcb->StandardInfo.DeletePending &&
+            !(params.ShareAccess & FILE_SHARE_DELETE) && 
+                (params.DesiredAccess & (FILE_EXECUTE | FILE_READ_DATA |
+                    FILE_WRITE_DATA | FILE_APPEND_DATA))) {
+        status = STATUS_SHARING_VIOLATION;
         goto out;
     }
 
@@ -3574,10 +3583,6 @@ NTSTATUS nfs41_Create(
     if (Fcb->OpenCount == 0 || 
             (Fcb->OpenCount > 0 && 
                 nfs41_fcb->changeattr != entry->u.Open.changeattr)) {
-#ifdef DEBUG_OPEN
-        print_basic_info(1, &entry->u.Open.binfo);
-        print_std_info(1, &entry->u.Open.sinfo);
-#endif
         RtlCopyMemory(&nfs41_fcb->BasicInfo, &entry->u.Open.binfo, 
             sizeof(entry->u.Open.binfo));
         RtlCopyMemory(&nfs41_fcb->StandardInfo, &entry->u.Open.sinfo, 
@@ -3585,6 +3590,9 @@ NTSTATUS nfs41_Create(
         nfs41_fcb->mode = entry->u.Open.mode;
         nfs41_fcb->changeattr = entry->u.Open.changeattr;
         nfs41_fcb->Flags = FCB_BASIC_INFO_CACHED | FCB_STANDARD_INFO_CACHED;
+        if (((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
+                !pVNetRootContext->read_only) || oldDeletePending)
+            nfs41_fcb->StandardInfo.DeletePending = TRUE;
 
         RxFormInitPacket(InitPacket,
             &entry->u.Open.binfo.FileAttributes,
@@ -3606,13 +3614,11 @@ NTSTATUS nfs41_Create(
                                     &InitPacket);
     }
 #ifdef DEBUG_OPEN
-    else {
+    else
         DbgP("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n");
-        if (nfs41_fcb->Flags) {
-            print_basic_info(1, &nfs41_fcb->BasicInfo);
-            print_std_info(1, &nfs41_fcb->StandardInfo);
-        }
-    }
+
+    print_basic_info(1, &nfs41_fcb->BasicInfo);
+    print_std_info(1, &nfs41_fcb->StandardInfo);
 #endif
 
     if (Fcb->OpenCount > 0 && 
@@ -3848,6 +3854,8 @@ NTSTATUS nfs41_CloseSrvOpen(
 
     entry->u.Close.srv_open = SrvOpen;
     entry->u.Close.filename = SrvOpen->pAlreadyPrefixedName;
+    if (nfs41_fcb->StandardInfo.DeletePending)
+        nfs41_fcb->DeletePending = TRUE;
     if (!RxContext->pFcb->OpenCount || 
             (nfs41_fcb->StandardInfo.DeletePending &&
                 nfs41_fcb->StandardInfo.Directory))
@@ -4915,6 +4923,7 @@ NTSTATUS nfs41_QueryFileInformation(
                 std_info->EndOfFile.QuadPart = 
                     nfs41_fcb->StandardInfo.EndOfFile.QuadPart;
             }
+            std_info->DeletePending = nfs41_fcb->DeletePending;
         }
 #endif
             if (nfs41_fcb->StandardInfo.DeletePending)
@@ -5061,6 +5070,12 @@ NTSTATUS nfs41_SetFileInformation(
         PFILE_DISPOSITION_INFORMATION dinfo =
             (PFILE_DISPOSITION_INFORMATION)RxContext->Info.Buffer;
         if (dinfo->DeleteFile) {
+            if (nfs41_fcb->DeletePending) {
+                status = STATUS_DELETE_PENDING;
+                goto out;
+            }
+
+            nfs41_fcb->DeletePending = TRUE;
             // we can delete directories right away
             if (nfs41_fcb->StandardInfo.Directory)
                 break;
@@ -5074,6 +5089,14 @@ NTSTATUS nfs41_SetFileInformation(
                 InfoClass = FileRenameInformation;
                 nfs41_fcb->Renamed = TRUE;
                 break;
+            }
+        } else {
+            /* section 4.3.3 of [FSBO] 
+             * "file system behavior in the microsoft windows environment" 
+             */
+            if (nfs41_fcb->DeletePending) {
+                nfs41_fcb->DeletePending = 0;
+                nfs41_fcb->StandardInfo.DeletePending = 0;
             }
         }
         status = STATUS_SUCCESS;
