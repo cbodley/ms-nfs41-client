@@ -3283,6 +3283,19 @@ BOOLEAN isFilenameTooLong(
     return FALSE;
 }
 
+BOOLEAN isStream(
+    PUNICODE_STRING name)
+{
+    LONG i;
+    PWCH p = name->Buffer;
+    for (i = 0; i < name->Length / 2; i++) {
+        if (p[0] == L':') return TRUE;
+        else if (p[0] == L'\0') return FALSE;
+        p++;
+    }
+    return FALSE;
+}
+
 BOOLEAN areOpenParamsValid(NT_CREATE_PARAMETERS *params)
 {
     /* from ms-fsa page 52 */
@@ -3406,6 +3419,11 @@ NTSTATUS nfs41_Create(
     
     if (!pNetRootContext->mounts_init) {
         print_error("nfs41_Create: No valid session established\n");
+        goto out;
+    }
+
+    if (isStream(SrvOpen->pAlreadyPrefixedName)) {
+        status = STATUS_NOT_SUPPORTED;
         goto out;
     }
 
