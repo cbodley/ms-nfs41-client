@@ -489,8 +489,11 @@ void print_debug_header(
     PIO_STACK_LOCATION IrpSp = RxContext->CurrentIrpSp;
 
     if (IrpSp) {
-        DbgP("FileOject %p name %wZ\n", IrpSp->FileObject, 
-            &IrpSp->FileObject->FileName);
+        DbgP("FileOject %p name %wZ access r=%d,w=%d,d=%d share r=%d,w=%d,d=%d\n", 
+            IrpSp->FileObject, &IrpSp->FileObject->FileName, 
+            IrpSp->FileObject->ReadAccess, IrpSp->FileObject->WriteAccess,
+            IrpSp->FileObject->DeleteAccess, IrpSp->FileObject->SharedRead,
+            IrpSp->FileObject->SharedWrite, IrpSp->FileObject->SharedDelete);
         print_file_object(0, IrpSp->FileObject);
         print_irps_flags(0, RxContext->CurrentIrpSp);
     } else
@@ -3453,6 +3456,19 @@ NTSTATUS nfs41_Create(
         goto out;
     }
 
+    /* rdbss seems miss this sharing_violation check */
+    if (Fcb->OpenCount && params.Disposition == FILE_SUPERSEDE) {
+        if ((!RxContext->CurrentIrpSp->FileObject->SharedRead && 
+                (params.DesiredAccess & FILE_READ_DATA)) ||
+            (!RxContext->CurrentIrpSp->FileObject->SharedWrite &&
+                (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA | 
+                    FILE_WRITE_ATTRIBUTES)) ||
+            (!RxContext->CurrentIrpSp->FileObject->SharedDelete &&
+                (params.DesiredAccess & DELETE)))) {
+            status = STATUS_SHARING_VIOLATION;
+            goto out;
+        }
+    }
     if (isFilenameTooLong(SrvOpen->pAlreadyPrefixedName, pVNetRootContext)) {
         status = STATUS_OBJECT_NAME_INVALID;
         goto out;
