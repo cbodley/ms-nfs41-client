@@ -5889,7 +5889,8 @@ NTSTATUS nfs41_SetReparsePoint(
     __notnull PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pInputBuffer;
     __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRoot = 
+    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)SrvOpen->pVNetRoot;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
@@ -5902,12 +5903,24 @@ NTSTATUS nfs41_SetReparsePoint(
     print_reparse_buffer(Reparse);
 #endif
     /* access checks */
-    if (VNetRoot->read_only) {
+    if (VNetRootContext->read_only) {
         status = STATUS_MEDIA_WRITE_PROTECTED;
         goto out;
     }
     if (!(SrvOpen->DesiredAccess & (FILE_WRITE_DATA|FILE_WRITE_ATTRIBUTES))) {
         status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
+    /* must have a filename longer than vnetroot name,
+     * or it's trying to operate on the volume itself */
+    if (RxContext->CurrentIrpSp->FileObject->FileName.Length <=
+        VNetRoot->PrefixEntry.Prefix.Length + sizeof(WCHAR)) {
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
+    }
+    if (FsCtl->pOutputBuffer != NULL) {
+        status = STATUS_INVALID_PARAMETER;
         goto out;
     }
 
@@ -5943,7 +5956,7 @@ NTSTATUS nfs41_SetReparsePoint(
         Reparse->SymbolicLinkReparseBuffer.PrintNameOffset/sizeof(WCHAR)];
 
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
-        VNetRoot->session, Fobx->nfs41_open_state,
+        VNetRootContext->session, Fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
@@ -5951,7 +5964,7 @@ NTSTATUS nfs41_SetReparsePoint(
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = TRUE;
 
-    status = nfs41_UpcallWaitForReply(entry, VNetRoot->timeout);
+    status = nfs41_UpcallWaitForReply(entry, VNetRootContext->timeout);
     if (status) goto out;
 
     status = map_symlink_errors(entry->status);
@@ -5971,7 +5984,8 @@ NTSTATUS nfs41_GetReparsePoint(
     XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
     __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRoot = 
+    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)SrvOpen->pVNetRoot;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext = 
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
@@ -5983,6 +5997,17 @@ NTSTATUS nfs41_GetReparsePoint(
     DbgEn();
 #endif
 
+    /* must have a filename longer than vnetroot name,
+     * or it's trying to operate on the volume itself */
+    if (RxContext->CurrentIrpSp->FileObject->FileName.Length <=
+        VNetRoot->PrefixEntry.Prefix.Length + sizeof(WCHAR)) {
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
+    }
+    if (FsCtl->pInputBuffer != NULL) {
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
+    }
     if (!FsCtl->pOutputBuffer) {
         status = STATUS_INVALID_USER_BUFFER;
         goto out;
@@ -6005,7 +6030,7 @@ NTSTATUS nfs41_GetReparsePoint(
         HeaderLen, 0xFFFF);
 
     status = nfs41_UpcallCreate(NFS41_SYMLINK, &Fobx->sec_ctx, 
-        VNetRoot->session, Fobx->nfs41_open_state,
+        VNetRootContext->session, Fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
@@ -6013,7 +6038,7 @@ NTSTATUS nfs41_GetReparsePoint(
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = FALSE;
 
-    status = nfs41_UpcallWaitForReply(entry, VNetRoot->timeout);
+    status = nfs41_UpcallWaitForReply(entry, VNetRootContext->timeout);
     if (status) goto out;
 
     status = map_symlink_errors(entry->status);
