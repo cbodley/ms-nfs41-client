@@ -506,29 +506,45 @@ void print_debug_header(
 
 /* convert strings from unicode -> ansi during marshalling to
  * save space in the upcall buffers and avoid extra copies */
-INLINE ULONG length_as_ansi(
+INLINE ULONG length_as_utf8(
     PCUNICODE_STRING str)
 {
-    return sizeof(str->MaximumLength) + RtlUnicodeStringToAnsiSize(str);
+    ULONG ActualCount = 0;
+    RtlUnicodeToUTF8N(NULL, 0xffff, &ActualCount, str->Buffer, str->Length);
+    return sizeof(str->MaximumLength) + ActualCount + sizeof(UNICODE_NULL);
 }
 
-NTSTATUS marshall_unicode_as_ansi(
+NTSTATUS marshall_unicode_as_utf8(
     IN OUT unsigned char **pos,
     IN PCUNICODE_STRING str)
 {
     ANSI_STRING ansi;
+    ULONG ActualCount;
     NTSTATUS status;
+
+    /* query the number of bytes required for the utf8 encoding */
+    status = RtlUnicodeToUTF8N(NULL, 0xffff,
+        &ActualCount, str->Buffer, str->Length);
+    if (status) {
+        print_error("RtlUnicodeToUTF8N('%wZ') failed with 0x%08X\n",
+            str, status);
+        goto out;
+    }
 
     /* convert the string directly into the upcall buffer */
     ansi.Buffer = (PCHAR)*pos + sizeof(ansi.MaximumLength);
-    ansi.MaximumLength = (USHORT)RtlUnicodeStringToAnsiSize(str);
-    status = RtlUnicodeStringToAnsiString(&ansi, str, FALSE);
-    if (status)
+    ansi.MaximumLength = (USHORT)ActualCount + sizeof(UNICODE_NULL);
+    status = RtlUnicodeToUTF8N(ansi.Buffer, ansi.MaximumLength,
+        &ActualCount, str->Buffer, str->Length);
+    if (status) {
+        print_error("RtlUnicodeToUTF8N(%hu, '%wZ', %hu) failed with 0x%08X\n",
+            ansi.MaximumLength, str, str->Length, status);
         goto out;
+    }
 
     RtlCopyMemory(*pos, &ansi.MaximumLength, sizeof(ansi.MaximumLength));
     *pos += sizeof(ansi.MaximumLength);
-    (*pos)[ansi.Length] = '\0';
+    (*pos)[ActualCount] = '\0';
     *pos += ansi.MaximumLength;
 out:
     return status;
@@ -609,15 +625,15 @@ NTSTATUS marshal_nfs41_mount(
         status = STATUS_INTERNAL_ERROR;
         goto out;
     }
-    header_len = *len + length_as_ansi(entry->u.Mount.srv_name) +
-        length_as_ansi(entry->u.Mount.root) + 3 * sizeof(DWORD);
+    header_len = *len + length_as_utf8(entry->u.Mount.srv_name) +
+        length_as_utf8(entry->u.Mount.root) + 3 * sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    status = marshall_unicode_as_ansi(&tmp, entry->u.Mount.srv_name);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.Mount.srv_name);
     if (status) goto out;
-    status = marshall_unicode_as_ansi(&tmp, entry->u.Mount.root);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.Mount.root);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.Mount.sec_flavor, sizeof(DWORD));
     tmp += sizeof(DWORD);
@@ -661,13 +677,13 @@ NTSTATUS marshal_nfs41_open(
         goto out;
     else 
         tmp += *len;
-    header_len = *len + length_as_ansi(entry->u.Open.filename) +
+    header_len = *len + length_as_utf8(entry->u.Open.filename) +
         5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD) + sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    status = marshall_unicode_as_ansi(&tmp, entry->u.Open.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.Open.filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.Open.access_mask, 
         sizeof(entry->u.Open.access_mask));
@@ -863,7 +879,7 @@ NTSTATUS marshal_nfs41_close(
 
     header_len = *len + sizeof(BOOLEAN) + sizeof(HANDLE);
     if (entry->u.Close.remove)
-        header_len += length_as_ansi(entry->u.Close.filename) +
+        header_len += length_as_utf8(entry->u.Close.filename) +
             sizeof(BOOLEAN);
 
     if (header_len > buf_len) { 
@@ -875,7 +891,7 @@ NTSTATUS marshal_nfs41_close(
     RtlCopyMemory(tmp, &entry->u.Close.srv_open, sizeof(HANDLE));
     if (entry->u.Close.remove) {
         tmp += sizeof(HANDLE);
-        status = marshall_unicode_as_ansi(&tmp, entry->u.Close.filename);
+        status = marshall_unicode_as_utf8(&tmp, entry->u.Close.filename);
         if (status) goto out;
         RtlCopyMemory(tmp, &entry->u.Close.renamed, sizeof(BOOLEAN));
     }
@@ -908,7 +924,7 @@ NTSTATUS marshal_nfs41_dirquery(
         tmp += *len;
 
     header_len = *len + 2 * sizeof(ULONG) + sizeof(HANDLE) +
-        length_as_ansi(entry->u.QueryFile.filter) + 3 * sizeof(BOOLEAN);
+        length_as_utf8(entry->u.QueryFile.filter) + 3 * sizeof(BOOLEAN);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -918,7 +934,7 @@ NTSTATUS marshal_nfs41_dirquery(
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.QueryFile.buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    status = marshall_unicode_as_ansi(&tmp, entry->u.QueryFile.filter);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.QueryFile.filter);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.QueryFile.initial_query, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
@@ -1008,13 +1024,13 @@ NTSTATUS marshal_nfs41_fileset(
         goto out;
     else 
         tmp += *len;
-    header_len = *len + length_as_ansi(entry->u.SetFile.filename) +
+    header_len = *len + length_as_utf8(entry->u.SetFile.filename) +
         2 * sizeof(ULONG) + entry->u.SetFile.buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    status = marshall_unicode_as_ansi(&tmp, entry->u.SetFile.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.SetFile.filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetFile.InfoClass, sizeof(ULONG));
     tmp += sizeof(ULONG);
@@ -1050,14 +1066,14 @@ NTSTATUS marshal_nfs41_easet(
         goto out;
     else 
         tmp += *len;
-    header_len = *len + length_as_ansi(entry->u.SetEa.filename) + 
+    header_len = *len + length_as_utf8(entry->u.SetEa.filename) + 
         sizeof(ULONG) + entry->u.SetEa.buf_len  + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    status = marshall_unicode_as_ansi(&tmp, entry->u.SetEa.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.SetEa.filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetEa.mode, sizeof(DWORD));
     tmp += sizeof(DWORD);
@@ -1090,7 +1106,7 @@ NTSTATUS marshal_nfs41_eaget(
         goto out;
     else
         tmp += *len;
-    header_len = *len + length_as_ansi(entry->u.QueryEa.filename) + 
+    header_len = *len + length_as_utf8(entry->u.QueryEa.filename) + 
         2 * sizeof(ULONG) + entry->u.QueryEa.EaListLength + 2 * sizeof(BOOLEAN);
 
     if (header_len > buf_len) { 
@@ -1098,7 +1114,7 @@ NTSTATUS marshal_nfs41_eaget(
         goto out;
     }
 
-    status = marshall_unicode_as_ansi(&tmp, entry->u.QueryEa.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->u.QueryEa.filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.QueryEa.EaIndex, sizeof(ULONG));
     tmp += sizeof(ULONG);
@@ -1138,19 +1154,19 @@ NTSTATUS marshal_nfs41_symlink(
     else 
         tmp += *len;
     header_len = *len + sizeof(BOOLEAN) +
-        length_as_ansi(entry->u.Symlink.filename);
+        length_as_utf8(entry->u.Symlink.filename);
     if (entry->u.Symlink.set)
-        header_len += length_as_ansi(entry->u.Symlink.target);
+        header_len += length_as_utf8(entry->u.Symlink.target);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    marshall_unicode_as_ansi(&tmp, entry->u.Symlink.filename);
+    marshall_unicode_as_utf8(&tmp, entry->u.Symlink.filename);
     RtlCopyMemory(tmp, &entry->u.Symlink.set, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
     if (entry->u.Symlink.set)
-        marshall_unicode_as_ansi(&tmp, entry->u.Symlink.target);
+        marshall_unicode_as_utf8(&tmp, entry->u.Symlink.target);
 
     *len = header_len;
 
@@ -5882,6 +5898,7 @@ NTSTATUS nfs41_SetReparsePoint(
 
 #ifdef DEBUG_SYMLINK
     DbgEn();
+    print_debug_header(RxContext);
     print_reparse_buffer(Reparse);
 #endif
     /* access checks */
