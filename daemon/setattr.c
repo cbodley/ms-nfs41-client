@@ -209,7 +209,7 @@ static int handle_nfs41_rename(setattr_upcall_args *args)
         path_fh_init(&dst_dir, &dst_path);
         fh_copy(&dst_dir.fh, &state->parent.fh);
 
-        create_silly_rename(&dst_path, &state->file.fh, &dst_name);
+        create_silly_rename(&dst_path, &dst_name);
         dprintf(1, "silly rename: %s -> %s\n", src_name->name, dst_name.name);
 
         /* break any delegations and truncate before silly rename */

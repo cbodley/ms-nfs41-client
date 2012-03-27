@@ -790,7 +790,7 @@ static int handle_close(nfs41_upcall *upcall)
 
         if (args->renamed) {
             dprintf(1, "removing a renamed file %s\n", name->name);
-            create_silly_rename(&state->path, &state->file.fh, name);
+            create_silly_rename(&state->path, name);
             status = do_nfs41_close(state);
             if (status)
                 goto out;

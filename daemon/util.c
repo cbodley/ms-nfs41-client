@@ -347,35 +347,35 @@ void path_fh_copy(
     fh_copy(&dst->fh, &src->fh);
 }
 
+/* DWORD MAX_DWORD = 4294967295 -- max string for the timestamp */
 int create_silly_rename(
     IN nfs41_abs_path *path,
-    IN const nfs41_fh *fh,
     OUT nfs41_component *silly)
 {
     const char *end = path->path + NFS41_MAX_PATH_LEN;
-    const unsigned short extra_len = 2 + 2*(unsigned short)fh->len;
-    char name[NFS41_MAX_COMPONENT_LEN+1];
-    char *tmp;
-    uint32_t i;
+    char name[NFS41_MAX_COMPONENT_LEN+1], *tmp, stime[13];
     int status = NO_ERROR;
+    const DWORD ntime = GetTickCount();
 
-    if (path->len + extra_len >= NFS41_MAX_PATH_LEN) {
+    StringCchPrintf(stime, 13, "%u", ntime);
+    if (path->len + 13 >= NFS41_MAX_PATH_LEN) {
         status = ERROR_BUFFER_OVERFLOW;
         goto out;
     }
 
     last_component(path->path, path->path + path->len, silly);
+    if (silly->len + 13 > NFS41_MAX_COMPONENT_LEN) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+
     StringCchCopyNA(name, NFS41_MAX_COMPONENT_LEN+1, silly->name, silly->len);
 
     tmp = (char*)silly->name;
-    StringCchPrintf(tmp, end - tmp, ".%s.", name);
-    tmp += silly->len + 2;
+    StringCchPrintf(tmp, end - tmp, ".%s.%s", name, stime);
 
-    for (i = 0; i < fh->len; i++, tmp += 2)
-        StringCchPrintf(tmp, end - tmp, "%02x", fh->fh[i]);
-
-    path->len = path->len + extra_len;
-    silly->len = silly->len + extra_len;
+    path->len = (unsigned short)strlen(path->path);
+    silly->len = (unsigned short)strlen(silly->name);
 out:
     return status;
 }

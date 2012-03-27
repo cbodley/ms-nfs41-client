@@ -153,7 +153,6 @@ static __inline void nfstime_abs(
 
 int create_silly_rename(
     IN nfs41_abs_path *path,
-    IN const nfs41_fh *fh,
     OUT nfs41_component *silly);
 
 bool_t multi_addr_find(
