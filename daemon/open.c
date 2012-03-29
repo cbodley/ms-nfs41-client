@@ -310,7 +310,8 @@ static BOOLEAN open_for_attributes(uint32_t type, ULONG access_mask,
             disposition == FILE_CREATE ||
             disposition == FILE_OVERWRITE_IF ||
             disposition == FILE_SUPERSEDE ||
-            disposition == FILE_OPEN_IF)
+            disposition == FILE_OPEN_IF ||
+            disposition == FILE_OVERWRITE)
         return FALSE;
     else {
         dprintf(1, "Open call that wants to manage attributes\n");
@@ -384,7 +385,8 @@ static void map_access_2_allowdeny(ULONG access_mask, ULONG access_mode,
      * and share deny 0 (ie deny_both).
      */
     if ((disposition == FILE_CREATE || disposition == FILE_OPEN_IF || 
-            disposition == FILE_OVERWRITE_IF || disposition == FILE_SUPERSEDE) &&
+            disposition == FILE_OVERWRITE_IF || disposition == FILE_SUPERSEDE ||
+            disposition == FILE_OVERWRITE) &&
             !(access_mask & (FILE_WRITE_DATA | FILE_APPEND_DATA | 
             FILE_WRITE_ATTRIBUTES | FILE_READ_DATA | FILE_EXECUTE)))
         *allow = OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
