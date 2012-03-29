@@ -375,7 +375,7 @@ int nfs41_open(
     IN uint32_t deny,
     IN uint32_t create,
     IN uint32_t how_mode,
-    IN uint32_t mode,
+    IN OPTIONAL nfs41_file_info *createattrs,
     IN bool_t try_recovery,
     OUT stateid4 *stateid,
     OUT open_delegation4 *delegation,
@@ -462,11 +462,7 @@ int nfs41_open(
     open_args.owner = owner;
     open_args.openhow.opentype = create;
     open_args.openhow.how.mode = how_mode;
-    open_args.openhow.how.createattrs.info.attrmask.count = 2;
-    open_args.openhow.how.createattrs.info.attrmask.arr[0] = FATTR4_WORD0_SIZE;
-    open_args.openhow.how.createattrs.info.attrmask.arr[1] = FATTR4_WORD1_MODE;
-    open_args.openhow.how.createattrs.info.mode = mode;
-    open_args.openhow.how.createattrs.info.size = 0;
+    open_args.openhow.how.createattrs = createattrs;
     if (how_mode == EXCLUSIVE4_1) {
         DWORD tid = GetCurrentThreadId();
         time((time_t*)open_args.openhow.how.createverf);
@@ -529,7 +525,7 @@ out:
 int nfs41_create(
     IN nfs41_session *session,
     IN uint32_t type,
-    IN uint32_t mode,
+    IN nfs41_file_info *createattrs,
     IN OPTIONAL const char *symlink,
     IN nfs41_path_fh *parent,
     OUT nfs41_path_fh *file,
@@ -575,10 +571,7 @@ int nfs41_create(
         create_args.objtype.u.lnk.linkdata_len = (uint32_t)strlen(symlink);
     }
     create_args.name = &file->name;
-    create_args.createattrs.info.attrmask.count = 2;
-    create_args.createattrs.info.attrmask.arr[0] = 0;
-    create_args.createattrs.info.attrmask.arr[1] = FATTR4_WORD1_MODE;
-    create_args.createattrs.info.mode = mode; //511; // 0777
+    create_args.createattrs = createattrs;
 
     compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
     getfh_res.fh = &file->fh;

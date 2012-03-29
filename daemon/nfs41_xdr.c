@@ -1338,13 +1338,13 @@ static bool_t encode_createtype4(
 
 static bool_t encode_createattrs4(
     XDR *xdr,
-    createattrs4* createattrs)
+    nfs41_file_info* createattrs)
 {
     fattr4 attrs;
 
     /* encode attribute values from createattrs->info into attrs.attr_vals */
     attrs.attr_vals_len = NFS4_OPAQUE_LIMIT;
-    if (!encode_file_attrs(&attrs, &createattrs->info))
+    if (!encode_file_attrs(&attrs, createattrs))
         return FALSE;
 
     return xdr_fattr4(xdr, &attrs);
@@ -1365,7 +1365,7 @@ static bool_t encode_op_create(
     if (!encode_component(xdr, args->name))
         return FALSE;
 
-    return encode_createattrs4(xdr, &args->createattrs);
+    return encode_createattrs4(xdr, args->createattrs);
 }
 
 static bool_t xdr_change_info4(
@@ -1896,7 +1896,7 @@ static bool_t encode_createhow4(
     {
     case UNCHECKED4:
     case GUARDED4:
-        result = encode_createattrs4(xdr, &ch->createattrs);
+        result = encode_createattrs4(xdr, ch->createattrs);
         break;
     case EXCLUSIVE4:
         result = xdr_opaque(xdr, (char *)ch->createverf, NFS4_VERIFIER_SIZE);
@@ -1904,7 +1904,7 @@ static bool_t encode_createhow4(
     case EXCLUSIVE4_1:
         if (!xdr_opaque(xdr, (char *)ch->createverf, NFS4_VERIFIER_SIZE))
             return FALSE;
-        if (!encode_createattrs4(xdr, &ch->createattrs))
+        if (!encode_createattrs4(xdr, ch->createattrs))
             return FALSE;
         break;
     }

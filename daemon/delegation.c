@@ -441,19 +441,14 @@ static int delegation_truncate(
     IN nfs41_delegation_state *deleg,
     IN nfs41_client *client,
     IN stateid_arg *stateid,
-    IN uint32_t mode,
     IN nfs41_file_info *info)
 {
     nfs41_superblock *superblock = deleg->file.fh.superblock;
 
     /* use SETATTR to truncate the file */
-    info->attrmask.arr[0] = FATTR4_WORD0_SIZE;
-    info->attrmask.arr[1] = FATTR4_WORD1_MODE |
-        FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY_SET;
-    info->attrmask.count = 2;
+    info->attrmask.arr[1] |= FATTR4_WORD1_TIME_CREATE |
+        FATTR4_WORD1_TIME_MODIFY_SET;
 
-    info->size = 0;
-    info->mode = mode;
     get_nfs_time(&info->time_create);
     get_nfs_time(&info->time_modify);
     info->time_delta = &superblock->time_delta;
@@ -467,7 +462,7 @@ static int delegation_truncate(
 int nfs41_delegate_open(
     IN nfs41_open_state *state,
     IN uint32_t create,
-    IN uint32_t mode,
+    IN OPTIONAL nfs41_file_info *createattrs,
     OUT nfs41_file_info *info)
 {
     nfs41_client *client = state->session->client;
@@ -518,8 +513,10 @@ int nfs41_delegate_open(
         goto out_deleg;
 
     if (create == OPEN4_CREATE) {
+        memcpy(info, createattrs, sizeof(nfs41_file_info));
+
         /* write delegations allow us to simulate OPEN4_CREATE with SETATTR */
-        status = delegation_truncate(deleg, client, &stateid, mode, info);
+        status = delegation_truncate(deleg, client, &stateid, info);
         if (status)
             goto out_deleg;
     }
@@ -585,7 +582,7 @@ int nfs41_delegation_to_open(
 
     status = nfs41_open(open->session, &open->parent, &open->file,
         &open->owner, &claim, open->share_access, open->share_deny,
-        OPEN4_NOCREATE, 0, 0, try_recovery, &open_stateid, &ignore, NULL);
+        OPEN4_NOCREATE, 0, NULL, try_recovery, &open_stateid, &ignore, NULL);
 
     AcquireSRWLockExclusive(&open->lock);
     if (status == NFS4_OK) {

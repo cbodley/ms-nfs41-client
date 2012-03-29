@@ -352,14 +352,10 @@ typedef struct __createtype4 {
     } u;
 } createtype4;
 
-typedef struct __createattrs4 {
-    nfs41_file_info         info;
-} createattrs4;
-
 typedef struct __nfs41_create_args {
     createtype4             objtype;
     const nfs41_component   *name;
-    createattrs4            createattrs;
+    nfs41_file_info         *createattrs;
 } nfs41_create_args;
 
 typedef struct __nfs41_create_res {
@@ -549,7 +545,7 @@ enum createmode4 {
 
 typedef struct __createhow4 {
     uint32_t            mode;
-    createattrs4        createattrs;
+    nfs41_file_info     *createattrs;
     unsigned char       createverf[NFS4_VERIFIER_SIZE];
 } createhow4;
 
@@ -1045,7 +1041,7 @@ int nfs41_open(
     IN uint32_t deny,
     IN uint32_t create,
     IN uint32_t how_mode,
-    IN uint32_t mode,
+    IN OPTIONAL nfs41_file_info *createattrs,
     IN bool_t try_recovery,
     OUT stateid4 *stateid,
     OUT open_delegation4 *delegation,
@@ -1054,7 +1050,7 @@ int nfs41_open(
 int nfs41_create(
     IN nfs41_session *session,
     IN uint32_t type,
-    IN uint32_t mode,
+    IN nfs41_file_info *createattrs,
     IN OPTIONAL const char *symlink,
     IN nfs41_path_fh *parent,
     OUT nfs41_path_fh *file,

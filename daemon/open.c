@@ -184,7 +184,7 @@ static int do_open(
     IN OUT nfs41_open_state *state,
     IN uint32_t create,
     IN uint32_t createhow,
-    IN uint32_t mode,
+    IN nfs41_file_info *createattrs,
     IN bool_t try_recovery,
     OUT nfs41_file_info *info)
 {
@@ -199,7 +199,8 @@ static int do_open(
 
     status = nfs41_open(state->session, &state->parent, &state->file,
         &state->owner, &claim, state->share_access, state->share_deny,
-        create, createhow, mode, TRUE, &open_stateid, &delegation, info);
+        create, createhow, createattrs, TRUE, &open_stateid,
+        &delegation, info);
     if (status)
         goto out;
 
@@ -226,18 +227,19 @@ static int open_or_delegate(
     IN OUT nfs41_open_state *state,
     IN uint32_t create,
     IN uint32_t createhow,
-    IN uint32_t mode,
+    IN nfs41_file_info *createattrs,
     IN bool_t try_recovery,
     OUT nfs41_file_info *info)
 {
     int status;
 
     /* check for existing delegation */
-    status = nfs41_delegate_open(state, create, mode, info);
+    status = nfs41_delegate_open(state, create, createattrs, info);
 
     /* get an open stateid if we have no delegation stateid */
     if (status)
-        status = do_open(state, create, createhow, mode, try_recovery, info);
+        status = do_open(state, create, createhow,
+            createattrs, try_recovery, info);
 
     state->pnfs_last_offset = info->size ? info->size - 1 : 0;
 
@@ -582,7 +584,13 @@ static int handle_open(nfs41_upcall *upcall)
         args->mode = info.mode;
         args->changeattr = info.change;
     } else {
+        nfs41_file_info createattrs;
         uint32_t create = 0, createhowmode = 0, lookup_status = status;
+
+        createattrs.attrmask.count = 2;
+        createattrs.attrmask.arr[0] = 0;
+        createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE;
+        createattrs.mode = args->mode;
 
         map_access_2_allowdeny(args->access_mask, args->access_mode,
             args->disposition, &state->share_access, &state->share_deny);
@@ -614,11 +622,13 @@ supersede_retry:
         }
 
         if (create == OPEN4_CREATE && (args->create_opts & FILE_DIRECTORY_FILE)) {
-            status = nfs41_create(state->session, NF4DIR, args->mode, NULL, 
+            status = nfs41_create(state->session, NF4DIR, &createattrs, NULL, 
                 &state->parent, &state->file, &info);
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
-            status = open_or_delegate(state, create, createhowmode, args->mode, 
+            createattrs.attrmask.arr[0] = FATTR4_WORD0_SIZE;
+            createattrs.size = 0;
+            status = open_or_delegate(state, create, createhowmode, &createattrs, 
                 TRUE, &info);
             if (status == NFS4_OK && state->delegation.state)
                     args->deleg_type = state->delegation.state->state.type;

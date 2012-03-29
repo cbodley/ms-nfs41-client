@@ -52,7 +52,7 @@ int nfs41_delegation_granted(
 int nfs41_delegate_open(
     IN nfs41_open_state *state,
     IN uint32_t create,
-    IN uint32_t mode,
+    IN OPTIONAL nfs41_file_info *createattrs,
     OUT nfs41_file_info *info);
 
 int nfs41_delegation_to_open(

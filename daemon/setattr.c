@@ -521,7 +521,7 @@ static int handle_setexattr(nfs41_upcall *upcall)
     setexattr_upcall_args *args = &upcall->args.setexattr;
     nfs41_open_state *state = upcall->state_ref;
     stateid_arg stateid;
-    nfs41_file_info info = { 0 };
+    nfs41_file_info createattrs, info = { 0 };
     PFILE_FULL_EA_INFORMATION eainfo = 
         (PFILE_FULL_EA_INFORMATION)args->buf, prev = NULL;
     nfs41_path_fh parent, file;
@@ -532,6 +532,12 @@ static int handle_setexattr(nfs41_upcall *upcall)
     uint32_t bytes_written;
     UCHAR *buf;
     open_delegation4 delegation = { 0 };
+
+    createattrs.attrmask.count = 2;
+    createattrs.attrmask.arr[0] = FATTR4_WORD0_SIZE;
+    createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE;
+    createattrs.size = 0;
+    createattrs.mode = 0664;
 
     /* break read delegations before SETATTR */
     nfs41_delegation_return(state->session, &state->file,
@@ -577,7 +583,7 @@ static int handle_setexattr(nfs41_upcall *upcall)
             claim.u.null.filename = &dst_name;
             status = nfs41_open(state->session, &parent, &file, &state->owner, &claim,
                 OPEN4_SHARE_ACCESS_WRITE, OPEN4_SHARE_DENY_BOTH, OPEN4_CREATE, 
-                UNCHECKED4, 0664, TRUE, &open_stateid, &delegation, NULL);
+                UNCHECKED4, &createattrs, TRUE, &open_stateid, &delegation, NULL);
             if (status) {
                 dprintf(1, "handle_setexattr: nfs41_rpc_open() failed with error %s.\n",
                     nfs_error_string(status));
