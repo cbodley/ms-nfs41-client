@@ -72,9 +72,6 @@ DRIVER_DISPATCH ( nfs41_FsdDispatch );
 struct _MINIRDR_DISPATCH nfs41_ops;
 PRDBSS_DEVICE_OBJECT nfs41_dev;
 
-#define FCB_BASIC_INFO_CACHED 0x0001
-#define FCB_STANDARD_INFO_CACHED 0x0010
-
 #define DISABLE_CACHING 0
 #define ENABLE_READ_CACHING 1
 #define ENABLE_WRITE_CACHING 2
@@ -397,13 +394,12 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
 typedef struct _NFS41_FCB {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
-    ULONG                   Flags;
     FILE_BASIC_INFORMATION  BasicInfo;
     FILE_STANDARD_INFORMATION StandardInfo;
     BOOLEAN                 Renamed;
     BOOLEAN                 DeletePending;
     DWORD                   mode;
-    ULONGLONG                changeattr;    
+    ULONGLONG               changeattr;    
 } NFS41_FCB, *PNFS41_FCB;
 #define NFS41GetFcbExtension(pFcb)      \
         (((pFcb) == NULL) ? NULL : (PNFS41_FCB)((pFcb)->Context))
@@ -3639,7 +3635,6 @@ NTSTATUS nfs41_Create(
             sizeof(entry->u.Open.sinfo));
         nfs41_fcb->mode = entry->u.Open.mode;
         nfs41_fcb->changeattr = entry->u.Open.changeattr;
-        nfs41_fcb->Flags = FCB_BASIC_INFO_CACHED | FCB_STANDARD_INFO_CACHED;
         if (((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
                 !pVNetRootContext->read_only) || oldDeletePending)
             nfs41_fcb->StandardInfo.DeletePending = TRUE;
@@ -4879,29 +4874,8 @@ NTSTATUS nfs41_QueryFileInformation(
         status = STATUS_SUCCESS;
         goto out;
     }
-#ifdef FCB_ATTR_CACHING
-    case FileBasicInformation:
-        if(nfs41_fcb->Flags & FCB_BASIC_INFO_CACHED) {
-            RtlCopyMemory(RxContext->Info.Buffer, &nfs41_fcb->BasicInfo, 
-                sizeof(nfs41_fcb->BasicInfo));
-            RxContext->Info.LengthRemaining -= sizeof(nfs41_fcb->BasicInfo);
-            status = STATUS_SUCCESS;
-            goto out;
-        }
-        break;
-    case FileStandardInformation:
-        if(nfs41_fcb->Flags & FCB_STANDARD_INFO_CACHED) {
-            RtlCopyMemory(RxContext->Info.Buffer, &nfs41_fcb->StandardInfo, 
-                sizeof(nfs41_fcb->StandardInfo));
-            RxContext->Info.LengthRemaining -= sizeof(nfs41_fcb->StandardInfo);
-            status = STATUS_SUCCESS;
-            goto out;
-        }
-        break;
-#else
     case FileBasicInformation:
     case FileStandardInformation:
-#endif
     case FileInternalInformation: 
     case FileAttributeTagInformation:
         break;
@@ -4939,13 +4913,11 @@ NTSTATUS nfs41_QueryFileInformation(
         case FileBasicInformation:
             RtlCopyMemory(&nfs41_fcb->BasicInfo, RxContext->Info.Buffer, 
                 sizeof(nfs41_fcb->BasicInfo));
-            nfs41_fcb->Flags |= FCB_BASIC_INFO_CACHED;
 #ifdef DEBUG_FILE_QUERY
             print_basic_info(1, &nfs41_fcb->BasicInfo);
 #endif
             break;
         case FileStandardInformation:
-#ifndef FCB_ATTR_CACHING
             /* this a fix for RDBSS behaviour when it first calls ExtendForCache,
              * then it sends a file query irp for standard attributes and 
              * expects to receive EndOfFile of value set by the ExtendForCache.
@@ -4975,13 +4947,11 @@ NTSTATUS nfs41_QueryFileInformation(
             }
             std_info->DeletePending = nfs41_fcb->DeletePending;
         }
-#endif
             if (nfs41_fcb->StandardInfo.DeletePending)
                 DeletePending = TRUE;
             RtlCopyMemory(&nfs41_fcb->StandardInfo, RxContext->Info.Buffer, 
                 sizeof(nfs41_fcb->StandardInfo));
             nfs41_fcb->StandardInfo.DeletePending = DeletePending;
-            nfs41_fcb->Flags |= FCB_STANDARD_INFO_CACHED;
 #ifdef DEBUG_FILE_QUERY
             print_std_info(1, &nfs41_fcb->StandardInfo);
 #endif
@@ -5092,7 +5062,6 @@ NTSTATUS nfs41_SetFileInformation(
             status = STATUS_INVALID_PARAMETER;
             goto out;
         }
-        nfs41_fcb->Flags = 0;
     }
     break;
     case FileLinkInformation:
@@ -5112,7 +5081,6 @@ NTSTATUS nfs41_SetFileInformation(
             status = STATUS_INVALID_PARAMETER;
             goto out;
         }
-        nfs41_fcb->Flags = 0;
     }
     break;
     case FileDispositionInformation:
@@ -5129,7 +5097,6 @@ NTSTATUS nfs41_SetFileInformation(
             // we can delete directories right away
             if (nfs41_fcb->StandardInfo.Directory)
                 break;
-            nfs41_fcb->Flags = 0;
             nfs41_fcb->StandardInfo.DeletePending = TRUE;
             if (RxContext->pFcb->OpenCount > 1) {
                 rinfo.ReplaceIfExists = 0;
@@ -5154,7 +5121,6 @@ NTSTATUS nfs41_SetFileInformation(
     }
     case FileBasicInformation:
     case FileAllocationInformation:
-        nfs41_fcb->Flags = 0;
         break;
     case FileEndOfFileInformation:
     {
@@ -5162,7 +5128,6 @@ NTSTATUS nfs41_SetFileInformation(
             (PFILE_END_OF_FILE_INFORMATION)RxContext->Info.Buffer;
         nfs41_fcb->StandardInfo.AllocationSize =
             nfs41_fcb->StandardInfo.EndOfFile = info->EndOfFile;
-        nfs41_fcb->Flags = 0;
         break;
     }
     default:
@@ -5443,7 +5408,6 @@ NTSTATUS nfs41_Read(
 #endif
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
-        nfs41_fcb->Flags = 0;
 
         if ((!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
@@ -5546,7 +5510,6 @@ NTSTATUS nfs41_Write(
             entry->u.ReadWrite.offset;
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
         RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
-        nfs41_fcb->Flags = 0;
         nfs41_fcb->changeattr = entry->u.ReadWrite.ChangeTime;
 
         //re-enable write buffering
