@@ -207,6 +207,7 @@ typedef struct __nfs41_file_info {
     nfstime4                *time_delta; /* XXX: per-fs */
     bitmap4                 attrmask;
     bitmap4                 *supported_attrs; /* XXX: per-fs */
+    bitmap4                 *suppattr_exclcreat; /* XXX: per-fs */
     uint64_t                maxread; /* XXX: per-fs */
     uint64_t                maxwrite; /* XXX: per-fs */
     uint64_t                change;

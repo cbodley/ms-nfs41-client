@@ -466,7 +466,14 @@ int nfs41_open(
     if (how_mode == EXCLUSIVE4_1) {
         DWORD tid = GetCurrentThreadId();
         time((time_t*)open_args.openhow.how.createverf);
-        memcpy(open_args.openhow.how.createverf+4, &tid, sizeof(tid)); 
+        memcpy(open_args.openhow.how.createverf+4, &tid, sizeof(tid));
+        /* mask unsupported attributes */
+        nfs41_superblock_supported_attrs_exclcreat(
+            parent->fh.superblock, &createattrs->attrmask);
+    } else {
+        /* mask unsupported attributes */
+        nfs41_superblock_supported_attrs(
+            parent->fh.superblock, &createattrs->attrmask);
     }
     open_args.claim = claim;
     open_res.resok4.stateid = stateid;

@@ -1851,6 +1851,10 @@ static bool_t decode_file_attrs(
             if (!xdr_mdsthreshold(xdr, &info->mdsthreshold))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[2] & FATTR4_WORD2_SUPPATTR_EXCLCREAT) {
+            if (!xdr_bitmap4(xdr, info->suppattr_exclcreat))
+                return FALSE;
+        }
     }
     return TRUE;
 }

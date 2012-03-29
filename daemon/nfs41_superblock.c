@@ -86,9 +86,11 @@ static int get_superblock_attrs(
         FATTR4_WORD0_MAXREAD | (uint32_t)(FATTR4_WORD0_MAXWRITE);
     attr_request.arr[1] = FATTR4_WORD1_FS_LAYOUT_TYPE |
         FATTR4_WORD1_TIME_DELTA;
-    attr_request.count = 2;
+    attr_request.arr[2] = FATTR4_WORD2_SUPPATTR_EXCLCREAT;
+    attr_request.count = 3;
 
     info.supported_attrs = &superblock->supported_attrs;
+    info.suppattr_exclcreat = &superblock->suppattr_exclcreat;
     info.time_delta = &superblock->time_delta;
 
     status = nfs41_getattr(session, file, &attr_request, &info);
@@ -252,6 +254,22 @@ void nfs41_superblock_supported_attrs(
     AcquireSRWLockShared(&superblock->lock);
     for (i = 0; i < 3; i++) {
         attrs->arr[i] &= superblock->supported_attrs.arr[i];
+        if (attrs->arr[i])
+            count = i+1;
+    }
+    attrs->count = min(attrs->count, count);
+    ReleaseSRWLockShared(&superblock->lock);
+}
+
+void nfs41_superblock_supported_attrs_exclcreat(
+    IN nfs41_superblock *superblock,
+    IN OUT bitmap4 *attrs)
+{
+    uint32_t i, count = 0;
+
+    AcquireSRWLockShared(&superblock->lock);
+    for (i = 0; i < 3; i++) {
+        attrs->arr[i] &= superblock->suppattr_exclcreat.arr[i];
         if (attrs->arr[i])
             count = i+1;
     }

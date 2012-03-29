@@ -34,6 +34,7 @@ struct __nfs41_root;
 typedef struct __nfs41_superblock {
     nfs41_fsid fsid;
     bitmap4 supported_attrs;
+    bitmap4 suppattr_exclcreat;
     nfstime4 time_delta;
     uint64_t maxread;
     uint64_t maxwrite;
@@ -420,6 +421,10 @@ int nfs41_superblock_for_fh(
     OUT nfs41_path_fh *file);
 
 void nfs41_superblock_supported_attrs(
+    IN nfs41_superblock *superblock,
+    IN OUT bitmap4 *attrs);
+
+void nfs41_superblock_supported_attrs_exclcreat(
     IN nfs41_superblock *superblock,
     IN OUT bitmap4 *attrs);
 
