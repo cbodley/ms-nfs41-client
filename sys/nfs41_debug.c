@@ -223,7 +223,7 @@ void print_ea_info(int on, PFILE_FULL_EA_INFORMATION info)
 
 void print_get_ea(int on, PFILE_GET_EA_INFORMATION info)
 {
-    if (!on) return;
+    if (!on || !info) return;
     DbgP("GET_EA_INFO: NextOffset=%d EaNameLength=%d EaName=%s\n", 
         info->NextEntryOffset, info->EaNameLength, info->EaName);
 }

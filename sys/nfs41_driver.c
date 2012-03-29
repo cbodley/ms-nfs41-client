@@ -3384,16 +3384,11 @@ DWORD map_disposition_to_create_retval(
     }
 }
 
-NTSTATUS nfs41_Create(
-    IN OUT PRX_CONTEXT RxContext)
+NTSTATUS check_nfs41_create_args(
+    IN PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
-    nfs41_updowncall_entry *entry = NULL;
-    FCB_INIT_PACKET InitPacket;
-    RX_FILE_TYPE StorageType = 0;
+    NTSTATUS status = STATUS_SUCCESS;
     NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
-    PFILE_FULL_EA_INFORMATION eainfo = NULL;
-    nfs3_attrs *attrs = NULL;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
@@ -3401,22 +3396,6 @@ NTSTATUS nfs41_Create(
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PMRX_FCB Fcb = RxContext->pFcb;
     __notnull PNFS41_FCB nfs41_fcb = (PNFS41_FCB)Fcb->Context;
-    PNFS41_FOBX nfs41_fobx = NULL;
-    BOOLEAN oldDeletePending = nfs41_fcb->StandardInfo.DeletePending;
-#ifdef ENABLE_TIMINGS
-    LARGE_INTEGER t1, t2;
-    t1 = KeQueryPerformanceCounter(NULL);
-#endif
-
-    ASSERT( NodeType(SrvOpen) == RDBSS_NTC_SRVOPEN );
-
-#ifdef DEBUG_OPEN
-    DbgEn();
-    print_debug_header(RxContext);
-    print_nt_create_params(1, RxContext->Create.NtCreateParameters);
-    if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer)
-        print_ea_info(0, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
-#endif
 
     if (Fcb->pNetRoot->Type != NET_ROOT_DISK && 
             Fcb->pNetRoot->Type != NET_ROOT_WILD) {
@@ -3434,6 +3413,7 @@ NTSTATUS nfs41_Create(
     
     if (!pNetRootContext->mounts_init) {
         print_error("nfs41_Create: No valid session established\n");
+        status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
@@ -3497,6 +3477,47 @@ NTSTATUS nfs41_Create(
         status = STATUS_CANNOT_DELETE;
         goto out;
     }
+
+out:
+    return status;
+}
+
+NTSTATUS nfs41_Create(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
+    nfs41_updowncall_entry *entry = NULL;
+    FCB_INIT_PACKET InitPacket;
+    RX_FILE_TYPE StorageType = 0;
+    NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
+    PFILE_FULL_EA_INFORMATION eainfo = NULL;
+    nfs3_attrs *attrs = NULL;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PMRX_FCB Fcb = RxContext->pFcb;
+    __notnull PNFS41_FCB nfs41_fcb = (PNFS41_FCB)Fcb->Context;
+    PNFS41_FOBX nfs41_fobx = NULL;
+    BOOLEAN oldDeletePending = nfs41_fcb->StandardInfo.DeletePending;
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
+
+    ASSERT( NodeType(SrvOpen) == RDBSS_NTC_SRVOPEN );
+
+#ifdef DEBUG_OPEN
+    DbgEn();
+    print_debug_header(RxContext);
+    print_nt_create_params(1, RxContext->Create.NtCreateParameters);
+    if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer)
+        print_ea_info(0, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
+#endif
+
+    status = check_nfs41_create_args(RxContext);
+    if (status) goto out;
 
 #if defined(STORE_MOUNT_SEC_CONTEXT) && defined (USE_MOUNT_SEC_CONTEXT)
     status = nfs41_UpcallCreate(NFS41_OPEN, &pVNetRootContext->mount_sec_ctx,
@@ -3994,6 +4015,14 @@ NTSTATUS map_querydir_errors(
     }
 }
 
+NTSTATUS check_nfs41_dirquery_args(
+    IN PRX_CONTEXT RxContext)
+{
+    if (RxContext->Info.Buffer == NULL)
+        return STATUS_INVALID_USER_BUFFER;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS nfs41_QueryDirectory(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4016,6 +4045,9 @@ NTSTATUS nfs41_QueryDirectory(
     DbgEn();
     print_querydir_args(RxContext);
 #endif
+
+    status = check_nfs41_dirquery_args(RxContext);
+    if (status) goto out;
 
     switch (InfoClass) {
     /* classes handled in readdir_copy_entry() and readdir_size_for_entry() */
@@ -4155,6 +4187,9 @@ NTSTATUS nfs41_QueryVolumeInformation(
     DbgEn();
     print_queryvolume_args(RxContext);
 #endif
+
+    status = check_nfs41_dirquery_args(RxContext);
+    if (status) goto out;
 
     switch (InfoClass) {
     case FileFsVolumeInformation:
@@ -4374,6 +4409,26 @@ NTSTATUS map_setea_error(
     }
 }
 
+NTSTATUS check_nfs41_setea_args(
+    IN PRX_CONTEXT RxContext)
+{
+    NTSTATUS status;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+
+    status = check_nfs41_dirquery_args(RxContext);
+    if (status) goto out;
+
+    if (pVNetRootContext->read_only) {
+        print_error("check_nfs41_setattr_args: Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
+out:
+    return status;
+}
+
 NTSTATUS nfs41_SetEaInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4402,11 +4457,8 @@ NTSTATUS nfs41_SetEaInformation(
     print_ea_info(1, eainfo);
 #endif
 
-    if (pVNetRootContext->read_only) {
-        DbgP("Read-only mount\n");
-        status = STATUS_ACCESS_DENIED;
-        goto out;
-    }
+    status = check_nfs41_setea_args(RxContext);
+    if (status) goto out;
 
     status = nfs41_UpcallCreate(NFS41_EA_SET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
@@ -4465,6 +4517,22 @@ out:
     return status;
 }
 
+NTSTATUS check_nfs41_queryea_args(
+    IN PRX_CONTEXT RxContext)
+{
+    NTSTATUS status;
+
+    status = check_nfs41_dirquery_args(RxContext);
+    if (status) goto out;
+
+    /* XXX windows can query for all eas in which case the list can be empty */
+    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList == NULL)
+        status = STATUS_INVALID_PARAMETER;
+
+out:
+    return status;
+}
+
 NTSTATUS nfs41_QueryEaInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4491,13 +4559,10 @@ NTSTATUS nfs41_QueryEaInformation(
 #ifdef DEBUG_EA_QUERY
     DbgEn();
     print_debug_header(RxContext);
-#endif
-    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList == NULL)
-        goto out;
-
-#ifdef DEBUG_EA_QUERY
     print_get_ea(1, query);
 #endif
+    status = check_nfs41_queryea_args(RxContext);
+    if (status) goto out;
 
     if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
         nfs3_attrs attrs;
@@ -4613,6 +4678,25 @@ NTSTATUS map_query_acl_error(
     }
 }
 
+NTSTATUS check_nfs41_getacl_args(
+    PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    SECURITY_INFORMATION info_class =
+        RxContext->CurrentIrpSp->Parameters.QuerySecurity.SecurityInformation;
+
+    /* we don't support sacls */
+    if (info_class == SACL_SECURITY_INFORMATION || 
+            info_class == LABEL_SECURITY_INFORMATION) {
+        status = STATUS_NOT_SUPPORTED;
+        goto out;
+    }
+    if (RxContext->CurrentIrp->UserBuffer == NULL)
+        status = STATUS_INVALID_USER_BUFFER;
+out:
+    return status;
+}
+
 NTSTATUS nfs41_QuerySecurityInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4637,10 +4721,8 @@ NTSTATUS nfs41_QuerySecurityInformation(
     print_acl_args(info_class);
 #endif
 
-    /* we don't support sacls */
-    if (info_class == SACL_SECURITY_INFORMATION || 
-            info_class == LABEL_SECURITY_INFORMATION)
-        goto out;
+    status = check_nfs41_getacl_args(RxContext);
+    if (status) goto out;
 
     if (nfs41_fobx->acl && nfs41_fobx->acl_len) {
         LARGE_INTEGER current_time;
@@ -4660,7 +4742,7 @@ NTSTATUS nfs41_QuerySecurityInformation(
             InterlockedIncrement(&getacl.sops);
             InterlockedAdd64(&getacl.size, nfs41_fobx->acl_len);
 #endif
-        }
+        } else status = 1;
         RxFreePool(nfs41_fobx->acl);
         nfs41_fobx->acl = NULL;
         nfs41_fobx->acl_len = 0;
@@ -4733,6 +4815,32 @@ out:
     return status;
 }
 
+NTSTATUS check_nfs41_setacl_args(
+    PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+    SECURITY_INFORMATION info_class = 
+        RxContext->CurrentIrpSp->Parameters.SetSecurity.SecurityInformation;
+
+    if (pVNetRootContext->read_only) {
+        print_error("check_nfs41_setacl_args: Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+    /* we don't support sacls */
+    if (info_class == SACL_SECURITY_INFORMATION  || 
+            info_class == LABEL_SECURITY_INFORMATION) {
+        status = STATUS_NOT_SUPPORTED;       
+        goto out;
+    }
+    if (RxContext->CurrentIrp->UserBuffer == NULL)
+        status = STATUS_INVALID_USER_BUFFER;    
+out:
+    return status;
+}
+
 NTSTATUS nfs41_SetSecurityInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4760,11 +4868,8 @@ NTSTATUS nfs41_SetSecurityInformation(
     print_acl_args(info_class);
 #endif
 
-    if (pVNetRootContext->read_only) {
-        DbgP("Read-only mount\n");
-        status = STATUS_ACCESS_DENIED;
-        goto out;
-    }
+    status = check_nfs41_setacl_args(RxContext);
+    if (status) goto out;
 
     /* check that ACL is present */
     if (info_class & DACL_SECURITY_INFORMATION) {
@@ -4781,11 +4886,6 @@ NTSTATUS nfs41_SetSecurityInformation(
             goto out;
         }
     }
-
-    /* we don't support sacls */
-    if (info_class == SACL_SECURITY_INFORMATION  || 
-            info_class == LABEL_SECURITY_INFORMATION)
-        goto out;
 
     status = nfs41_UpcallCreate(NFS41_ACL_SET, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
@@ -4864,6 +4964,10 @@ NTSTATUS nfs41_QueryFileInformation(
     DbgEn();
     print_debug_filedirquery_header(RxContext);
 #endif
+
+    status = check_nfs41_dirquery_args(RxContext);
+    if (status) goto out;
+
     switch (InfoClass) {
     case FileEaInformation:
     {
@@ -5000,6 +5104,98 @@ NTSTATUS map_setfile_error(
     }
 }
 
+NTSTATUS check_nfs41_setattr_args(
+    IN PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    FILE_INFORMATION_CLASS InfoClass = RxContext->Info.FileInformationClass;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+
+    if (pVNetRootContext->read_only) {
+        print_error("check_nfs41_setattr_args: Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
+    /* http://msdn.microsoft.com/en-us/library/ff469355(v=PROT.10).aspx
+     * http://msdn.microsoft.com/en-us/library/ff469424(v=PROT.10).aspx
+     * If Open.GrantedAccess does not contain FILE_WRITE_DATA, the operation 
+     * MUST be failed with STATUS_ACCESS_DENIED.
+     */
+    if (InfoClass == FileAllocationInformation || 
+            InfoClass == FileEndOfFileInformation) {
+        if (!(RxContext->pRelevantSrvOpen->DesiredAccess & FILE_WRITE_DATA)) {
+            status = STATUS_ACCESS_DENIED;
+            goto out;
+        }
+    }
+    status = check_nfs41_dirquery_args(RxContext);
+    if (status) goto out;
+
+    switch (InfoClass) {
+    case FileRenameInformation:
+    {
+        PFILE_RENAME_INFORMATION rinfo = 
+            (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
+        UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
+            (USHORT)rinfo->FileNameLength, rinfo->FileName };
+#ifdef DEBUG_FILE_SET
+        DbgP("Attempting to rename to '%wZ'\n", &dst);
+#endif
+        if (isFilenameTooLong(&dst, pVNetRootContext)) {
+            status = STATUS_OBJECT_NAME_INVALID;
+            goto out;
+        }
+        if (rinfo->RootDirectory) {
+            status = STATUS_INVALID_PARAMETER;
+            goto out;
+        }
+        break;
+    }
+    case FileLinkInformation:
+    {
+        PFILE_LINK_INFORMATION linfo = 
+            (PFILE_LINK_INFORMATION)RxContext->Info.Buffer;
+        UNICODE_STRING dst = { (USHORT)linfo->FileNameLength,
+            (USHORT)linfo->FileNameLength, linfo->FileName };
+#ifdef DEBUG_FILE_SET
+        DbgP("Attempting to add link as '%wZ'\n", &dst);
+#endif
+        if (isFilenameTooLong(&dst, pVNetRootContext)) {
+            status = STATUS_OBJECT_NAME_INVALID;
+            goto out;
+        }
+        if (linfo->RootDirectory) {
+            status = STATUS_INVALID_PARAMETER;
+            goto out;
+        }
+        break;
+    }
+    case FileDispositionInformation:
+    {
+        PFILE_DISPOSITION_INFORMATION dinfo =
+            (PFILE_DISPOSITION_INFORMATION)RxContext->Info.Buffer;
+        __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+        if (dinfo->DeleteFile && nfs41_fcb->DeletePending) {
+            status = STATUS_DELETE_PENDING;
+            goto out;
+        } 
+        break;
+    }
+    case FileBasicInformation:
+    case FileAllocationInformation:
+    case FileEndOfFileInformation:
+        break;
+    default:
+        print_error("nfs41_SetFileInformation: unhandled class %d\n", InfoClass);
+        status = STATUS_NOT_SUPPORTED;
+    }
+
+out:
+    return status;
+}
+
 NTSTATUS nfs41_SetFileInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -5025,115 +5221,49 @@ NTSTATUS nfs41_SetFileInformation(
     print_debug_filedirquery_header(RxContext);
 #endif
 
-    if (pVNetRootContext->read_only) {
-        DbgP("Read-only mount\n");
-        status = STATUS_ACCESS_DENIED;
-        goto out;
-    }
-
-    /* http://msdn.microsoft.com/en-us/library/ff469355(v=PROT.10).aspx
-     * http://msdn.microsoft.com/en-us/library/ff469424(v=PROT.10).aspx
-     * If Open.GrantedAccess does not contain FILE_WRITE_DATA, the operation 
-     * MUST be failed with STATUS_ACCESS_DENIED.
-     */
-    if (InfoClass == FileAllocationInformation || 
-            InfoClass == FileEndOfFileInformation) {
-        if (!(SrvOpen->DesiredAccess & FILE_WRITE_DATA)) {
-            status = STATUS_ACCESS_DENIED;
-            goto out;
-        }
-    }
+    status = check_nfs41_setattr_args(RxContext);
+    if (status) goto out;
 
     switch (InfoClass) {
-    case FileRenameInformation:
-    {
-        PFILE_RENAME_INFORMATION rinfo = 
-            (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
-        UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
-            (USHORT)rinfo->FileNameLength, rinfo->FileName };
-#ifdef DEBUG_FILE_SET
-        DbgP("Attempting to rename to '%wZ'\n", &dst);
-#endif
-        if (isFilenameTooLong(&dst, pVNetRootContext)) {
-            status = STATUS_OBJECT_NAME_INVALID;
-            goto out;
-        }
-        if (rinfo->RootDirectory) {
-            status = STATUS_INVALID_PARAMETER;
-            goto out;
-        }
-    }
-    break;
-    case FileLinkInformation:
-    {
-        PFILE_LINK_INFORMATION linfo = 
-            (PFILE_LINK_INFORMATION)RxContext->Info.Buffer;
-        UNICODE_STRING dst = { (USHORT)linfo->FileNameLength,
-            (USHORT)linfo->FileNameLength, linfo->FileName };
-#ifdef DEBUG_FILE_SET
-        DbgP("Attempting to add link as '%wZ'\n", &dst);
-#endif
-        if (isFilenameTooLong(&dst, pVNetRootContext)) {
-            status = STATUS_OBJECT_NAME_INVALID;
-            goto out;
-        }
-        if (linfo->RootDirectory) {
-            status = STATUS_INVALID_PARAMETER;
-            goto out;
-        }
-    }
-    break;
     case FileDispositionInformation:
-    {
-        PFILE_DISPOSITION_INFORMATION dinfo =
-            (PFILE_DISPOSITION_INFORMATION)RxContext->Info.Buffer;
-        if (dinfo->DeleteFile) {
-            if (nfs41_fcb->DeletePending) {
-                status = STATUS_DELETE_PENDING;
-                goto out;
+        {
+            PFILE_DISPOSITION_INFORMATION dinfo =
+                (PFILE_DISPOSITION_INFORMATION)RxContext->Info.Buffer;
+            if (dinfo->DeleteFile) {
+                nfs41_fcb->DeletePending = TRUE;
+                // we can delete directories right away
+                if (nfs41_fcb->StandardInfo.Directory)
+                    break;
+                nfs41_fcb->StandardInfo.DeletePending = TRUE;
+                if (RxContext->pFcb->OpenCount > 1) {
+                    rinfo.ReplaceIfExists = 0;
+                    rinfo.RootDirectory = INVALID_HANDLE_VALUE;
+                    rinfo.FileNameLength = 0;
+                    rinfo.FileName[0] = L'\0';
+                    InfoClass = FileRenameInformation;
+                    nfs41_fcb->Renamed = TRUE;
+                    break;
+                }
+            } else {
+                /* section 4.3.3 of [FSBO] 
+                 * "file system behavior in the microsoft windows environment" 
+                 */
+                if (nfs41_fcb->DeletePending) {
+                    nfs41_fcb->DeletePending = 0;
+                    nfs41_fcb->StandardInfo.DeletePending = 0;
+                }
             }
-
-            nfs41_fcb->DeletePending = TRUE;
-            // we can delete directories right away
-            if (nfs41_fcb->StandardInfo.Directory)
-                break;
-            nfs41_fcb->StandardInfo.DeletePending = TRUE;
-            if (RxContext->pFcb->OpenCount > 1) {
-                rinfo.ReplaceIfExists = 0;
-                rinfo.RootDirectory = INVALID_HANDLE_VALUE;
-                rinfo.FileNameLength = 0;
-                rinfo.FileName[0] = L'\0';
-                InfoClass = FileRenameInformation;
-                nfs41_fcb->Renamed = TRUE;
-                break;
-            }
-        } else {
-            /* section 4.3.3 of [FSBO] 
-             * "file system behavior in the microsoft windows environment" 
-             */
-            if (nfs41_fcb->DeletePending) {
-                nfs41_fcb->DeletePending = 0;
-                nfs41_fcb->StandardInfo.DeletePending = 0;
-            }
+            status = STATUS_SUCCESS;
+            goto out;
         }
-        status = STATUS_SUCCESS;
-        goto out;
-    }
-    case FileBasicInformation:
-    case FileAllocationInformation:
-        break;
     case FileEndOfFileInformation:
-    {
-        PFILE_END_OF_FILE_INFORMATION info =
-            (PFILE_END_OF_FILE_INFORMATION)RxContext->Info.Buffer;
-        nfs41_fcb->StandardInfo.AllocationSize =
-            nfs41_fcb->StandardInfo.EndOfFile = info->EndOfFile;
-        break;
-    }
-    default:
-        print_error("nfs41_SetFileInformation: unhandled class %d\n", InfoClass);
-        status = STATUS_NOT_SUPPORTED;
-        goto out;
+        {
+            PFILE_END_OF_FILE_INFORMATION info =
+                (PFILE_END_OF_FILE_INFORMATION)RxContext->Info.Buffer;
+            nfs41_fcb->StandardInfo.AllocationSize =
+                nfs41_fcb->StandardInfo.EndOfFile = info->EndOfFile;
+            break;
+        }
     }
 
     status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, 
@@ -5349,6 +5479,14 @@ NTSTATUS map_readwrite_errors(
     }
 }
 
+NTSTATUS check_nfs41_read_args(
+    IN PRX_CONTEXT RxContext)
+{
+    if (!RxContext->LowIoContext.ParamsFor.ReadWrite.Buffer)
+        return STATUS_INVALID_USER_BUFFER;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS nfs41_Read(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -5373,6 +5511,8 @@ NTSTATUS nfs41_Read(
     DbgEn();
     print_readwrite_args(RxContext);
 #endif
+    status = check_nfs41_read_args(RxContext);
+    if (status) goto out;
 
     status = nfs41_UpcallCreate(NFS41_READ, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
@@ -5441,6 +5581,27 @@ out:
     return status;
 }
 
+NTSTATUS check_nfs41_write_args(
+    IN PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+
+    if (!RxContext->LowIoContext.ParamsFor.ReadWrite.Buffer) {
+        status = STATUS_INVALID_USER_BUFFER;
+        goto out;
+    }
+
+    if (pVNetRootContext->read_only) {
+        print_error("check_nfs41_write_args: Read-only mount\n");
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+out:
+    return status;
+}
+
 NTSTATUS nfs41_Write(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -5466,11 +5627,8 @@ NTSTATUS nfs41_Write(
     print_readwrite_args(RxContext);
 #endif
 
-    if (pVNetRootContext->read_only) {
-        DbgP("Read-only mount\n");
-        status = STATUS_ACCESS_DENIED;
-        goto out;
-    }
+    status = check_nfs41_write_args(RxContext);
+    if (status) goto out;
 
     status = nfs41_UpcallCreate(NFS41_WRITE, &nfs41_fobx->sec_ctx, 
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
@@ -5845,28 +6003,18 @@ void print_reparse_buffer(
     DbgP("PrintName:            %wZ\n", &name);
 }
 
-NTSTATUS nfs41_SetReparsePoint(
-    IN OUT PRX_CONTEXT RxContext)
+NTSTATUS check_nfs41_setreparse_args(
+    IN PRX_CONTEXT RxContext)
 {
-    NTSTATUS status;
-    UNICODE_STRING TargetName;
+    NTSTATUS status = STATUS_SUCCESS;
     __notnull XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
     __notnull PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pInputBuffer;
-    __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)SrvOpen->pVNetRoot;
     __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
-        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)SrvOpen->pVNetRoot;
     const ULONG HeaderLen = REPARSE_DATA_BUFFER_HEADER_SIZE;
-    nfs41_updowncall_entry *entry;
 
-#ifdef DEBUG_SYMLINK
-    DbgEn();
-    print_debug_header(RxContext);
-    print_reparse_buffer(Reparse);
-#endif
     /* access checks */
     if (VNetRootContext->read_only) {
         status = STATUS_MEDIA_WRITE_PROTECTED;
@@ -5914,6 +6062,32 @@ NTSTATUS nfs41_SetReparsePoint(
         status = STATUS_IO_REPARSE_TAG_MISMATCH;
         goto out;
     }
+out:
+    return status;
+}
+
+NTSTATUS nfs41_SetReparsePoint(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    NTSTATUS status;
+    UNICODE_STRING TargetName;
+    __notnull XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
+    __notnull PREPARSE_DATA_BUFFER Reparse = (PREPARSE_DATA_BUFFER)FsCtl->pInputBuffer;
+    __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext =
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    nfs41_updowncall_entry *entry;
+
+#ifdef DEBUG_SYMLINK
+    DbgEn();
+    print_debug_header(RxContext);
+    print_reparse_buffer(Reparse);
+#endif
+    status = check_nfs41_setreparse_args(RxContext);
+    if (status) goto out;
 
     TargetName.MaximumLength = TargetName.Length =
         Reparse->SymbolicLinkReparseBuffer.PrintNameLength;
@@ -5941,26 +6115,15 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_GetReparsePoint(
-    IN OUT PRX_CONTEXT RxContext)
+NTSTATUS check_nfs41_getreparse_args(
+    PRX_CONTEXT RxContext)
 {
-    NTSTATUS status;
-    UNICODE_STRING TargetName;
+    NTSTATUS status = STATUS_SUCCESS;
     XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
-    __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
-    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)SrvOpen->pVNetRoot;
-    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext = 
-        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
-        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
-    nfs41_updowncall_entry *entry;
+    __notnull PV_NET_ROOT VNetRoot = 
+        (PV_NET_ROOT)RxContext->pRelevantSrvOpen->pVNetRoot;
     const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
         SymbolicLinkReparseBuffer.PathBuffer);
-
-#ifdef DEBUG_SYMLINK
-    DbgEn();
-#endif
 
     /* must have a filename longer than vnetroot name,
      * or it's trying to operate on the volume itself */
@@ -5978,7 +6141,7 @@ NTSTATUS nfs41_GetReparsePoint(
         goto out;
     }
     if (!BooleanFlagOn(RxContext->pFcb->Attributes,
-        FILE_ATTRIBUTE_REPARSE_POINT)) {
+            FILE_ATTRIBUTE_REPARSE_POINT)) {
         status = STATUS_NOT_A_REPARSE_POINT;
         DbgP("FILE_ATTRIBUTE_REPARSE_POINT is not set!\n");
         goto out;
@@ -5989,6 +6152,31 @@ NTSTATUS nfs41_GetReparsePoint(
         status = STATUS_BUFFER_TOO_SMALL;
         goto out;
     }
+out:
+    return status;
+}
+
+NTSTATUS nfs41_GetReparsePoint(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    NTSTATUS status;
+    UNICODE_STRING TargetName;
+    XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
+    __notnull PNFS41_FOBX Fobx = NFS41GetFobxExtension(RxContext->pFobx);
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext = 
+        NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    nfs41_updowncall_entry *entry;
+    const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
+        SymbolicLinkReparseBuffer.PathBuffer);
+
+#ifdef DEBUG_SYMLINK
+    DbgEn();
+#endif
+    status = check_nfs41_getreparse_args(RxContext);
+    if (status) goto out;
 
     TargetName.Buffer = (PWCH)((PBYTE)FsCtl->pOutputBuffer + HeaderLen);
     TargetName.MaximumLength = (USHORT)min(FsCtl->OutputBufferLength - 
