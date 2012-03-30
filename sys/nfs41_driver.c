@@ -3422,9 +3422,7 @@ NTSTATUS check_nfs41_create_args(
         goto out;
     }
 
-    if ((pVNetRootContext->read_only || 
-            ((params.FileAttributes & FILE_ATTRIBUTE_READONLY) &&
-            params.Disposition == FILE_OPEN)) && 
+    if (pVNetRootContext->read_only && 
             (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
         status = STATUS_ACCESS_DENIED;
         goto out;
