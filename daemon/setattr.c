@@ -61,16 +61,27 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     nfs41_open_state *state = args->state;
     nfs41_superblock *superblock = state->file.fh.superblock;
     stateid_arg stateid;
-    nfs41_file_info info = { 0 };
-    int status = NO_ERROR;
+    nfs41_file_info info = { 0 }, old_info = { 0 };
+    int status = NO_ERROR, getattr_status;
 
-    /* hidden */
     info.hidden = basic_info->FileAttributes & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
     info.system = basic_info->FileAttributes & FILE_ATTRIBUTE_SYSTEM ? 1 : 0;
     info.archive = basic_info->FileAttributes & FILE_ATTRIBUTE_ARCHIVE ? 1 : 0;
-    info.attrmask.arr[0] |= FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
-    info.attrmask.arr[1] = FATTR4_WORD1_SYSTEM;
-    info.attrmask.count = 2;
+    getattr_status = nfs41_attr_cache_lookup(session_name_cache(state->session),
+        state->file.fh.fileid, &old_info);
+
+    if (getattr_status || info.hidden != old_info.hidden) {
+        info.attrmask.arr[0] = FATTR4_WORD0_HIDDEN;
+        info.attrmask.count = 1;
+    }
+    if (getattr_status || info.archive != old_info.archive) {
+        info.attrmask.arr[0] |= FATTR4_WORD0_ARCHIVE;
+        info.attrmask.count = 1;
+    }
+    if (getattr_status || info.system != old_info.system) {
+        info.attrmask.arr[1] = FATTR4_WORD1_SYSTEM;
+        info.attrmask.count = 2;
+    }
 
     if (superblock->cansettime) {
         /* set the time_delta so xdr_settime4() can decide

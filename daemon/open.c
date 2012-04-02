@@ -584,7 +584,7 @@ static int handle_open(nfs41_upcall *upcall)
         args->mode = info.mode;
         args->changeattr = info.change;
     } else {
-        nfs41_file_info createattrs;
+        nfs41_file_info createattrs = { 0 };
         uint32_t create = 0, createhowmode = 0, lookup_status = status;
 
         if (!lookup_status && (args->disposition == FILE_OVERWRITE || 
