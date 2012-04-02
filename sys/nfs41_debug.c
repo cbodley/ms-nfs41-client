@@ -628,6 +628,9 @@ void print_open_error(int on, int status)
 {
     if (!on) return;
     switch (status) {
+    case STATUS_ACCESS_DENIED:
+        DbgP("[ERROR] nfs41_Create: STATUS_ACCESS_DENIED\n");
+        break;
     case STATUS_NETWORK_ACCESS_DENIED:
         DbgP("[ERROR] nfs41_Create: STATUS_NETWORK_ACCESS_DENIED\n");
         break;
