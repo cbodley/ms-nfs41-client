@@ -2186,6 +2186,8 @@ enum nfsstat4 nfs41_rpc_openattr(
         goto out;
 
     compound_error(status = compound.res.status);
+
+    fh_out->superblock = file->fh.superblock;
 out:
     return status;
 }
