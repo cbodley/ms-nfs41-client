@@ -595,7 +595,8 @@ static int handle_open(nfs41_upcall *upcall)
                 status = ERROR_ACCESS_DENIED;
                 goto out_free_state;
             }
-            args->mode = info.mode;
+            if (args->disposition != FILE_SUPERSEDE)
+                args->mode = info.mode;
         }
         createattrs.attrmask.count = 2;
         createattrs.attrmask.arr[0] = FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
