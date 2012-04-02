@@ -470,7 +470,7 @@ int nfs41_open(
         /* mask unsupported attributes */
         nfs41_superblock_supported_attrs_exclcreat(
             parent->fh.superblock, &createattrs->attrmask);
-    } else {
+    } else if (createattrs) {
         /* mask unsupported attributes */
         nfs41_superblock_supported_attrs(
             parent->fh.superblock, &createattrs->attrmask);
