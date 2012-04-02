@@ -81,6 +81,18 @@ static __inline void bitmap_unset(
             mask->count--;
     }
 }
+static __inline void bitmap_intersect(
+    IN bitmap4 *dst,
+    IN const bitmap4 *src)
+{
+    uint32_t i, count = 0;
+    for (i = 0; i < 3; i++) {
+        dst->arr[i] &= src->arr[i];
+        if (dst->arr[i])
+            count = i+1;
+    }
+    dst->count = min(dst->count, count);
+}
 
 ULONG nfs_file_info_to_attributes(
     IN const nfs41_file_info *info);

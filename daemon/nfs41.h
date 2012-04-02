@@ -22,7 +22,7 @@
 #ifndef __NFS41__
 #define __NFS41__
 
-#include "nfs41_types.h"
+#include "util.h"
 #include "list.h"
 
 
@@ -33,12 +33,15 @@ struct __nfs41_root;
 
 typedef struct __nfs41_superblock {
     nfs41_fsid fsid;
+    struct list_entry entry; /* position in nfs41_server.superblocks */
+
     bitmap4 supported_attrs;
     bitmap4 suppattr_exclcreat;
+    bitmap4 default_getattr;
+
     nfstime4 time_delta;
     uint64_t maxread;
     uint64_t maxwrite;
-    struct list_entry entry; /* position in nfs41_server.superblocks */
 
     /* constant filesystem attributes */
     unsigned int layout_types : 3;
@@ -420,13 +423,24 @@ int nfs41_superblock_for_fh(
     IN const nfs41_fh *parent OPTIONAL,
     OUT nfs41_path_fh *file);
 
-void nfs41_superblock_supported_attrs(
-    IN nfs41_superblock *superblock,
-    IN OUT bitmap4 *attrs);
-
-void nfs41_superblock_supported_attrs_exclcreat(
-    IN nfs41_superblock *superblock,
-    IN OUT bitmap4 *attrs);
+static __inline void nfs41_superblock_getattr_mask(
+    IN const nfs41_superblock *superblock,
+    OUT bitmap4 *attrs)
+{
+    memcpy(attrs, &superblock->default_getattr, sizeof(bitmap4));
+}
+static __inline void nfs41_superblock_supported_attrs(
+    IN const nfs41_superblock *superblock,
+    IN OUT bitmap4 *attrs)
+{
+    bitmap_intersect(attrs, &superblock->supported_attrs);
+}
+static __inline void nfs41_superblock_supported_attrs_exclcreat(
+    IN const nfs41_superblock *superblock,
+    IN OUT bitmap4 *attrs)
+{
+    bitmap_intersect(attrs, &superblock->suppattr_exclcreat);
+}
 
 void nfs41_superblock_space_changed(
     IN nfs41_superblock *superblock);

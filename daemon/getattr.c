@@ -45,7 +45,7 @@ int nfs41_cached_getattr(
     if (status) {
         /* fetch attributes from the server */
         bitmap4 attr_request;
-        init_getattr_request(&attr_request);
+        nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
 
         status = nfs41_getattr(session, file, &attr_request, info);
         if (status) {

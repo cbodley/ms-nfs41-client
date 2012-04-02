@@ -412,6 +412,7 @@ int nfs41_open(
         current_fh_is_dir = TRUE;
         /* SEQUENCE; PUTFH(dir); SAVEFH; OPEN;
          * GETFH(file); GETATTR(file); RESTOREFH(dir); GETATTR */
+        nfs41_superblock_getattr_mask(parent->fh.superblock, &attr_request);
         break;
     case CLAIM_PREVIOUS:
     case CLAIM_FH:
@@ -421,13 +422,13 @@ int nfs41_open(
         /* CURRENT_FH: file being opened */
         current_fh_is_dir = FALSE;
         /* SEQUENCE; PUTFH(file); OPEN; GETATTR(file); PUTFH(dir); GETATTR */
+        nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
         break;
     }
 
     if (info == NULL)
         info = &tmp_info;
 
-    init_getattr_request(&attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_FSID;
 
     compound_init(&compound, argops, resops, "open");
@@ -556,7 +557,7 @@ int nfs41_create(
     nfs41_savefh_res savefh_res;
     nfs41_restorefh_res restorefh_res;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(parent->fh.superblock, &attr_request);
 
     compound_init(&compound, argops, resops, "create");
 
@@ -648,7 +649,7 @@ int nfs41_close(
     bitmap4 attr_request;
     nfs41_file_info info;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
 
     compound_init(&compound, argops, resops, "close");
 
@@ -713,7 +714,7 @@ int nfs41_write(
     bitmap4 attr_request;
     nfs41_file_info info = { 0 }, *pinfo;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
 
     compound_init(&compound, argops, resops,
         stateid->stateid.seqid == 0 ? "ds write" : "write");
@@ -887,7 +888,7 @@ int nfs41_commit(
     if (cinfo) pinfo = cinfo;
     else pinfo = &info;
     if (do_getattr) {
-        init_getattr_request(&attr_request);
+        nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
 
         compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
         getattr_args.attr_request = &attr_request;
@@ -1079,18 +1080,6 @@ out:
     return status;
 }
 
-void init_getattr_request(bitmap4 *attr_request)
-{
-    attr_request->count = 2;
-    attr_request->arr[0] = FATTR4_WORD0_TYPE |
-        FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE |
-        FATTR4_WORD0_FILEID | FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
-    attr_request->arr[1] = FATTR4_WORD1_MODE | FATTR4_WORD1_NUMLINKS |
-        FATTR4_WORD1_SYSTEM | FATTR4_WORD1_TIME_ACCESS |
-        FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY;
-    attr_request->arr[2] = 0;
-}
-
 int nfs41_getattr(
     IN nfs41_session *session,
     IN OPTIONAL nfs41_path_fh *file,
@@ -1167,7 +1156,7 @@ int nfs41_remove(
     bitmap4 attr_request;
     nfs41_file_info info;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(parent->fh.superblock, &attr_request);
 
     compound_init(&compound, argops, resops, "remove");
 
@@ -1238,7 +1227,7 @@ int nfs41_rename(
     bitmap4 attr_request;
     nfs41_restorefh_res restorefh_res;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(src_dir->fh.superblock, &attr_request);
 
     compound_init(&compound, argops, resops, "rename");
 
@@ -1353,7 +1342,7 @@ int nfs41_setattr(
     setattr_args.stateid = stateid;
     setattr_args.info = info;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
     compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
     getattr_args.attr_request = &attr_request;
     getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
@@ -1402,8 +1391,8 @@ int nfs41_link(
     nfs41_file_info info = { 0 };
     nfs41_path_fh file;
 
-    init_getattr_request(&info.attrmask);
-    init_getattr_request(&cinfo->attrmask);
+    nfs41_superblock_getattr_mask(src->fh.superblock, &info.attrmask);
+    nfs41_superblock_getattr_mask(dst_dir->fh.superblock, &cinfo->attrmask);
     cinfo->attrmask.arr[0] |= FATTR4_WORD0_FSID;
 
     compound_init(&compound, argops, resops, "link");
@@ -2018,7 +2007,7 @@ enum nfsstat4 pnfs_rpc_layoutcommit(
     nfs41_getattr_res getattr_res;
     bitmap4 attr_request;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(file->fh.superblock, &attr_request);
 
     compound_init(&compound, argops, resops, "layoutcommit");
 

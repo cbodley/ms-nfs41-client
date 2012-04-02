@@ -127,6 +127,20 @@ static int get_superblock_attrs(
     if (!bitmap_isset(&info.attrmask, 1, FATTR4_WORD1_TIME_DELTA))
         superblock->time_delta.seconds = 1;
 
+    /* initialize the default getattr mask */
+    superblock->default_getattr.count = 2;
+    superblock->default_getattr.arr[0] = FATTR4_WORD0_TYPE
+        | FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE
+        | FATTR4_WORD0_FILEID | FATTR4_WORD0_HIDDEN
+        | FATTR4_WORD0_ARCHIVE;
+    superblock->default_getattr.arr[1] = FATTR4_WORD1_MODE
+        | FATTR4_WORD1_NUMLINKS | FATTR4_WORD1_SYSTEM
+        | FATTR4_WORD1_TIME_ACCESS | FATTR4_WORD1_TIME_CREATE
+        | FATTR4_WORD1_TIME_MODIFY;
+    superblock->default_getattr.arr[2] = 0;
+
+    nfs41_superblock_supported_attrs(superblock, &superblock->default_getattr);
+
     dprintf(SBLVL, "attributes for fsid(%llu,%llu): "
         "maxread=%llu, maxwrite=%llu, layout_types: 0x%X, "
         "cansettime=%u, time_delta={%llu,%u}, aclsupport=%u, "
@@ -243,38 +257,6 @@ out:
     dprintf(SBLVL, "<-- nfs41_superblock_for_fh() returning %p, status %d\n",
         file->fh.superblock, status);
     return status;
-}
-
-void nfs41_superblock_supported_attrs(
-    IN nfs41_superblock *superblock,
-    IN OUT bitmap4 *attrs)
-{
-    uint32_t i, count = 0;
-
-    AcquireSRWLockShared(&superblock->lock);
-    for (i = 0; i < 3; i++) {
-        attrs->arr[i] &= superblock->supported_attrs.arr[i];
-        if (attrs->arr[i])
-            count = i+1;
-    }
-    attrs->count = min(attrs->count, count);
-    ReleaseSRWLockShared(&superblock->lock);
-}
-
-void nfs41_superblock_supported_attrs_exclcreat(
-    IN nfs41_superblock *superblock,
-    IN OUT bitmap4 *attrs)
-{
-    uint32_t i, count = 0;
-
-    AcquireSRWLockShared(&superblock->lock);
-    for (i = 0; i < 3; i++) {
-        attrs->arr[i] &= superblock->suppattr_exclcreat.arr[i];
-        if (attrs->arr[i])
-            count = i+1;
-    }
-    attrs->count = min(attrs->count, count);
-    ReleaseSRWLockShared(&superblock->lock);
 }
 
 void nfs41_superblock_space_changed(

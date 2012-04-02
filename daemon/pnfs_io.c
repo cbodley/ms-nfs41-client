@@ -560,7 +560,7 @@ enum pnfs_status pnfs_write(
     } else {
         /* send a GETATTR to update the cached size */
         bitmap4 attr_request;
-        init_getattr_request(&attr_request);
+        nfs41_superblock_getattr_mask(state->file.fh.superblock, &attr_request);
         nfs41_getattr(state->session, &state->file, &attr_request, info);
     }
 out_free_pattern:

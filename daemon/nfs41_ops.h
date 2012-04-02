@@ -1123,9 +1123,6 @@ int nfs41_readdir(
     IN OUT uint32_t *entries_len,
     OUT bool_t *eof_out);
 
-void init_getattr_request(
-    OUT bitmap4 *attr_request);
-
 int nfs41_getattr(
     IN nfs41_session *session,
     IN OPTIONAL nfs41_path_fh *file,

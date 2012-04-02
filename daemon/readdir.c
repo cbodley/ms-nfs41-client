@@ -490,7 +490,7 @@ static int handle_readdir(nfs41_upcall *upcall)
 fetch_entries:
     entry_buf_len = max_buf_len;
 
-    init_getattr_request(&attr_request);
+    nfs41_superblock_getattr_mask(state->file.fh.superblock, &attr_request);
     attr_request.arr[0] |= FATTR4_WORD0_RDATTR_ERROR;
 
     if (strchr(args->filter, FILTER_STAR) || strchr(args->filter, FILTER_QM)) {
