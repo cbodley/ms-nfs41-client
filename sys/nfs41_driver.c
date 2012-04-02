@@ -3339,7 +3339,7 @@ NTSTATUS map_open_errors(
     switch (status) {
     case NO_ERROR:                      return STATUS_SUCCESS;
     case ERROR_ACCESS_DENIED:
-        if (len > 0)                    return STATUS_NETWORK_ACCESS_DENIED;
+        if (len > 0)                    return STATUS_ACCESS_DENIED;
         else                            return STATUS_SUCCESS;
     case ERROR_INVALID_NAME:            return STATUS_OBJECT_NAME_INVALID;
     case ERROR_FILE_EXISTS:             return STATUS_OBJECT_NAME_COLLISION;
@@ -3424,7 +3424,7 @@ NTSTATUS check_nfs41_create_args(
 
     if (pVNetRootContext->read_only && 
             (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
-        status = STATUS_ACCESS_DENIED;
+        status = STATUS_NETWORK_ACCESS_DENIED;
         goto out;
     }
 
