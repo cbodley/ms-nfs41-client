@@ -587,10 +587,23 @@ static int handle_open(nfs41_upcall *upcall)
         nfs41_file_info createattrs;
         uint32_t create = 0, createhowmode = 0, lookup_status = status;
 
+        if (!lookup_status && (args->disposition == FILE_OVERWRITE || 
+                args->disposition == FILE_OVERWRITE_IF || 
+                args->disposition == FILE_SUPERSEDE)) {
+            if ((info.hidden && !(args->file_attrs & FILE_ATTRIBUTE_HIDDEN)) ||
+                    (info.system && !(args->file_attrs & FILE_ATTRIBUTE_SYSTEM))) {
+                status = ERROR_ACCESS_DENIED;
+                goto out_free_state;
+            }
+            args->mode = info.mode;
+        }
         createattrs.attrmask.count = 2;
-        createattrs.attrmask.arr[0] = 0;
-        createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE;
+        createattrs.attrmask.arr[0] = FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
+        createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE | FATTR4_WORD1_SYSTEM;
         createattrs.mode = args->mode;
+        createattrs.hidden = args->file_attrs & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
+        createattrs.system = args->file_attrs & FILE_ATTRIBUTE_SYSTEM ? 1 : 0;
+        createattrs.archive = args->file_attrs & FILE_ATTRIBUTE_ARCHIVE ? 1 : 0;
 
         map_access_2_allowdeny(args->access_mask, args->access_mode,
             args->disposition, &state->share_access, &state->share_deny);
@@ -626,8 +639,9 @@ supersede_retry:
                 &state->parent, &state->file, &info);
             args->created = status == NFS4_OK ? TRUE : FALSE;
         } else {
-            createattrs.attrmask.arr[0] = FATTR4_WORD0_SIZE;
+            createattrs.attrmask.arr[0] |= FATTR4_WORD0_SIZE;
             createattrs.size = 0;
+            dprintf(1, "creating with mod %o\n", args->mode);
             status = open_or_delegate(state, create, createhowmode, &createattrs, 
                 TRUE, &info);
             if (status == NFS4_OK && state->delegation.state)

@@ -150,7 +150,9 @@ ULONG nfs_file_info_to_attributes(
     if (info->mode == 0444) /* XXX: 0444 for READONLY */
         attrs |= FILE_ATTRIBUTE_READONLY;
 
-    /* TODO: FILE_ATTRIBUTE_HIDDEN */
+    if (info->hidden) attrs |= FILE_ATTRIBUTE_HIDDEN;
+    if (info->system) attrs |= FILE_ATTRIBUTE_SYSTEM;
+    if (info->archive) attrs |= FILE_ATTRIBUTE_ARCHIVE;
 
     // FILE_ATTRIBUTE_NORMAL attribute is only set if no other attributes are present.
     // all other override this value.

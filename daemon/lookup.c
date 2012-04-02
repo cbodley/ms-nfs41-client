@@ -80,10 +80,12 @@ static void init_component_args(
     args->attr_request.count = 2;
     args->attr_request.arr[0] = FATTR4_WORD0_TYPE
         | FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE
-        | FATTR4_WORD0_FSID | FATTR4_WORD0_FILEID;
+        | FATTR4_WORD0_FSID | FATTR4_WORD0_FILEID
+        | FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
     args->attr_request.arr[1] = FATTR4_WORD1_MODE
-        | FATTR4_WORD1_NUMLINKS | FATTR4_WORD1_TIME_ACCESS
-        | FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY;
+        | FATTR4_WORD1_NUMLINKS | FATTR4_WORD1_SYSTEM
+        | FATTR4_WORD1_TIME_ACCESS | FATTR4_WORD1_TIME_CREATE
+        | FATTR4_WORD1_TIME_MODIFY;
 
     args->getrootattr.attr_request = &args->attr_request;
     res->root.path = path;

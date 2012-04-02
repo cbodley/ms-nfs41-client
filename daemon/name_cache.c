@@ -90,7 +90,10 @@ struct attr_cache_entry {
     uint32_t                time_create_ns;
     uint32_t                time_modify_ns;
     uint32_t                numlinks;
-    uint32_t                mode;
+    unsigned                mode : 30;
+    unsigned                hidden : 1;
+    unsigned                system : 1;
+    unsigned                archive : 1;
     time_t                  expiration;
     unsigned                ref_count : 26;
     unsigned                type : 4;
@@ -293,6 +296,10 @@ static void attr_cache_update(
         }
         if (info->attrmask.arr[0] & FATTR4_WORD0_SIZE)
             entry->size = info->size;
+        if (info->attrmask.arr[0] & FATTR4_WORD0_HIDDEN)
+            entry->hidden = info->hidden;
+        if (info->attrmask.arr[0] & FATTR4_WORD0_ARCHIVE)
+            entry->archive = info->archive;
     }
     if (info->attrmask.count >= 2) {
         if (info->attrmask.arr[1] & FATTR4_WORD1_MODE)
@@ -311,6 +318,8 @@ static void attr_cache_update(
             entry->time_modify_s = info->time_modify.seconds;
             entry->time_modify_ns = info->time_modify.nseconds;
         }
+        if (info->attrmask.arr[1] & FATTR4_WORD1_SYSTEM)
+            entry->system = info->system;
     }
 
     if (is_delegation(delegation))
@@ -333,13 +342,18 @@ static void copy_attrs(
     dst->numlinks = src->numlinks;
     dst->mode = src->mode;
     dst->fileid = src->fileid;
+    dst->hidden = src->hidden;
+    dst->system = src->system;
+    dst->archive = src->archive;
 
     dst->attrmask.count = 2;
     dst->attrmask.arr[0] = FATTR4_WORD0_TYPE | FATTR4_WORD0_CHANGE
-        | FATTR4_WORD0_SIZE | FATTR4_WORD0_FILEID;
+        | FATTR4_WORD0_SIZE | FATTR4_WORD0_FILEID 
+        | FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
     dst->attrmask.arr[1] = FATTR4_WORD1_MODE
         | FATTR4_WORD1_NUMLINKS | FATTR4_WORD1_TIME_ACCESS
-        | FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY;
+        | FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY 
+        | FATTR4_WORD1_SYSTEM;
 }
 
 

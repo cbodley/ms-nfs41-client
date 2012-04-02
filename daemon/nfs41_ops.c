@@ -579,6 +579,8 @@ int nfs41_create(
     }
     create_args.name = &file->name;
     create_args.createattrs = createattrs;
+    nfs41_superblock_supported_attrs(
+                parent->fh.superblock, &createattrs->attrmask);
 
     compound_add_op(&compound, OP_GETFH, NULL, &getfh_res);
     getfh_res.fh = &file->fh;
@@ -1081,10 +1083,11 @@ void init_getattr_request(bitmap4 *attr_request)
 {
     attr_request->count = 2;
     attr_request->arr[0] = FATTR4_WORD0_TYPE |
-        FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE | FATTR4_WORD0_FILEID;
-    attr_request->arr[1] = FATTR4_WORD1_NUMLINKS |
-        FATTR4_WORD1_TIME_ACCESS | FATTR4_WORD1_TIME_CREATE |
-        FATTR4_WORD1_TIME_MODIFY | FATTR4_WORD1_MODE;
+        FATTR4_WORD0_CHANGE | FATTR4_WORD0_SIZE |
+        FATTR4_WORD0_FILEID | FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
+    attr_request->arr[1] = FATTR4_WORD1_MODE | FATTR4_WORD1_NUMLINKS |
+        FATTR4_WORD1_SYSTEM | FATTR4_WORD1_TIME_ACCESS |
+        FATTR4_WORD1_TIME_CREATE | FATTR4_WORD1_TIME_MODIFY;
     attr_request->arr[2] = 0;
 }
 

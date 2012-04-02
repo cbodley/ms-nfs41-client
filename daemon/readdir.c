@@ -482,7 +482,7 @@ static int handle_readdir(nfs41_upcall *upcall)
         goto out;
     }
 
-    entry_buf = malloc(max_buf_len);
+    entry_buf = calloc(max_buf_len, sizeof(unsigned char));
     if (entry_buf == NULL) {
         status = GetLastError();
         goto out_free_cookie;

@@ -1755,6 +1755,10 @@ static bool_t decode_file_attrs(
             if (!xdr_u_int32_t(xdr, &info->aclsupport))
                 return FALSE;
         }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_ARCHIVE) {
+            if (!xdr_bool(xdr, &info->archive))
+                return FALSE;
+        }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_CANSETTIME) {
             if (!xdr_bool(xdr, &info->cansettime))
                 return FALSE;
@@ -1773,6 +1777,10 @@ static bool_t decode_file_attrs(
         }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_FS_LOCATIONS) {
             if (!decode_fs_locations4(xdr, info->fs_locations))
+                return FALSE;
+        }
+        if (attrs->attrmask.arr[0] & FATTR4_WORD0_HIDDEN) {
+            if (!xdr_bool(xdr, &info->hidden))
                 return FALSE;
         }
         if (attrs->attrmask.arr[0] & FATTR4_WORD0_MAXREAD) {
@@ -1819,6 +1827,10 @@ static bool_t decode_file_attrs(
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_SPACE_TOTAL) {
             if (!xdr_u_hyper(xdr, &info->space_total))
+                return FALSE;
+        }
+        if (attrs->attrmask.arr[1] & FATTR4_WORD1_SYSTEM) {
+            if (!xdr_bool(xdr, &info->system))
                 return FALSE;
         }
         if (attrs->attrmask.arr[1] & FATTR4_WORD1_TIME_ACCESS) {
@@ -2574,6 +2586,11 @@ static bool_t encode_file_attrs(
                 return FALSE;
             attrs->attrmask.arr[0] |= FATTR4_WORD0_ACL;
         }
+        if (info->attrmask.arr[0] & FATTR4_WORD0_ARCHIVE) {
+            if (!xdr_bool(&localxdr, &info->archive))
+                return FALSE;
+            attrs->attrmask.arr[0] |= FATTR4_WORD0_ARCHIVE;
+        }
         if (info->attrmask.arr[0] & FATTR4_WORD0_HIDDEN) {
             if (!xdr_bool(&localxdr, &info->hidden))
                 return FALSE;
@@ -2585,6 +2602,11 @@ static bool_t encode_file_attrs(
             if (!xdr_u_int32_t(&localxdr, &info->mode))
                 return FALSE;
             attrs->attrmask.arr[1] |= FATTR4_WORD1_MODE;
+        }
+        if (info->attrmask.arr[1] & FATTR4_WORD1_SYSTEM) {
+            if (!xdr_bool(&localxdr, &info->system))
+                return FALSE;
+            attrs->attrmask.arr[1] |= FATTR4_WORD1_SYSTEM;
         }
         if (info->attrmask.arr[1] & FATTR4_WORD1_TIME_ACCESS_SET) {
             if (!xdr_settime4(&localxdr, &info->time_access, info->time_delta))

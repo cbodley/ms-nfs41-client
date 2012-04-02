@@ -225,6 +225,8 @@ typedef struct __nfs41_file_info {
     uint32_t                lease_time; /* XXX: per-server */
     uint32_t                fs_layout_types; /* pnfs, XXX: per-fs */
     bool_t                  hidden;
+    bool_t                  system;
+    bool_t                  archive;
     bool_t                  cansettime; /* XXX: per-fs */
     bool_t                  case_insensitive;
     bool_t                  case_preserving;

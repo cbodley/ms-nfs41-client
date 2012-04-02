@@ -66,8 +66,11 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
 
     /* hidden */
     info.hidden = basic_info->FileAttributes & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
-    info.attrmask.arr[0] |= FATTR4_WORD0_HIDDEN;
-    info.attrmask.count = 1;
+    info.system = basic_info->FileAttributes & FILE_ATTRIBUTE_SYSTEM ? 1 : 0;
+    info.archive = basic_info->FileAttributes & FILE_ATTRIBUTE_ARCHIVE ? 1 : 0;
+    info.attrmask.arr[0] |= FATTR4_WORD0_HIDDEN | FATTR4_WORD0_ARCHIVE;
+    info.attrmask.arr[1] = FATTR4_WORD1_SYSTEM;
+    info.attrmask.count = 2;
 
     if (superblock->cansettime) {
         /* set the time_delta so xdr_settime4() can decide
