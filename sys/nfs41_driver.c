@@ -3531,7 +3531,7 @@ NTSTATUS nfs41_Create(
     entry->u.Open.access_mask = params.DesiredAccess;
     entry->u.Open.access_mode = params.ShareAccess;
     entry->u.Open.attrs = params.FileAttributes;
-    if (!(params.FileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+    if (!(params.CreateOptions & FILE_DIRECTORY_FILE))
         entry->u.Open.attrs |= FILE_ATTRIBUTE_ARCHIVE;
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
