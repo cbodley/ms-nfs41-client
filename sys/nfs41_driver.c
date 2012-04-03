@@ -332,7 +332,7 @@ DECLARE_CONST_UNICODE_STRING(EMPTY_STRING, L"");
 #define MOUNT_CONFIG_RW_SIZE_DEFAULT    1048576
 #define MOUNT_CONFIG_RW_SIZE_MAX        1048576
 #define MAX_SEC_FLAVOR_LEN              12
-#define UPCALL_TIMEOUT_DEFAULT          20  /* in seconds */
+#define UPCALL_TIMEOUT_DEFAULT          50  /* in seconds */
 
 typedef struct _NFS41_MOUNT_CONFIG {
     DWORD ReadSize;
