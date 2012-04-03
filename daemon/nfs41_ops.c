@@ -510,9 +510,10 @@ int nfs41_open(
     if (compound_error(status = compound.res.status))
         goto out;
 
-    if (dir_info.type == NF4ATTRDIR)
+    if (dir_info.type == NF4ATTRDIR) {
+        file->fh.superblock = parent->fh.superblock;
         goto out;
-
+    }
 
     /* fill in the file handle's fileid and superblock */
     file->fh.fileid = info->fileid;
@@ -677,12 +678,14 @@ int nfs41_close(
     if (compound_error(status = compound.res.status))
         goto out;
 
+    if (info.type == NF4NAMEDATTR)
+        goto out;
+
     /* update the attributes of the parent directory */
     memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));
     nfs41_attr_cache_update(session_name_cache(session),
         file->fh.fileid, &info);
-
 out:
     return status;
 }
@@ -755,7 +758,7 @@ int nfs41_write(
     if (compound_error(status = compound.res.status))
         goto out;
 
-    if (stable != UNSTABLE4) {
+    if (stable != UNSTABLE4 && pinfo->type != NF4NAMEDATTR) {
         /* update the attribute cache */
         memcpy(&pinfo->attrmask, &getattr_res.obj_attributes.attrmask,
             sizeof(bitmap4));
@@ -772,9 +775,6 @@ int nfs41_write(
         eprintf("WRITE succeeded with count=0; returning %s\n",
             nfs_error_string(status));
     }
-
-    if (pinfo->type == NF4NAMEDATTR)
-        goto out;
 
     nfs41_superblock_space_changed(file->fh.superblock);
 out:
