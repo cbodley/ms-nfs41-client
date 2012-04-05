@@ -75,6 +75,7 @@ static int get_superblock_attrs(
     IN nfs41_superblock *superblock,
     IN nfs41_path_fh *file)
 {
+    bool_t supports_named_attrs;
     int status;
     bitmap4 attr_request;
     nfs41_file_info info = { 0 };
@@ -93,10 +94,11 @@ static int get_superblock_attrs(
     info.suppattr_exclcreat = &superblock->suppattr_exclcreat;
     info.time_delta = &superblock->time_delta;
 
-    status = nfs41_getattr(session, file, &attr_request, &info);
+    status = nfs41_superblock_getattr(session, file,
+        &attr_request, &info, &supports_named_attrs);
     if (status) {
-        eprintf("nfs41_getattr() failed with %s when fetching attributes for "
-            "fsid(%llu,%llu)\n", nfs_error_string(status),
+        eprintf("nfs41_superblock_getattr() failed with %s when fetching "
+            "attributes for fsid(%llu,%llu)\n", nfs_error_string(status),
             superblock->fsid.major, superblock->fsid.minor);
         goto out;
     }
@@ -115,6 +117,7 @@ static int get_superblock_attrs(
     superblock->aclsupport = info.aclsupport;
     superblock->link_support = info.link_support;
     superblock->symlink_support = info.symlink_support;
+    superblock->ea_support = supports_named_attrs;
     superblock->case_preserving = info.case_preserving;
     superblock->case_insensitive = info.case_insensitive;
 

@@ -124,6 +124,8 @@ static void handle_volume_attributes(
         attr->FileSystemAttributes |= FILE_SUPPORTS_HARD_LINKS;
     if (superblock->symlink_support)
         attr->FileSystemAttributes |= FILE_SUPPORTS_REPARSE_POINTS;
+    if (superblock->ea_support)
+        attr->FileSystemAttributes |= FILE_SUPPORTS_EXTENDED_ATTRIBUTES;
     if (superblock->case_preserving)
         attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
     if (!superblock->case_insensitive)

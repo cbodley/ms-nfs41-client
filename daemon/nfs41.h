@@ -49,6 +49,7 @@ typedef struct __nfs41_superblock {
     unsigned int cansettime : 1;
     unsigned int link_support : 1;
     unsigned int symlink_support : 1;
+    unsigned int ea_support : 1;
     unsigned int case_preserving : 1;
     unsigned int case_insensitive : 1;
 

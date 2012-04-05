@@ -1135,6 +1135,72 @@ out:
     return status;
 }
 
+int nfs41_superblock_getattr(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN bitmap4 *attr_request,
+    OUT nfs41_file_info *info,
+    OUT bool_t *supports_named_attrs)
+{
+    int status;
+    nfs41_compound compound;
+    nfs_argop4 argops[4];
+    nfs_resop4 resops[4];
+    nfs41_sequence_args sequence_args;
+    nfs41_sequence_res sequence_res;
+    nfs41_putfh_args putfh_args;
+    nfs41_putfh_res putfh_res;
+    nfs41_getattr_args getattr_args;
+    nfs41_getattr_res getattr_res;
+    nfs41_openattr_args openattr_args;
+    nfs41_openattr_res openattr_res;
+
+    compound_init(&compound, argops, resops, "getfsattr");
+
+    compound_add_op(&compound, OP_SEQUENCE, &sequence_args, &sequence_res);
+    status = nfs41_session_sequence(&sequence_args, session, 0);
+    if (status)
+        goto out;
+
+    compound_add_op(&compound, OP_PUTFH, &putfh_args, &putfh_res);
+    putfh_args.file = file;
+    putfh_args.in_recovery = 0;
+
+    compound_add_op(&compound, OP_GETATTR, &getattr_args, &getattr_res);
+    getattr_args.attr_request = attr_request;
+    getattr_res.obj_attributes.attr_vals_len = NFS4_OPAQUE_LIMIT;
+    getattr_res.info = info;
+
+    compound_add_op(&compound, OP_OPENATTR, &openattr_args, &openattr_res);
+    openattr_args.createdir = 0;
+
+    status = compound_encode_send_decode(session, &compound, TRUE);
+    if (status)
+        goto out;
+
+    status = sequence_res.sr_status;
+    if (status) goto out;
+    status = putfh_res.status;
+    if (status) goto out;
+    status = getattr_res.status;
+    if (status) goto out;
+
+    switch (status = openattr_res.status) {
+    case NFS4ERR_NOTSUPP:
+        *supports_named_attrs = 0;
+        status = NFS4_OK;
+        break;
+
+    case NFS4ERR_NOENT:
+    case NFS4_OK:
+        *supports_named_attrs = 1;
+        status = NFS4_OK;
+        break;
+    }
+out:
+    return status;
+}
+
 int nfs41_remove(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,

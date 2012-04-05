@@ -1129,6 +1129,13 @@ int nfs41_getattr(
     IN bitmap4 *attr_request,
     OUT nfs41_file_info *info);
 
+int nfs41_superblock_getattr(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *file,
+    IN bitmap4 *attr_request,
+    OUT nfs41_file_info *info,
+    OUT bool_t *supports_named_attrs);
+
 /* getattr.c */
 int nfs41_cached_getattr(
     IN nfs41_session *session,
