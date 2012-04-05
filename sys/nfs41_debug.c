@@ -658,6 +658,18 @@ void print_open_error(int on, int status)
     case STATUS_SHARING_VIOLATION:
         DbgP("[ERROR] nfs41_Create: STATUS_SHARING_VIOLATION\n");
         break;
+    case ERROR_REPARSE:
+        DbgP("[ERROR] nfs41_Create: STATUS_REPARSE\n");
+        break;
+    case ERROR_TOO_MANY_LINKS:
+        DbgP("[ERROR] nfs41_Create: STATUS_TOO_MANY_LINKS\n");
+        break;
+    case ERROR_DIRECTORY:
+        DbgP("[ERROR] nfs41_Create: STATUS_FILE_IS_A_DIRECTORY\n");
+        break;
+    case ERROR_BAD_FILE_TYPE:
+        DbgP("[ERROR] nfs41_Create: STATUS_NOT_A_DIRECTORY\n");
+        break;
     default:
         DbgP("[ERROR] nfs41_Create: STATUS_INSUFFICIENT_RESOURCES\n");
         break;
