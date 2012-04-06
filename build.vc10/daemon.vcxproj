@@ -196,6 +196,7 @@
     <ClCompile Include="..\daemon\callback_server.c" />
     <ClCompile Include="..\daemon\daemon_debug.c" />
     <ClCompile Include="..\daemon\delegation.c" />
+    <ClCompile Include="..\daemon\ea.c" />
     <ClCompile Include="..\daemon\getattr.c" />
     <ClCompile Include="..\daemon\idmap.c" />
     <ClCompile Include="..\daemon\lock.c" />

@@ -119,6 +119,9 @@
     <ClCompile Include="..\daemon\recovery.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\daemon\ea.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\daemon\daemon_debug.h">
