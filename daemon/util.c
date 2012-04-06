@@ -23,6 +23,7 @@
 #include <strsafe.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <wincrypt.h> /* for Crypt*() functions */
 
 #include "daemon_debug.h"
 #include "util.h"
@@ -349,35 +350,72 @@ void path_fh_copy(
     fh_copy(&dst->fh, &src->fh);
 }
 
-/* DWORD MAX_DWORD = 4294967295 -- max string for the timestamp */
 int create_silly_rename(
     IN nfs41_abs_path *path,
+    IN const nfs41_fh *fh,
     OUT nfs41_component *silly)
 {
+    HCRYPTPROV context;
+    HCRYPTHASH hash;
+    PBYTE buffer;
+    DWORD length;
     const char *end = path->path + NFS41_MAX_PATH_LEN;
-    char name[NFS41_MAX_COMPONENT_LEN+1], *tmp, stime[13];
-    int status = NO_ERROR;
-    const DWORD ntime = GetTickCount();
+    const unsigned short extra_len = 2 + 16; //md5 is 16
+    char name[NFS41_MAX_COMPONENT_LEN+1];
+    unsigned char fhmd5[17] = { 0 };
+    char *tmp;
+    int status = NO_ERROR, i;
 
-    StringCchPrintf(stime, 13, "%u", ntime);
-    if (path->len + 13 >= NFS41_MAX_PATH_LEN) {
+    if (path->len + extra_len >= NFS41_MAX_PATH_LEN) {
         status = ERROR_BUFFER_OVERFLOW;
         goto out;
     }
+
+    /* set up the md5 hash generator */
+    if (!CryptAcquireContext(&context, NULL, NULL,
+        PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+        status = GetLastError();
+        eprintf("CryptAcquireContext() failed with %d\n", status);
+        goto out;
+    }
+    if (!CryptCreateHash(context, CALG_MD5, 0, 0, &hash)) {
+        status = GetLastError();
+        eprintf("CryptCreateHash() failed with %d\n", status);
+        goto out_context;
+    }
+
+    if (!CryptHashData(hash, (const BYTE*)fh->fh, (DWORD)fh->len, 0)) {
+        status = GetLastError();
+        eprintf("CryptHashData() failed with %d\n", status);
+        goto out_hash;
+    }
+
+    /* extract the hash buffer */
+    buffer = (PBYTE)fhmd5;
+    length = 16;
+    if (!CryptGetHashParam(hash, HP_HASHVAL, buffer, &length, 0)) {
+        status = GetLastError();
+        eprintf("CryptGetHashParam(val) failed with %d\n", status);
+        goto out_hash;
+    }    
 
     last_component(path->path, path->path + path->len, silly);
-    if (silly->len + 13 > NFS41_MAX_COMPONENT_LEN) {
-        status = ERROR_BUFFER_OVERFLOW;
-        goto out;
-    }
-
     StringCchCopyNA(name, NFS41_MAX_COMPONENT_LEN+1, silly->name, silly->len);
 
     tmp = (char*)silly->name;
-    StringCchPrintf(tmp, end - tmp, ".%s.%s", name, stime);
+    StringCchPrintf(tmp, end - tmp, ".%s.", name);
+    tmp += silly->len + 2;
 
-    path->len = (unsigned short)strlen(path->path);
-    silly->len = (unsigned short)strlen(silly->name);
+    for (i = 0; i < 16; i++, tmp++)
+        StringCchPrintf(tmp, end - tmp, "%x", fhmd5[i]);
+
+    path->len = path->len + extra_len;
+    silly->len = silly->len + extra_len;
+
+out_hash:
+    CryptDestroyHash(hash);
+out_context:
+    CryptReleaseContext(context, 0);
 out:
     return status;
 }
