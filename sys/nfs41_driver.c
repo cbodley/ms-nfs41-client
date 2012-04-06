@@ -4524,6 +4524,7 @@ NTSTATUS map_setea_error(
     case ERROR_NOT_SUPPORTED:           return STATUS_NOT_IMPLEMENTED;
     case ERROR_NETWORK_ACCESS_DENIED:   return STATUS_NETWORK_ACCESS_DENIED;
     case ERROR_NETNAME_DELETED:         return STATUS_NETWORK_NAME_DELETED;
+    case ERROR_FILE_TOO_LARGE:          return STATUS_EA_TOO_LARGE;
     case ERROR_BUFFER_OVERFLOW:         return STATUS_INSUFFICIENT_RESOURCES;
     default:
         print_error("failed to map windows error %d to NTSTATUS; "

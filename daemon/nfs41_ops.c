@@ -1250,6 +1250,9 @@ int nfs41_remove(
     if (compound_error(status = compound.res.status))
         goto out;
 
+    if (info.type == NF4ATTRDIR)
+        goto out;
+
     /* update the attributes of the parent directory */
     memcpy(&info.attrmask, &getattr_res.obj_attributes.attrmask,
         sizeof(bitmap4));

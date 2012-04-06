@@ -503,4 +503,11 @@ void nfs41_open_stateid_arg(
     IN nfs41_open_state *state,
     OUT struct __stateid_arg *arg);
 
+
+/* ea.c */
+struct _FILE_FULL_EA_INFORMATION;
+int nfs41_ea_set(
+    IN nfs41_open_state *state,
+    IN struct _FILE_FULL_EA_INFORMATION *ea);
+
 #endif /* __NFS41__ */

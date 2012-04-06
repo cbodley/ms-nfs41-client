@@ -442,6 +442,16 @@ static int check_execute_access(nfs41_open_state *state)
     return status;
 }
 
+static int create_with_ea(
+    IN uint32_t disposition,
+    IN uint32_t lookup_status)
+{
+    /* only set EAs on file creation */
+    return disposition == FILE_SUPERSEDE || disposition == FILE_CREATE
+        || disposition == FILE_OVERWRITE || disposition == FILE_OVERWRITE_IF
+        || (disposition == FILE_OPEN_IF && lookup_status == NFS4ERR_NOENT);
+}
+
 static int handle_open(nfs41_upcall *upcall)
 {
     int status = 0;
@@ -665,7 +675,14 @@ supersede_retry:
             args->mode = info.mode;
             args->changeattr = info.change;
         }
+
+        /* set extended attributes on file creation */
+        if (args->ea && create_with_ea(args->disposition, lookup_status)) {
+            status = nfs41_ea_set(state, args->ea);
+            status = nfs_to_windows_error(status, ERROR_FILE_NOT_FOUND);
+        }
     }
+
     upcall->state_ref = state;
     nfs41_open_state_ref(upcall->state_ref);
 out:
