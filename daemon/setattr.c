@@ -558,10 +558,8 @@ static int handle_setexattr(nfs41_upcall *upcall)
 
     nfs41_open_stateid_arg(state, &stateid);
     
-    if ((strncmp("NfsV3Attributes", eainfo->EaName, eainfo->EaNameLength) == 0 &&
-            strlen("NfsV3Attributes") == eainfo->EaNameLength) ||
-            (strncmp("NfsActOnLink", eainfo->EaName, eainfo->EaNameLength)== 0 &&
-            strlen("NfsActOnLink") == eainfo->EaNameLength)) {
+    if (strncmp("NfsV3Attributes", eainfo->EaName, eainfo->EaNameLength) == 0
+            && sizeof("NfsV3Attributes")-1 == eainfo->EaNameLength) {
         info.mode = args->mode;
         info.attrmask.arr[1] |= FATTR4_WORD1_MODE;
         info.attrmask.count = 2;

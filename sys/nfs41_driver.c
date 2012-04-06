@@ -3392,10 +3392,14 @@ NTSTATUS check_nfs41_create_args(
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs =
+        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
     __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PMRX_FCB Fcb = RxContext->pFcb;
     __notnull PNFS41_FCB nfs41_fcb = (PNFS41_FCB)Fcb->Context;
+    PFILE_FULL_EA_INFORMATION ea = (PFILE_FULL_EA_INFORMATION)
+        RxContext->CurrentIrp->AssociatedIrp.SystemBuffer;
 
     if (Fcb->pNetRoot->Type != NET_ROOT_DISK && 
             Fcb->pNetRoot->Type != NET_ROOT_WILD) {
@@ -3476,6 +3480,25 @@ NTSTATUS check_nfs41_create_args(
         goto out;
     }
 
+    if (ea) {
+        /* ignore cygwin EAs when checking support and access */
+        if (!AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength) &&
+            !AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength) &&
+            !AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength)) {
+            if (!(FsAttrs->FileSystemAttributes & FILE_SUPPORTS_EXTENDED_ATTRIBUTES)) {
+                status = STATUS_EAS_NOT_SUPPORTED;
+                goto out;
+            }
+            if ((params.DesiredAccess & FILE_WRITE_EA) == 0) {
+                status = STATUS_ACCESS_DENIED;
+                goto out;
+            }
+        }
+    } else if (RxContext->CurrentIrpSp->Parameters.Create.EaLength) {
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
+    }
+
 out:
     return status;
 }
@@ -3488,8 +3511,8 @@ NTSTATUS nfs41_Create(
     FCB_INIT_PACKET InitPacket;
     RX_FILE_TYPE StorageType = 0;
     NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
-    PFILE_FULL_EA_INFORMATION eainfo = NULL;
-    nfs3_attrs *attrs = NULL;
+    PFILE_FULL_EA_INFORMATION ea = (PFILE_FULL_EA_INFORMATION)
+        RxContext->CurrentIrp->AssociatedIrp.SystemBuffer;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
@@ -3510,8 +3533,7 @@ NTSTATUS nfs41_Create(
     DbgEn();
     print_debug_header(RxContext);
     print_nt_create_params(1, RxContext->Create.NtCreateParameters);
-    if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer)
-        print_ea_info(0, RxContext->CurrentIrp->AssociatedIrp.SystemBuffer);
+    if (ea) print_ea_info(0, ea);
 #endif
 
     status = check_nfs41_create_args(RxContext);
@@ -3535,21 +3557,20 @@ NTSTATUS nfs41_Create(
         entry->u.Open.attrs |= FILE_ATTRIBUTE_ARCHIVE;
     entry->u.Open.disp = params.Disposition;
     entry->u.Open.copts = params.CreateOptions;
+    /* treat the NfsActOnLink ea as FILE_OPEN_REPARSE_POINT */
+    if (ea && AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength))
+        entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
     entry->u.Open.srv_open = SrvOpen;
     if (isDataAccess(params.DesiredAccess) || isOpen2Create(params.Disposition))
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
     if (params.Disposition != FILE_OPEN && params.Disposition != FILE_OVERWRITE) {
-        if (RxContext->CurrentIrp->AssociatedIrp.SystemBuffer) {
-            eainfo = (PFILE_FULL_EA_INFORMATION)
-                RxContext->CurrentIrp->AssociatedIrp.SystemBuffer;
-            if (AnsiStrEq(&NfsV3Attributes, eainfo->EaName, eainfo->EaNameLength)) {
-                attrs = (nfs3_attrs *)(eainfo->EaName + eainfo->EaNameLength + 1);
+        if (ea && AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)) {
+            nfs3_attrs *attrs = (nfs3_attrs *)(ea->EaName + ea->EaNameLength + 1);
 #ifdef DEBUG_OPEN
-                DbgP("creating file with mode %o\n", attrs->mode);
+            DbgP("creating file with mode %o\n", attrs->mode);
 #endif
-                entry->u.Open.mode = attrs->mode;
-            }
+            entry->u.Open.mode = attrs->mode;
         }
         if (!entry->u.Open.mode)
             entry->u.Open.mode = 0777;
@@ -4415,16 +4436,38 @@ NTSTATUS check_nfs41_setea_args(
     NTSTATUS status;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+    __notnull PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs =
+        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+    __notnull PFILE_FULL_EA_INFORMATION ea =
+        (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;
 
     status = check_nfs41_dirquery_args(RxContext);
     if (status) goto out;
 
+    if (ea == NULL) {
+        status = STATUS_INVALID_PARAMETER;
+        goto out;
+    }
+    if (AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength) ||
+        AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength)) {
+        status = STATUS_INVALID_PARAMETER; /* only allowed on create */
+        goto out;
+    }
+    /* ignore cygwin EAs when checking support */
+    if (!(FsAttrs->FileSystemAttributes & FILE_SUPPORTS_EXTENDED_ATTRIBUTES)
+        && !AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)) {
+        status = STATUS_EAS_NOT_SUPPORTED;
+        goto out;
+    }
+    if ((RxContext->pRelevantSrvOpen->DesiredAccess & FILE_WRITE_EA) == 0) {
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
     if (pVNetRootContext->read_only) {
         print_error("check_nfs41_setattr_args: Read-only mount\n");
         status = STATUS_ACCESS_DENIED;
         goto out;
     }
-
 out:
     return status;
 }
@@ -4522,14 +4565,33 @@ NTSTATUS check_nfs41_queryea_args(
     IN PRX_CONTEXT RxContext)
 {
     NTSTATUS status;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+    __notnull PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs =
+        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+    PFILE_GET_EA_INFORMATION ea = (PFILE_GET_EA_INFORMATION)
+            RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
 
     status = check_nfs41_dirquery_args(RxContext);
     if (status) goto out;
 
     /* XXX windows can query for all eas in which case the list can be empty */
-    if (RxContext->CurrentIrpSp->Parameters.QueryEa.EaList == NULL)
+    if (ea == NULL) {
         status = STATUS_INVALID_PARAMETER;
-
+        goto out;
+    }
+    /* ignore cygwin EAs when checking support */
+    if (!(FsAttrs->FileSystemAttributes & FILE_SUPPORTS_EXTENDED_ATTRIBUTES)
+        && !AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)
+        && !AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength)
+        && !AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength)) {
+        status = STATUS_EAS_NOT_SUPPORTED;
+        goto out;
+    }
+    if ((RxContext->pRelevantSrvOpen->DesiredAccess & FILE_READ_EA) == 0) {
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
 out:
     return status;
 }
@@ -4599,7 +4661,7 @@ NTSTATUS nfs41_QueryEaInformation(
                 query->EaNameLength)) {
 
         const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
-            NfsActOnLink.Length - sizeof(CHAR);
+            query->EaNameLength - sizeof(CHAR);
         if (LengthRequired > RxContext->Info.LengthRemaining) {
             status = STATUS_BUFFER_TOO_SMALL;
             RxContext->InformationToReturn = LengthRequired;
@@ -4608,9 +4670,9 @@ NTSTATUS nfs41_QueryEaInformation(
 
         info->NextEntryOffset = 0;
         info->Flags = 0;
-        info->EaNameLength = (UCHAR)NfsActOnLink.Length;
+        info->EaNameLength = query->EaNameLength;
         info->EaValueLength = 0;
-        RtlCopyMemory(info->EaName, NfsActOnLink.Buffer, NfsActOnLink.Length);
+        RtlCopyMemory(info->EaName, query->EaName, query->EaNameLength);
         RxContext->Info.LengthRemaining = LengthRequired;
         status = STATUS_SUCCESS;
         goto out;
