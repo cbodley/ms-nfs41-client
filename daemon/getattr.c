@@ -217,11 +217,10 @@ static int handle_getexattr(nfs41_upcall *upcall)
     PFILE_FULL_EA_INFORMATION eainfo, entry_pos;
     unsigned char *entry_buf, buf[NFS4_EASIZE] = { 0 };
     nfs41_open_state *state = upcall->state_ref;
-    nfs41_path_fh parent, file;
+    nfs41_path_fh parent = { 0 }, file = { 0 };
     open_claim4 claim;
     stateid4 open_stateid;
     stateid_arg stateid;
-    nfs41_component dst_name;
     open_delegation4 delegation = { 0 };
     bool_t eof;
     uint32_t bytes_read = 0;
@@ -244,14 +243,14 @@ static int handle_getexattr(nfs41_upcall *upcall)
     entry_pos = eainfo = (PFILE_FULL_EA_INFORMATION)entry_buf;
 
     while (gea != prev) {
-        dst_name.name = gea->EaName;
-        dst_name.len = gea->EaNameLength; 
+        file.name.name = gea->EaName;
+        file.name.len = gea->EaNameLength;
         claim.claim = CLAIM_NULL;
-        claim.u.null.filename = &dst_name;
+        claim.u.null.filename = &file.name;
         status = nfs41_open(state->session, &parent, &file, &state->owner, 
             &claim, OPEN4_SHARE_ACCESS_READ, OPEN4_SHARE_DENY_BOTH, 
             OPEN4_NOCREATE, UNCHECKED4, 0, TRUE, &open_stateid, 
-            &delegation, NULL);          
+            &delegation, NULL);
         if (status) {
             dprintf(1, "nfs41_open() failed with error %s.\n",
                 nfs_error_string(status));

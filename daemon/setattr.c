@@ -538,10 +538,9 @@ static int handle_setexattr(nfs41_upcall *upcall)
     nfs41_file_info createattrs, info = { 0 };
     PFILE_FULL_EA_INFORMATION eainfo = 
         (PFILE_FULL_EA_INFORMATION)args->buf, prev = NULL;
-    nfs41_path_fh parent, file;
+    nfs41_path_fh parent = { 0 }, file = { 0 };
     open_claim4 claim;
     stateid4 open_stateid;
-    nfs41_component dst_name;
     nfs41_write_verf verf;
     uint32_t bytes_written;
     UCHAR *buf;
@@ -591,12 +590,12 @@ static int handle_setexattr(nfs41_upcall *upcall)
                 status = ERROR_INVALID_DATA;
                 goto out;
             }
-            dst_name.name = eainfo->EaName;
-            dst_name.len = eainfo->EaNameLength; 
+            file.name.name = eainfo->EaName;
+            file.name.len = eainfo->EaNameLength;
             claim.claim = CLAIM_NULL;
-            claim.u.null.filename = &dst_name;
+            claim.u.null.filename = &file.name;
             status = nfs41_open(state->session, &parent, &file, &state->owner, &claim,
-                OPEN4_SHARE_ACCESS_WRITE, OPEN4_SHARE_DENY_BOTH, OPEN4_CREATE, 
+                OPEN4_SHARE_ACCESS_WRITE, OPEN4_SHARE_DENY_BOTH, OPEN4_CREATE,
                 UNCHECKED4, &createattrs, TRUE, &open_stateid, &delegation, NULL);
             if (status) {
                 dprintf(1, "handle_setexattr: nfs41_rpc_open() failed with error %s.\n",
