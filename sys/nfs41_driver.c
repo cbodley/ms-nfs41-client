@@ -3565,6 +3565,7 @@ NTSTATUS nfs41_Create(
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
     if (params.Disposition != FILE_OPEN && params.Disposition != FILE_OVERWRITE) {
+        entry->u.Open.mode = 0777;
         if (ea && AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)) {
             nfs3_attrs *attrs = (nfs3_attrs *)(ea->EaName + ea->EaNameLength + 1);
 #ifdef DEBUG_OPEN
@@ -3572,8 +3573,6 @@ NTSTATUS nfs41_Create(
 #endif
             entry->u.Open.mode = attrs->mode;
         }
-        if (!entry->u.Open.mode)
-            entry->u.Open.mode = 0777;
         if (params.FileAttributes & FILE_ATTRIBUTE_READONLY)
             entry->u.Open.mode = 0444;
     }
