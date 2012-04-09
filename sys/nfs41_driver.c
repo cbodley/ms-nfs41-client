@@ -4471,7 +4471,7 @@ NTSTATUS nfs41_SetEaInformation(
         print_nfs3_attrs(attrs);
         DbgP("old mode is %o new mode is %o\n", nfs41_fcb->mode, attrs->mode);
 #endif
-        entry->u.SetEa.mode = nfs41_fcb->mode = attrs->mode;
+        entry->u.SetEa.mode = attrs->mode;
     } else {
         entry->u.SetEa.mode = 0;
         status = IoCheckEaBufferValidity(eainfo, buflen, &error_offset);
@@ -4499,6 +4499,7 @@ NTSTATUS nfs41_SetEaInformation(
                 (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
             nfs41_update_fcb_list(RxContext->pFcb, entry->u.SetEa.ChangeTime);
         nfs41_fcb->changeattr = entry->u.SetEa.ChangeTime;
+        nfs41_fcb->mode = entry->u.SetEa.mode;
     }
     RxFreePool(entry);
 out:
