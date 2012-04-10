@@ -443,6 +443,11 @@ static __inline void nfs41_superblock_supported_attrs_exclcreat(
     bitmap_intersect(attrs, &superblock->suppattr_exclcreat);
 }
 
+struct _FILE_FS_ATTRIBUTE_INFORMATION;
+void nfs41_superblock_fs_attributes(
+    IN const nfs41_superblock *superblock,
+    OUT struct _FILE_FS_ATTRIBUTE_INFORMATION *FsAttrs);
+
 void nfs41_superblock_space_changed(
     IN nfs41_superblock *superblock);
 

@@ -61,6 +61,7 @@ static int handle_mount(nfs41_upcall *upcall)
     multi_addr4 addrs;
     nfs41_root *root;
     nfs41_client *client;
+    nfs41_path_fh file;
 
     // resolve hostname,port
     status = nfs41_server_resolve(args->hostname, 2049, &addrs);
@@ -95,12 +96,14 @@ static int handle_mount(nfs41_upcall *upcall)
 
     // look up the mount path, and fail if it doesn't exist
     status = nfs41_lookup(root, client->session,
-        &path, NULL, NULL, NULL, NULL);
+        &path, NULL, &file, NULL, NULL);
     if (status) {
         eprintf("nfs41_lookup('%s') failed with %d\n", path.path, status);
         status = ERROR_BAD_NETPATH;
         goto out_err;
     }
+
+    nfs41_superblock_fs_attributes(file.fh.superblock, &args->FsAttrs);
 
     upcall->root_ref = root;
     nfs41_root_ref(upcall->root_ref);
@@ -124,6 +127,8 @@ static int marshall_mount(unsigned char *buffer, uint32_t *length, nfs41_upcall 
     status = safe_write(&buffer, length, &NFS41D_VERSION, sizeof(DWORD));
     if (status) goto out;
     status = safe_write(&buffer, length, &args->lease_time, sizeof(DWORD));
+    if (status) goto out;
+    status = safe_write(&buffer, length, &args->FsAttrs, sizeof(args->FsAttrs));
 out:
     return status;
 }

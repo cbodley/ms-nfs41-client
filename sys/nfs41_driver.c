@@ -159,6 +159,7 @@ typedef struct _updowncall_entry {
         struct {
             PUNICODE_STRING srv_name;
             PUNICODE_STRING root;
+            PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs;
             DWORD sec_flavor;
             DWORD rsize;
             DWORD wsize;
@@ -375,8 +376,7 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     NODE_TYPE_CODE          NodeTypeCode;
     NODE_BYTE_SIZE          NodeByteSize;
     HANDLE                  session;
-    BYTE                    FsAttrs[FS_ATTR_LEN];
-    LONG                    FsAttrsLen;
+    FILE_FS_ATTRIBUTE_INFORMATION FsAttrs;
     DWORD                   sec_flavor;
     DWORD                   timeout;
     BOOLEAN                 read_only;
@@ -1587,6 +1587,8 @@ void unmarshal_nfs41_mount(
     RtlCopyMemory(&cur->version, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
     RtlCopyMemory(&cur->u.Mount.lease_time, *buf, sizeof(DWORD));
+    *buf += sizeof(DWORD);
+    RtlCopyMemory(cur->u.Mount.FsAttrs, *buf, sizeof(FILE_FS_ATTRIBUTE_INFORMATION));
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_mount: session pointer 0x%x version %d lease_time "
          "%d\n", cur->session, cur->version, cur->u.Mount.lease_time);
@@ -2543,7 +2545,8 @@ NTSTATUS nfs41_mount(
     PNFS41_MOUNT_CONFIG config, 
     DWORD sec_flavor, 
     PHANDLE session, 
-    DWORD *version)
+    DWORD *version,
+    PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs)
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry;
@@ -2562,6 +2565,7 @@ NTSTATUS nfs41_mount(
     entry->u.Mount.rsize = config->ReadSize;
     entry->u.Mount.wsize = config->WriteSize;
     entry->u.Mount.sec_flavor = sec_flavor;
+    entry->u.Mount.FsAttrs = FsAttrs;
 
     status = nfs41_UpcallWaitForReply(entry, config->timeout);
     SeDeleteClientSecurity(&entry->sec_ctx);
@@ -2985,7 +2989,8 @@ NTSTATUS nfs41_CreateVNetRoot(
     if (!found_existing_mount || !found_matching_flavor) {
         /* send the mount upcall */
         status = nfs41_mount(&Config, pVNetRootContext->sec_flavor,
-            &pVNetRootContext->session, &nfs41d_version);
+            &pVNetRootContext->session, &nfs41d_version,
+            &pVNetRootContext->FsAttrs);
         if (status != STATUS_SUCCESS) {
             if (!found_existing_mount && 
                     IsListEmpty(&pNetRootContext->mounts->head)) {
@@ -3281,11 +3286,9 @@ BOOLEAN isFilenameTooLong(
     PUNICODE_STRING name, 
     PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext)
 {
-    PFILE_FS_ATTRIBUTE_INFORMATION attrs =
-        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+    PFILE_FS_ATTRIBUTE_INFORMATION attrs = &pVNetRootContext->FsAttrs;
     LONG len = attrs->MaximumComponentNameLength, count = 1, i;
     PWCH p = name->Buffer;
-    if (!pVNetRootContext->FsAttrsLen) len = 64;
     for (i = 0; i < name->Length / 2; i++) {
         if (p[0] == L'\\') count = 1;
         else { 
@@ -3393,7 +3396,7 @@ NTSTATUS check_nfs41_create_args(
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
     __notnull PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs =
-        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+        &pVNetRootContext->FsAttrs;
     __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
         NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
     __notnull PMRX_FCB Fcb = RxContext->pFcb;
@@ -4183,6 +4186,17 @@ void nfs41_create_volume_info(PFILE_FS_VOLUME_INFORMATION pVolInfo, DWORD *len)
     *len = sizeof(FILE_FS_VOLUME_INFORMATION) + VolName.Length;
 }
 
+static BOOLEAN is_root_directory(
+    PRX_CONTEXT RxContext)
+{
+    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)
+        RxContext->pRelevantSrvOpen->pVNetRoot;
+    /* compare the FileObject name with the VNetRoot prefix to determine
+     * whether it's the root directory (allowing for added \) */
+    return RxContext->CurrentIrpSp->FileObject->FileName.Length <=
+        VNetRoot->PrefixEntry.Prefix.Length + sizeof(WCHAR);
+}
+
 NTSTATUS nfs41_QueryVolumeInformation(
     IN OUT PRX_CONTEXT RxContext)
 {
@@ -4245,20 +4259,28 @@ NTSTATUS nfs41_QueryVolumeInformation(
         goto out;
 
     case FileFsAttributeInformation:
-        /* used cached fs attributes if available */
-        if (pVNetRootContext->FsAttrsLen) {
-            const LONG len = pVNetRootContext->FsAttrsLen;
-            if (RxContext->Info.LengthRemaining < len) {
-                RtlCopyMemory(RxContext->Info.Buffer,
-                    pVNetRootContext->FsAttrs, 
-                    RxContext->Info.LengthRemaining);
-                status = STATUS_BUFFER_OVERFLOW;
-                goto out;
-            }
-            RtlCopyMemory(RxContext->Info.Buffer,
-                pVNetRootContext->FsAttrs, len);
-            RxContext->Info.LengthRemaining -= len;
-            status = STATUS_SUCCESS;
+        if (RxContext->Info.LengthRemaining < FS_ATTR_LEN) {
+            RxContext->InformationToReturn = FS_ATTR_LEN;
+            status = STATUS_BUFFER_TOO_SMALL;
+            goto out;
+        }
+
+        /* on attribute queries for the root directory,
+         * use cached volume attributes from mount */
+        if (is_root_directory(RxContext)) {
+            PFILE_FS_ATTRIBUTE_INFORMATION attrs =
+                (PFILE_FS_ATTRIBUTE_INFORMATION)RxContext->Info.Buffer;
+            DECLARE_CONST_UNICODE_STRING(FsName, FS_NAME);
+
+            RtlCopyMemory(attrs, &pVNetRootContext->FsAttrs,
+                sizeof(pVNetRootContext->FsAttrs));
+
+            /* fill in the FileSystemName */
+            RtlCopyMemory(attrs->FileSystemName, FsName.Buffer,
+                FsName.MaximumLength); /* 'MaximumLength' to include null */
+            attrs->FileSystemNameLength = FsName.Length;
+
+            RxContext->Info.LengthRemaining -= FS_ATTR_LEN;
             goto out;
         }
         /* else fall through and send the upcall */
@@ -4292,22 +4314,12 @@ NTSTATUS nfs41_QueryVolumeInformation(
             PFILE_FS_ATTRIBUTE_INFORMATION attrs =
                 (PFILE_FS_ATTRIBUTE_INFORMATION)RxContext->Info.Buffer;
             DECLARE_CONST_UNICODE_STRING(FsName, FS_NAME);
-            entry->u.Volume.buf_len += FsName.Length;
-            if (entry->u.Volume.buf_len > (ULONG)RxContext->Info.LengthRemaining) {
-                RxContext->InformationToReturn = entry->u.Volume.buf_len;
-                status = STATUS_BUFFER_TOO_SMALL;
-                goto out;
-            }
+
             RtlCopyMemory(attrs->FileSystemName, FsName.Buffer,
                 FsName.MaximumLength); /* 'MaximumLength' to include null */
             attrs->FileSystemNameLength = FsName.Length;
 
-            /* save fs attributes with the vnetroot */
-            if (entry->u.Volume.buf_len <= FS_ATTR_LEN) {
-                RtlCopyMemory(&pVNetRootContext->FsAttrs,
-                    RxContext->Info.Buffer, entry->u.Volume.buf_len);
-                pVNetRootContext->FsAttrsLen = entry->u.Volume.buf_len;
-            }
+            entry->u.Volume.buf_len = FS_ATTR_LEN;
         }
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&volume.sops); 
@@ -4436,7 +4448,7 @@ NTSTATUS check_nfs41_setea_args(
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
     __notnull PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs =
-        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+        &pVNetRootContext->FsAttrs;
     __notnull PFILE_FULL_EA_INFORMATION ea =
         (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;
 
@@ -4567,7 +4579,7 @@ NTSTATUS check_nfs41_queryea_args(
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
     __notnull PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs =
-        (PFILE_FS_ATTRIBUTE_INFORMATION)pVNetRootContext->FsAttrs;
+        &pVNetRootContext->FsAttrs;
     PFILE_GET_EA_INFORMATION ea = (PFILE_GET_EA_INFORMATION)
             RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
 
@@ -6075,7 +6087,6 @@ NTSTATUS check_nfs41_setreparse_args(
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION VNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)SrvOpen->pVNetRoot;
     const ULONG HeaderLen = REPARSE_DATA_BUFFER_HEADER_SIZE;
 
     /* access checks */
@@ -6090,8 +6101,7 @@ NTSTATUS check_nfs41_setreparse_args(
 
     /* must have a filename longer than vnetroot name,
      * or it's trying to operate on the volume itself */
-    if (RxContext->CurrentIrpSp->FileObject->FileName.Length <=
-        VNetRoot->PrefixEntry.Prefix.Length + sizeof(WCHAR)) {
+    if (is_root_directory(RxContext)) {
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
@@ -6183,15 +6193,12 @@ NTSTATUS check_nfs41_getreparse_args(
 {
     NTSTATUS status = STATUS_SUCCESS;
     XXCTL_LOWIO_COMPONENT *FsCtl = &RxContext->LowIoContext.ParamsFor.FsCtl;
-    __notnull PV_NET_ROOT VNetRoot = 
-        (PV_NET_ROOT)RxContext->pRelevantSrvOpen->pVNetRoot;
     const USHORT HeaderLen = FIELD_OFFSET(REPARSE_DATA_BUFFER,
         SymbolicLinkReparseBuffer.PathBuffer);
 
     /* must have a filename longer than vnetroot name,
      * or it's trying to operate on the volume itself */
-    if (RxContext->CurrentIrpSp->FileObject->FileName.Length <=
-        VNetRoot->PrefixEntry.Prefix.Length + sizeof(WCHAR)) {
+    if (is_root_directory(RxContext)) {
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }

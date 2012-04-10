@@ -25,6 +25,7 @@
 #include "daemon_debug.h"
 #include "nfs41.h"
 #include "nfs41_ops.h"
+#include "from_kernel.h"
 #include "util.h"
 
 
@@ -158,6 +159,35 @@ static int get_superblock_attrs(
         superblock->case_insensitive);
 out:
     return status;
+}
+
+void nfs41_superblock_fs_attributes(
+    IN const nfs41_superblock *superblock,
+    OUT PFILE_FS_ATTRIBUTE_INFORMATION FsAttrs)
+{
+    FsAttrs->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
+    if (superblock->link_support)
+        FsAttrs->FileSystemAttributes |= FILE_SUPPORTS_HARD_LINKS;
+    if (superblock->symlink_support)
+        FsAttrs->FileSystemAttributes |= FILE_SUPPORTS_REPARSE_POINTS;
+    if (superblock->ea_support)
+        FsAttrs->FileSystemAttributes |= FILE_SUPPORTS_EXTENDED_ATTRIBUTES;
+    if (superblock->case_preserving)
+        FsAttrs->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
+    if (!superblock->case_insensitive)
+        FsAttrs->FileSystemAttributes |= FILE_CASE_SENSITIVE_SEARCH;
+    if (superblock->aclsupport)
+        FsAttrs->FileSystemAttributes |= FILE_PERSISTENT_ACLS;
+
+    FsAttrs->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
+
+    /* let the driver fill in FileSystemName */
+    FsAttrs->FileSystemNameLength = 0;
+
+    dprintf(SBLVL, "FileFsAttributeInformation: case_preserving %u, "
+        "case_insensitive %u, max component %u\n",
+        superblock->case_preserving, superblock->case_insensitive,
+        FsAttrs->MaximumComponentNameLength);
 }
 
 

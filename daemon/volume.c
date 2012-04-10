@@ -112,39 +112,6 @@ out:
     return status;
 }
 
-static void handle_volume_attributes(
-    IN volume_upcall_args *args,
-    IN nfs41_open_state *state)
-{
-    PFILE_FS_ATTRIBUTE_INFORMATION attr = &args->info.attribute;
-    const nfs41_superblock *superblock = state->file.fh.superblock;
-
-    attr->FileSystemAttributes = FILE_SUPPORTS_REMOTE_STORAGE;
-    if (superblock->link_support)
-        attr->FileSystemAttributes |= FILE_SUPPORTS_HARD_LINKS;
-    if (superblock->symlink_support)
-        attr->FileSystemAttributes |= FILE_SUPPORTS_REPARSE_POINTS;
-    if (superblock->ea_support)
-        attr->FileSystemAttributes |= FILE_SUPPORTS_EXTENDED_ATTRIBUTES;
-    if (superblock->case_preserving)
-        attr->FileSystemAttributes |= FILE_CASE_PRESERVED_NAMES;
-    if (!superblock->case_insensitive)
-        attr->FileSystemAttributes |= FILE_CASE_SENSITIVE_SEARCH;
-    if (superblock->aclsupport)
-        attr->FileSystemAttributes |= FILE_PERSISTENT_ACLS;
-
-    attr->MaximumComponentNameLength = NFS41_MAX_COMPONENT_LEN;
-
-    /* let the driver fill in FileSystemName/Len */
-
-    args->len = sizeof(args->info.attribute);
-
-    dprintf(2, "FileFsAttributeInformation: case_preserving %u, "
-        "case_insensitive %u, max component %u\n",
-        superblock->case_preserving, superblock->case_insensitive,
-        attr->MaximumComponentNameLength);
-}
-
 static int handle_volume(nfs41_upcall *upcall)
 {
     volume_upcall_args *args = &upcall->args.volume;
@@ -176,7 +143,8 @@ static int handle_volume(nfs41_upcall *upcall)
         break;
 
     case FileFsAttributeInformation:
-        handle_volume_attributes(args, upcall->state_ref);
+        nfs41_superblock_fs_attributes(upcall->state_ref->file.fh.superblock,
+            &args->info.attribute);
         break;
 
     default:
