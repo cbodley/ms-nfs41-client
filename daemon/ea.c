@@ -217,7 +217,7 @@ static int parse_getexattr(unsigned char *buffer, uint32_t length, nfs41_upcall 
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->ealist_len, sizeof(args->ealist_len));
     if (status) goto out;
-    args->ealist = buffer;
+    args->ealist = args->ealist_len ? buffer : NULL;
 
     dprintf(1, "parsing NFS41_EA_GET: buf_len=%d Initial %d Restart %d "
         "Single %d\n", args->buf_len,args->eaindex, args->restart, args->single);

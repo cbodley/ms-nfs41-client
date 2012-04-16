@@ -1147,7 +1147,9 @@ NTSTATUS marshal_nfs41_eaget(
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryEa.EaListLength, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, entry->u.QueryEa.EaList, entry->u.QueryEa.EaListLength);
+    if (entry->u.QueryEa.EaList && entry->u.QueryEa.EaListLength)
+        RtlCopyMemory(tmp, entry->u.QueryEa.EaList,
+            entry->u.QueryEa.EaListLength);
 
     *len = header_len; 
 
@@ -4678,18 +4680,18 @@ NTSTATUS check_nfs41_queryea_args(
     status = check_nfs41_dirquery_args(RxContext);
     if (status) goto out;
 
-    /* XXX windows can query for all eas in which case the list can be empty */
-    if (ea == NULL) {
-        status = STATUS_INVALID_PARAMETER;
-        goto out;
-    }
-    /* ignore cygwin EAs when checking support */
-    if (!(FsAttrs->FileSystemAttributes & FILE_SUPPORTS_EXTENDED_ATTRIBUTES)
-        && !AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)
-        && !AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength)
-        && !AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength)) {
-        status = STATUS_EAS_NOT_SUPPORTED;
-        goto out;
+    if (!(FsAttrs->FileSystemAttributes & FILE_SUPPORTS_EXTENDED_ATTRIBUTES)) {
+        if (ea == NULL) {
+            status = STATUS_EAS_NOT_SUPPORTED;
+            goto out;
+        }
+        /* ignore cygwin EAs when checking support */
+        if (!AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength) &&
+            !AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength) &&
+            !AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength)) {
+            status = STATUS_EAS_NOT_SUPPORTED;
+            goto out;
+        }
     }
     if ((RxContext->pRelevantSrvOpen->DesiredAccess & FILE_READ_EA) == 0) {
         status = STATUS_ACCESS_DENIED;
@@ -4699,36 +4701,15 @@ out:
     return status;
 }
 
-NTSTATUS nfs41_QueryEaInformation(
-    IN OUT PRX_CONTEXT RxContext)
+static NTSTATUS QueryCygwinEA(
+    IN OUT PRX_CONTEXT RxContext,
+    IN PFILE_GET_EA_INFORMATION query,
+    OUT PFILE_FULL_EA_INFORMATION info)
 {
-    NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
-    nfs41_updowncall_entry *entry;
-    PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)
-            RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
-    __notnull PFILE_FULL_EA_INFORMATION info = 
-        (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;        
-    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
-    ULONG buflen = RxContext->CurrentIrpSp->Parameters.QueryEa.Length;
-    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
-    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
-            NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
-    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
-            NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
-    __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
-    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
-#ifdef ENABLE_TIMINGS
-    LARGE_INTEGER t1, t2;
-    t1 = KeQueryPerformanceCounter(NULL);
-#endif
+    NTSTATUS status = STATUS_NONEXISTENT_EA_ENTRY;
 
-#ifdef DEBUG_EA_QUERY
-    DbgEn();
-    print_debug_header(RxContext);
-    print_get_ea(1, query);
-#endif
-    status = check_nfs41_queryea_args(RxContext);
-    if (status) goto out;
+    if (query == NULL)
+        goto out;
 
     if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
         nfs3_attrs attrs;
@@ -4741,7 +4722,7 @@ NTSTATUS nfs41_QueryEaInformation(
             goto out;
         }
 
-        create_nfs3_attrs(&attrs, nfs41_fcb);
+        create_nfs3_attrs(&attrs, NFS41GetFcbExtension(RxContext->pFcb));
 #ifdef DEBUG_EA_QUERY
         print_nfs3_attrs(&attrs);
 #endif
@@ -4757,11 +4738,10 @@ NTSTATUS nfs41_QueryEaInformation(
         RxContext->Info.LengthRemaining = LengthRequired;
         status = STATUS_SUCCESS;
         goto out;
-    } 
-        
-    if (AnsiStrEq(&NfsActOnLink, query->EaName, query->EaNameLength) || 
-            AnsiStrEq(&NfsSymlinkTargetName, query->EaName, 
-                query->EaNameLength)) {
+    }
+
+    if (AnsiStrEq(&NfsActOnLink, query->EaName, query->EaNameLength) ||
+        AnsiStrEq(&NfsSymlinkTargetName, query->EaName, query->EaNameLength)) {
 
         const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
             query->EaNameLength - sizeof(CHAR);
@@ -4780,17 +4760,55 @@ NTSTATUS nfs41_QueryEaInformation(
         status = STATUS_SUCCESS;
         goto out;
     }
+out:
+    return status;
+}
+
+NTSTATUS nfs41_QueryEaInformation(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
+    nfs41_updowncall_entry *entry;
+    PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)
+            RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
+    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
+    ULONG buflen = RxContext->CurrentIrpSp->Parameters.QueryEa.Length;
+    __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+            NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+            NFS41GetNetRootExtension(SrvOpen->pVNetRoot->pNetRoot);
+    __notnull PNFS41_FOBX nfs41_fobx = NFS41GetFobxExtension(RxContext->pFobx);
+#ifdef ENABLE_TIMINGS
+    LARGE_INTEGER t1, t2;
+    t1 = KeQueryPerformanceCounter(NULL);
+#endif
+
+#ifdef DEBUG_EA_QUERY
+    DbgEn();
+    print_debug_header(RxContext);
+    print_get_ea(1, query);
+#endif
+    status = check_nfs41_queryea_args(RxContext);
+    if (status) goto out;
+
+    /* handle queries for cygwin EAs */
+    status = QueryCygwinEA(RxContext, query,
+        (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer);
+    if (status != STATUS_NONEXISTENT_EA_ENTRY)
+        goto out;
 
     status = nfs41_UpcallCreate(NFS41_EA_GET, &nfs41_fobx->sec_ctx,
         pVNetRootContext->session, nfs41_fobx->nfs41_open_state,
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.QueryEa.filename = FileName;  
-    entry->u.QueryEa.buf_len = buflen; 
-    entry->u.QueryEa.buf = RxContext->Info.Buffer; 
+    entry->u.QueryEa.filename = FileName;
+    entry->u.QueryEa.buf_len = buflen;
+    entry->u.QueryEa.buf = RxContext->Info.Buffer;
     entry->u.QueryEa.EaList = query;
-    entry->u.QueryEa.EaListLength = RxContext->QueryEa.UserEaListLength;
+    entry->u.QueryEa.EaListLength = query == NULL ? 0 :
+        RxContext->QueryEa.UserEaListLength;
     entry->u.QueryEa.EaIndex = RxContext->QueryEa.UserEaIndex;
     entry->u.QueryEa.RestartScan = RxContext->QueryEa.RestartScan;
     entry->u.QueryEa.ReturnSingleEntry = RxContext->QueryEa.ReturnSingleEntry;
@@ -4811,7 +4829,7 @@ NTSTATUS nfs41_QueryEaInformation(
     } else {
         status = map_setea_error(entry->status);
     }
-    RxFreePool(entry);        
+    RxFreePool(entry);
 out:
 #ifdef ENABLE_TIMINGS
     t2 = KeQueryPerformanceCounter(NULL);
