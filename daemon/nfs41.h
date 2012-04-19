@@ -157,6 +157,7 @@ typedef struct __nfs41_open_state {
 
     struct {
         struct _FILE_GET_EA_INFORMATION *list;
+        uint32_t index;
         CRITICAL_SECTION lock;
     } ea;
 

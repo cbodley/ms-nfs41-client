@@ -116,6 +116,7 @@ typedef struct __getexattr_upcall_args {
     ULONG eaindex;
     unsigned char *ealist;
     uint32_t ealist_len;
+    uint32_t overflow;
     BOOLEAN single;
     BOOLEAN restart;
 } getexattr_upcall_args;

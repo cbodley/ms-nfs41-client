@@ -30,6 +30,9 @@
 #include "daemon_debug.h"
 
 
+#define EALVL 2 /* dprintf level for extended attribute logging */
+
+
 static int set_ea_value(
     IN nfs41_session *session,
     IN nfs41_path_fh *parent,
@@ -78,7 +81,7 @@ static int set_ea_value(
         OPEN4_SHARE_DENY_BOTH, OPEN4_CREATE, UNCHECKED4,
         &createattrs, TRUE, &stateid.stateid, &delegation, NULL);
     if (status) {
-        dprintf(1, "nfs41_open() failed with %s\n", nfs_error_string(status));
+        eprintf("nfs41_open() failed with %s\n", nfs_error_string(status));
         goto out;
     }
 
@@ -217,11 +220,13 @@ static int parse_getexattr(unsigned char *buffer, uint32_t length, nfs41_upcall 
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->single, sizeof(args->single));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->buf_len, sizeof(args->buf_len));
+    if (status) goto out;
     status = safe_read(&buffer, &length, &args->ealist_len, sizeof(args->ealist_len));
     if (status) goto out;
     args->ealist = args->ealist_len ? buffer : NULL;
 
-    dprintf(1, "parsing NFS41_EA_GET: buf_len=%d Initial %d Restart %d "
+    dprintf(1, "parsing NFS41_EA_GET: buf_len=%d Index %d Restart %d "
         "Single %d\n", args->buf_len,args->eaindex, args->restart, args->single);
 out:
     return status;
@@ -361,7 +366,8 @@ static void populate_ea_list(
 static int get_ea_list(
     IN OUT nfs41_open_state *state,
     IN nfs41_path_fh *eadir,
-    OUT PFILE_GET_EA_INFORMATION *ealist_out)
+    OUT PFILE_GET_EA_INFORMATION *ealist_out,
+    OUT uint32_t *eaindex_out)
 {
     unsigned char *entry_list;
     PFILE_GET_EA_INFORMATION ea_list;
@@ -373,6 +379,7 @@ static int get_ea_list(
     if (state->ea.list != INVALID_HANDLE_VALUE) {
         /* use cached ea names */
         *ealist_out = state->ea.list;
+        *eaindex_out = state->ea.index;
         goto out;
     }
 
@@ -395,7 +402,7 @@ static int get_ea_list(
     populate_ea_list(entry_list, ea_list);
 
     *ealist_out = state->ea.list = ea_list;
-
+    *eaindex_out = state->ea.index;
 out_free:
     free(entry_list); /* allocated by read_entire_dir() */
 out:
@@ -403,153 +410,269 @@ out:
     return status;
 }
 
-static int handle_getexattr(nfs41_upcall *upcall)
+static int get_ea_value(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *parent,
+    IN state_owner4 *owner,
+    OUT PFILE_FULL_EA_INFORMATION ea,
+    IN uint32_t length,
+    OUT uint32_t *needed)
 {
-    int status = 0;
-    getexattr_upcall_args *args = &upcall->args.getexattr;
-    PFILE_GET_EA_INFORMATION gea = 
-        (PFILE_GET_EA_INFORMATION)args->ealist, prev = NULL;
-    PFILE_FULL_EA_INFORMATION eainfo, entry_pos;
-    unsigned char *entry_buf, buf[NFS4_EASIZE] = { 0 };
-    nfs41_open_state *state = upcall->state_ref;
-    nfs41_path_fh parent = { 0 }, file = { 0 };
+    nfs41_path_fh file = { 0 };
     open_claim4 claim;
-    stateid4 open_stateid;
     stateid_arg stateid;
     open_delegation4 delegation = { 0 };
+    nfs41_file_info info;
+    unsigned char *buffer;
+    uint32_t diff, bytes_read;
     bool_t eof;
-    uint32_t bytes_read = 0;
-    ULONG buflen = 0, needed = 0;
+    int status;
 
-    status = nfs41_rpc_openattr(state->session, &state->file, FALSE, &parent.fh);
-    if (status){
-        dprintf(1, "nfs41_rpc_openattr() failed with error %s.\n",
-            nfs_error_string(status));
-        status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+    if (parent->fh.len == 0) /* no named attribute directory */
+        goto out_empty;
+
+    claim.claim = CLAIM_NULL;
+    claim.u.null.filename = &file.name;
+    file.name.name = ea->EaName;
+    file.name.len = ea->EaNameLength;
+
+    status = nfs41_open(session, parent, &file, owner, &claim,
+        OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WANT_NO_DELEG,
+        OPEN4_SHARE_DENY_WRITE, OPEN4_NOCREATE, UNCHECKED4, NULL, TRUE,
+        &stateid.stateid, &delegation, &info);
+    if (status) {
+        eprintf("nfs41_open() failed with %s\n", nfs_error_string(status));
+        if (status == NFS4ERR_NOENT)
+            goto out_empty;
         goto out;
     }
 
-    if (gea == NULL) {
-        /* if no names are queried, use READDIR to list them all */
-        status = get_ea_list(state, &parent, &gea);
-        if (status)
-            goto out;
+    if (info.size > NFS4_EASIZE) {
+        status = NFS4ERR_FBIG;
+        eprintf("EA value for '%s' longer than maximum %u "
+            "(%llu bytes), returning %s\n", ea->EaName, NFS4_EASIZE,
+            info.size, nfs_error_string(status));
+        goto out_close;
     }
 
-    entry_buf = malloc(UPCALL_BUF_SIZE);
-    if (entry_buf == NULL) {
+    buffer = (unsigned char*)ea->EaName + ea->EaNameLength + 1;
+    diff = (uint32_t)(buffer - (unsigned char*)ea);
+
+    /* make sure we have room for the value */
+    if (length < diff + info.size) {
+        *needed = (uint32_t)(sizeof(FILE_FULL_EA_INFORMATION) +
+            ea->EaNameLength + info.size);
+        status = NFS4ERR_TOOSMALL;
+        goto out_close;
+    }
+
+    /* read directly into the ea buffer */
+    status = nfs41_read(session, &file, &stateid,
+        0, length - diff, buffer, &bytes_read, &eof);
+    if (status) {
+        eprintf("nfs41_read() failed with %s\n", nfs_error_string(status));
+        goto out_close;
+    }
+    if (!eof) {
+        *needed = (uint32_t)(sizeof(FILE_FULL_EA_INFORMATION) +
+            ea->EaNameLength + NFS4_EASIZE);
+        status = NFS4ERR_TOOSMALL;
+        goto out_close;
+    }
+
+    ea->EaValueLength = (USHORT)bytes_read;
+
+out_close:
+    nfs41_close(session, &file, &stateid);
+out:
+    return status;
+
+out_empty: /* return an empty value */
+    ea->EaValueLength = 0;
+    status = NFS4_OK;
+    goto out;
+}
+
+static int empty_ea_error(
+    IN uint32_t index,
+    IN BOOLEAN restart)
+{
+    /* choose an error value depending on the arguments */
+    if (index)
+        return ERROR_INVALID_EA_HANDLE;
+
+    if (!restart)
+        return ERROR_NO_MORE_FILES;  /* -> STATUS_NO_MORE_EAS */
+
+    return ERROR_FILE_NOT_FOUND; /* -> STATUS_NO_EAS_ON_FILE */
+}
+
+static int overflow_error(
+    IN OUT getexattr_upcall_args *args,
+    IN PFILE_FULL_EA_INFORMATION prev,
+    IN uint32_t needed)
+{
+    if (prev) {
+        /* unlink the overflowing entry, but copy the entries that fit */
+        prev->NextEntryOffset = 0;
+        args->overflow = ERROR_BUFFER_OVERFLOW;
+    } else {
+        /* no entries fit; return only the length needed */
+        args->buf_len = needed;
+        args->overflow = ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    /* in either case, the upcall must return NO_ERROR so we
+     * can copy this information down to the driver */
+    return NO_ERROR;
+}
+
+static int handle_getexattr(nfs41_upcall *upcall)
+{
+    getexattr_upcall_args *args = &upcall->args.getexattr;
+    PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)args->ealist;
+    PFILE_FULL_EA_INFORMATION ea, prev = NULL;
+    nfs41_open_state *state = upcall->state_ref;
+    nfs41_path_fh parent = { 0 };
+    uint32_t remaining, needed, index = 0;
+    int status;
+
+    status = nfs41_rpc_openattr(state->session, &state->file, FALSE, &parent.fh);
+    if (status == NFS4ERR_NOENT) { /* no named attribute directory */
+        dprintf(EALVL, "no named attribute directory for '%s'\n", args->path);
+        if (query == NULL) {
+            status = empty_ea_error(args->eaindex, args->restart);
+            goto out;
+        }
+    } else if (status) {
+        eprintf("nfs41_rpc_openattr() failed with %s\n",
+            nfs_error_string(status));
+        status = nfs_to_windows_error(status, ERROR_EAS_NOT_SUPPORTED);
+        goto out;
+    }
+
+    if (query == NULL) {
+        /* if no names are queried, use READDIR to list them all */
+        uint32_t i;
+        status = get_ea_list(state, &parent, &query, &index);
+        if (status)
+            goto out;
+
+        if (query == NULL) { /* the file has no EAs */
+            dprintf(EALVL, "empty named attribute directory for '%s'\n",
+                args->path);
+            status = empty_ea_error(args->eaindex, args->restart);
+            goto out;
+        }
+
+        if (args->eaindex)
+            index = args->eaindex - 1; /* convert to zero-based index */
+        else if (args->restart)
+            index = 0;
+
+        /* advance the list to the specified index */
+        for (i = 0; i < index; i++) {
+            if (query->NextEntryOffset == 0) {
+                if (args->eaindex)
+                    status = ERROR_INVALID_EA_HANDLE;
+                else
+                    status = ERROR_NO_MORE_FILES; /* STATUS_NO_MORE_EAS */
+                goto out;
+            }
+            query = (PFILE_GET_EA_INFORMATION)NEXT_ENTRY(query);
+        }
+    }
+
+    /* returned ea information can't exceed the downcall buffer size */
+    if (args->buf_len > UPCALL_BUF_SIZE - 2 * sizeof(uint32_t))
+        args->buf_len = UPCALL_BUF_SIZE - 2 * sizeof(uint32_t);
+
+    args->buf = malloc(args->buf_len);
+    if (args->buf == NULL) {
         status = GetLastError();
         goto out;
     }
 
-    entry_pos = eainfo = (PFILE_FULL_EA_INFORMATION)entry_buf;
+    ea = (PFILE_FULL_EA_INFORMATION)args->buf;
+    remaining = args->buf_len;
 
-    while (gea != prev) {
-        file.name.name = gea->EaName;
-        file.name.len = gea->EaNameLength; 
-        claim.claim = CLAIM_NULL;
-        claim.u.null.filename = &file.name;
-        status = nfs41_open(state->session, &parent, &file, &state->owner, 
-            &claim, OPEN4_SHARE_ACCESS_READ, OPEN4_SHARE_DENY_BOTH, 
-            OPEN4_NOCREATE, UNCHECKED4, 0, TRUE, &open_stateid, 
-            &delegation, NULL);
+    for (;;) {
+        /* make sure we have room for at least the name */
+        needed = sizeof(FILE_FULL_EA_INFORMATION) + query->EaNameLength;
+        if (needed > remaining) {
+            status = overflow_error(args, prev, needed + NFS4_EASIZE);
+            goto out;
+        }
+
+        ea->EaNameLength = query->EaNameLength;
+        StringCchCopy(ea->EaName, ea->EaNameLength + 1, query->EaName);
+        ea->Flags = 0;
+
+        /* read the value from file */
+        status = get_ea_value(state->session, &parent,
+            &state->owner, ea, remaining, &needed);
+        if (status == NFS4ERR_TOOSMALL) {
+            status = overflow_error(args, prev, needed);
+            goto out;
+        }
         if (status) {
-            dprintf(1, "nfs41_open() failed with error %s.\n",
-                nfs_error_string(status));
-            status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
+            status = nfs_to_windows_error(status, ERROR_EA_FILE_CORRUPT);
             goto out_free;
         }
 
-        stateid.stateid = open_stateid;
-        stateid.stateid.seqid = 0;
-        status = nfs41_read(state->session, &file, &stateid, 0, NFS4_EASIZE, 
-                buf, &bytes_read, &eof);
-        if (status) {
-            dprintf(2, "nfs41_rpc_read EA attribute failed\n");
-            status = nfs_to_windows_error(status, ERROR_NET_WRITE_FAULT);
-            nfs41_close(state->session, &file, &stateid);
-            goto out_free;
-        }
+        needed = align4(FIELD_OFFSET(FILE_FULL_EA_INFORMATION, EaName) +
+            ea->EaNameLength + 1 + ea->EaValueLength);
 
-        if (eof) {
-            dprintf(1, "read thread reached eof: bytes_read %d\n", bytes_read);
-            eainfo->EaNameLength = gea->EaNameLength;
-            if (FAILED(StringCchCopy((LPSTR)eainfo->EaName, gea->EaNameLength + 1,
-                    (LPCSTR)gea->EaName))) {
-                status = ERROR_BUFFER_OVERFLOW;
-                nfs41_close(state->session, &file, &stateid);
-                goto out_free;
-            }
+        if (remaining < needed) {
+            /* align4 may push NextEntryOffset past our buffer, but we
+             * were still able to fit the ea value.  set remaining = 0
+             * so we'll fail on the next ea (if any) */
+            remaining = 0;
+        } else
+            remaining -= needed;
 
-            if (FAILED(StringCchCopy((LPSTR)eainfo->EaName + 
-                    eainfo->EaNameLength + 1, bytes_read + 1, (LPCSTR)buf))) {
-                status = ERROR_BUFFER_OVERFLOW;
-                nfs41_close(state->session, &file, &stateid);
-                goto out_free;
-            }
+        index++;
+        if (query->NextEntryOffset == 0 || args->single)
+            break;
 
-            memset(buf, 0, NFS4_EASIZE);
-            eainfo->EaValueLength = (USHORT) bytes_read;
-            needed = (eainfo->EaNameLength + eainfo->EaValueLength) +
-                FIELD_OFFSET(FILE_FULL_EA_INFORMATION, EaName);
-
-            if (needed % 4)
-                needed = needed + (4 - (needed % 4)); 
-
-            eainfo->NextEntryOffset = needed;
-            eainfo->Flags = 0;
-
-            buflen = buflen + needed;
-            prev = gea;
-
-            if (gea->NextEntryOffset != 0) {
-                gea = (PFILE_GET_EA_INFORMATION) 
-                    ((PBYTE) gea + gea->NextEntryOffset); 
-                eainfo = (PFILE_FULL_EA_INFORMATION) 
-                    ((PBYTE) eainfo + eainfo->NextEntryOffset);
-            }
-
-            status = nfs41_close(state->session, &file, &stateid);
-            if (status) {
-                dprintf(1, "nfs41_close() failed with error %s.\n",
-                    nfs_error_string(status));
-                status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
-                goto out_free;
-            }
-        } else {
-            dprintf(2, "Size of the EA value is greater than %d\n", NFS4_EASIZE);
-            status = nfs41_close(state->session, &file, &stateid);
-            if (status) {
-                dprintf(1, "nfs41_rpc_openattr() failed with error %s.\n",
-                    nfs_error_string(status));
-                status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
-            }
-            /* treating extended attribute values larger than NFS4_EASIZE as failure */
-            status = ERROR_INVALID_DATA;
-            goto out_free;
-        }
+        prev = ea;
+        ea->NextEntryOffset = needed;
+        ea = (PFILE_FULL_EA_INFORMATION)NEXT_ENTRY(ea);
+        query = (PFILE_GET_EA_INFORMATION)NEXT_ENTRY(query);
     }
 
-    eainfo->NextEntryOffset = 0;
-    args->buf = (unsigned char *)entry_pos;
-    args->buf_len = buflen;
-    goto out;
+    ea->NextEntryOffset = 0;
+    args->buf_len -= remaining;
+out:
+    if (args->ealist == NULL) { /* update the ea index */
+        EnterCriticalSection(&state->ea.lock);
+        state->ea.index = index;
+        if (status == NO_ERROR && !args->overflow && !args->single) {
+            /* listing was completed, free the cache */
+            free(state->ea.list);
+            state->ea.list = INVALID_HANDLE_VALUE;
+        }
+        LeaveCriticalSection(&state->ea.lock);
+    }
+    return status;
 
 out_free:
-    free(entry_buf);
-out:
-    return status;
+    free(args->buf);
+    goto out;
 }
 
 static int marshall_getexattr(unsigned char *buffer, uint32_t *length, nfs41_upcall *upcall)
 {
     int status = NO_ERROR;
     getexattr_upcall_args *args = &upcall->args.getexattr;
-    uint32_t len = args->buf_len;
 
-    status = safe_write(&buffer, length, &len, sizeof(len));
+    status = safe_write(&buffer, length, &args->overflow, sizeof(args->overflow));
     if (status) goto out;
-    status = safe_write(&buffer, length, args->buf, len);
+    status = safe_write(&buffer, length, &args->buf_len, sizeof(args->buf_len));
+    if (status) goto out;
+    if (args->overflow == ERROR_INSUFFICIENT_BUFFER)
+        goto out;
+    status = safe_write(&buffer, length, args->buf, args->buf_len);
     if (status) goto out;
 out:
     free(args->buf);

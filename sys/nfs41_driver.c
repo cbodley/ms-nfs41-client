@@ -246,6 +246,7 @@ typedef struct _updowncall_entry {
             ULONG buf_len;
             PVOID EaList;
             ULONG EaListLength;
+            ULONG Overflow;
             ULONG EaIndex;
             BOOLEAN ReturnSingleEntry;
             BOOLEAN RestartScan;
@@ -1130,7 +1131,7 @@ NTSTATUS marshal_nfs41_eaget(
     else
         tmp += *len;
     header_len = *len + length_as_utf8(entry->u.QueryEa.filename) + 
-        2 * sizeof(ULONG) + entry->u.QueryEa.EaListLength + 2 * sizeof(BOOLEAN);
+        3 * sizeof(ULONG) + entry->u.QueryEa.EaListLength + 2 * sizeof(BOOLEAN);
 
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1145,6 +1146,8 @@ NTSTATUS marshal_nfs41_eaget(
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryEa.ReturnSingleEntry, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
+    RtlCopyMemory(tmp, &entry->u.QueryEa.buf_len, sizeof(ULONG));
+    tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.QueryEa.EaListLength, sizeof(ULONG));
     tmp += sizeof(ULONG);
     if (entry->u.QueryEa.EaList && entry->u.QueryEa.EaListLength)
@@ -1769,6 +1772,20 @@ void unmarshal_nfs41_attrget(
     *buf += buf_len;
 }
 
+void unmarshal_nfs41_eaget(
+    nfs41_updowncall_entry *cur,
+    unsigned char **buf)
+{
+    RtlCopyMemory(&cur->u.QueryEa.Overflow, *buf, sizeof(ULONG));
+    *buf += sizeof(ULONG);
+    RtlCopyMemory(&cur->u.QueryEa.buf_len, *buf, sizeof(ULONG));
+    *buf += sizeof(ULONG);
+    if (cur->u.QueryEa.Overflow != ERROR_INSUFFICIENT_BUFFER) {
+        RtlCopyMemory(cur->u.QueryEa.buf, *buf, cur->u.QueryEa.buf_len);
+        *buf += cur->u.QueryEa.buf_len;
+    }
+}
+
 void unmarshal_nfs41_getattr(
     nfs41_updowncall_entry *cur,
     unsigned char **buf)
@@ -1917,8 +1934,7 @@ NTSTATUS nfs41_downcall(
             unmarshal_nfs41_getattr(cur, &buf);
             break;
         case NFS41_EA_GET:
-            unmarshal_nfs41_attrget(cur, cur->u.QueryEa.buf, 
-                &cur->u.QueryEa.buf_len, &buf);
+            unmarshal_nfs41_eaget(cur, &buf);
             break;
         case NFS41_SYMLINK:
             unmarshal_nfs41_symlink(cur, &buf);
@@ -4518,16 +4534,16 @@ NTSTATUS map_setea_error(
 {
     switch (error) {
     case NO_ERROR:                      return STATUS_SUCCESS;
-    case ERROR_NOT_EMPTY:               return STATUS_DIRECTORY_NOT_EMPTY;
-    case ERROR_FILE_EXISTS:             return STATUS_OBJECT_NAME_COLLISION;
-    case ERROR_FILE_NOT_FOUND:          return STATUS_OBJECT_NAME_NOT_FOUND;
-    case ERROR_PATH_NOT_FOUND:          return STATUS_OBJECT_PATH_NOT_FOUND;
+    case ERROR_FILE_NOT_FOUND:          return STATUS_NO_EAS_ON_FILE;
     case ERROR_ACCESS_DENIED:           return STATUS_ACCESS_DENIED;
-    case ERROR_NOT_SUPPORTED:           return STATUS_NOT_IMPLEMENTED;
     case ERROR_NETWORK_ACCESS_DENIED:   return STATUS_NETWORK_ACCESS_DENIED;
     case ERROR_NETNAME_DELETED:         return STATUS_NETWORK_NAME_DELETED;
     case ERROR_FILE_TOO_LARGE:          return STATUS_EA_TOO_LARGE;
-    case ERROR_BUFFER_OVERFLOW:         return STATUS_INSUFFICIENT_RESOURCES;
+    case ERROR_BUFFER_OVERFLOW:         return STATUS_BUFFER_OVERFLOW;
+    case ERROR_INSUFFICIENT_BUFFER:     return STATUS_BUFFER_TOO_SMALL;
+    case ERROR_INVALID_EA_HANDLE:       return STATUS_NONEXISTENT_EA_ENTRY;
+    case ERROR_NO_MORE_FILES:           return STATUS_NO_MORE_EAS;
+    case ERROR_EA_FILE_CORRUPT:         return STATUS_EA_CORRUPT_ERROR;
     default:
         print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INVALID_PARAMETER\n", error);
@@ -4809,19 +4825,29 @@ NTSTATUS nfs41_QueryEaInformation(
     entry->u.QueryEa.EaList = query;
     entry->u.QueryEa.EaListLength = query == NULL ? 0 :
         RxContext->QueryEa.UserEaListLength;
-    entry->u.QueryEa.EaIndex = RxContext->QueryEa.UserEaIndex;
+    entry->u.QueryEa.EaIndex = RxContext->QueryEa.IndexSpecified ?
+        RxContext->QueryEa.UserEaIndex : 0;
     entry->u.QueryEa.RestartScan = RxContext->QueryEa.RestartScan;
     entry->u.QueryEa.ReturnSingleEntry = RxContext->QueryEa.ReturnSingleEntry;
 
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
     if (status) goto out;
 
-    if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
-        status = STATUS_BUFFER_TOO_SMALL;
-    } else if (entry->status == STATUS_SUCCESS) {
-        RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
-        RxContext->IoStatusBlock.Status = STATUS_SUCCESS; 
+    if (entry->status == STATUS_SUCCESS) {
+        switch (entry->u.QueryEa.Overflow) {
+        case ERROR_INSUFFICIENT_BUFFER:
+            RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
+            status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        case ERROR_BUFFER_OVERFLOW:
+            RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
+            status = RxContext->IoStatusBlock.Status = STATUS_BUFFER_OVERFLOW;
+            break;
+        default:
+            RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
+            RxContext->IoStatusBlock.Status = STATUS_SUCCESS;
+            break;
+        }
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&getexattr.sops); 
         InterlockedAdd64(&getexattr.size, entry->u.QueryEa.buf_len);
