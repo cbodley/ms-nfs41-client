@@ -186,6 +186,21 @@ void nfs_to_standard_info(
         TRUE : FALSE;
 }
 
+void nfs_to_network_openinfo(
+    IN const nfs41_file_info *info,
+    OUT PFILE_NETWORK_OPEN_INFORMATION net_out)
+{
+    
+    nfs_time_to_file_time(&info->time_create, &net_out->CreationTime);
+    nfs_time_to_file_time(&info->time_access, &net_out->LastAccessTime);
+    nfs_time_to_file_time(&info->time_modify, &net_out->LastWriteTime);
+    /* XXX: was using 'change' attr, but that wasn't giving a time */
+    nfs_time_to_file_time(&info->time_modify, &net_out->ChangeTime);
+    net_out->AllocationSize.QuadPart =
+        net_out->EndOfFile.QuadPart = (LONGLONG)info->size;
+    net_out->FileAttributes = nfs_file_info_to_attributes(info);
+}
+
 void get_file_time(
     OUT PLARGE_INTEGER file_time)
 {

@@ -23,6 +23,7 @@
 #define __NFS41_DAEMON_UTIL_H__
 
 #include "nfs41_types.h"
+#include "from_kernel.h"
 
 extern DWORD NFS41D_VERSION;
 struct __nfs41_session;
@@ -102,6 +103,9 @@ void nfs_to_basic_info(
 void nfs_to_standard_info(
     IN const nfs41_file_info *info,
     OUT PFILE_STANDARD_INFO std_out);
+void nfs_to_network_openinfo(
+    IN const nfs41_file_info *info,
+    OUT PFILE_NETWORK_OPEN_INFORMATION std_out);
 
 /* http://msdn.microsoft.com/en-us/library/ms724290%28VS.85%29.aspx:
  * A file time is a 64-bit value that represents the number of

@@ -5044,6 +5044,7 @@ NTSTATUS nfs41_QueryFileInformation(
     case FileStandardInformation:
     case FileInternalInformation: 
     case FileAttributeTagInformation:
+    case FileNetworkOpenInformation:
         break;
     default:
         print_error("nfs41_QueryFileInformation: unhandled class %d\n", InfoClass);

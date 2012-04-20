@@ -90,6 +90,7 @@ typedef struct __getattr_upcall_args {
     FILE_STANDARD_INFO std_info;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
     FILE_INTERNAL_INFORMATION intr_info;
+    FILE_NETWORK_OPEN_INFORMATION network_info;
     int query_class;
     int buf_len;
     int query_reply_len;

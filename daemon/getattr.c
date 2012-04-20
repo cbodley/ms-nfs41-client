@@ -112,6 +112,9 @@ static int handle_getattr(nfs41_upcall *upcall)
     case FileInternalInformation:
         args->intr_info.IndexNumber.QuadPart = info.fileid;
         break;
+    case FileNetworkOpenInformation:
+        nfs_to_network_openinfo(&info, &args->network_info);
+        break;
     default:
         eprintf("unhandled file query class %d\n", args->query_class);
         status = ERROR_INVALID_PARAMETER;
@@ -154,6 +157,13 @@ static int marshall_getattr(unsigned char *buffer, uint32_t *length, nfs41_upcal
         status = safe_write(&buffer, length, &info_len, sizeof(info_len));
         if (status) goto out;
         status = safe_write(&buffer, length, &args->intr_info, info_len);
+        if (status) goto out;
+        break;
+    case FileNetworkOpenInformation:
+        info_len = sizeof(args->network_info);
+        status = safe_write(&buffer, length, &info_len, sizeof(info_len));
+        if (status) goto out;
+        status = safe_write(&buffer, length, &args->network_info, info_len);
         if (status) goto out;
         break;
     default:
