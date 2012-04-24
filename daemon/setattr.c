@@ -83,6 +83,13 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
         info.attrmask.count = 2;
     }
 
+    if (old_info.mode == 0444 && 
+            ((basic_info->FileAttributes & FILE_ATTRIBUTE_READONLY) == 0)) {
+        info.mode = 0644;
+        info.attrmask.arr[1] |= FATTR4_WORD1_MODE;
+        info.attrmask.count = 2;
+    }
+
     if (superblock->cansettime) {
         /* set the time_delta so xdr_settime4() can decide
          * whether or not to use SET_TO_SERVER_TIME4 */
