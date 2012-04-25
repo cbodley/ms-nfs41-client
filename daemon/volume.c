@@ -143,6 +143,7 @@ static int handle_volume(nfs41_upcall *upcall)
         break;
 
     case FileFsAttributeInformation:
+        args->len = sizeof(args->info.attribute);
         nfs41_superblock_fs_attributes(upcall->state_ref->file.fh.superblock,
             &args->info.attribute);
         break;
