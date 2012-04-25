@@ -1184,6 +1184,8 @@ int nfs41_name_cache_rename(
         struct name_cache_entry *existing;
         existing = name_cache_search(cache, dst_parent, dst_name);
         if (existing) {
+            if (existing == src)
+                goto out_unlock;
             /* remove the existing entry, but don't unlink it yet;
              * we may reuse it for a negative entry */
             name_cache_remove(existing, dst_parent);
