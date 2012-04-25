@@ -357,6 +357,7 @@ typedef struct _NFS41_NETROOT_EXTENSION {
     BOOLEAN                 mounts_init;
     FAST_MUTEX              mountLock;
     nfs41_mount_list        *mounts;
+    FILE_FS_ATTRIBUTE_INFORMATION FsAttrs;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
         (((pNetRoot) == NULL) ? NULL :          \
@@ -3001,6 +3002,8 @@ NTSTATUS nfs41_CreateVNetRoot(
             goto out;
         }
         pVNetRootContext->timeout = Config.timeout;
+        RtlCopyMemory(&pNetRootContext->FsAttrs, &pVNetRootContext->FsAttrs,
+            sizeof(pVNetRootContext->FsAttrs));
     } 
 
     if (!found_existing_mount) {
@@ -3044,6 +3047,8 @@ NTSTATUS nfs41_CreateVNetRoot(
         case RPCSEC_AUTHGSS_KRB5P:
             existing_mount->gssp_session = pVNetRootContext->session; break;
         }
+        RtlCopyMemory(&pVNetRootContext->FsAttrs, &pNetRootContext->FsAttrs,
+            sizeof(pVNetRootContext->FsAttrs));
     }
     pNetRootContext->nfs41d_version = nfs41d_version;
 #ifdef DEBUG_MOUNT
@@ -3284,9 +3289,9 @@ BOOLEAN isOpen2Create(
 
 BOOLEAN isFilenameTooLong(
     PUNICODE_STRING name, 
-    PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext)
+    PNFS41_NETROOT_EXTENSION pNetRootContext)
 {
-    PFILE_FS_ATTRIBUTE_INFORMATION attrs = &pVNetRootContext->FsAttrs;
+    PFILE_FS_ATTRIBUTE_INFORMATION attrs = &pNetRootContext->FsAttrs;
     LONG len = attrs->MaximumComponentNameLength, count = 1, i;
     PWCH p = name->Buffer;
     for (i = 0; i < name->Length / 2; i++) {
@@ -3466,7 +3471,7 @@ NTSTATUS check_nfs41_create_args(
             goto out;
         }
     }
-    if (isFilenameTooLong(SrvOpen->pAlreadyPrefixedName, pVNetRootContext)) {
+    if (isFilenameTooLong(SrvOpen->pAlreadyPrefixedName, pNetRootContext)) {
         status = STATUS_OBJECT_NAME_INVALID;
         goto out;
     }
@@ -4267,7 +4272,8 @@ NTSTATUS nfs41_QueryVolumeInformation(
 
         /* on attribute queries for the root directory,
          * use cached volume attributes from mount */
-        if (is_root_directory(RxContext)) {
+        if (is_root_directory(RxContext) || 
+                pNetRootContext->FsAttrs.MaximumComponentNameLength != 0) {
             PFILE_FS_ATTRIBUTE_INFORMATION attrs =
                 (PFILE_FS_ATTRIBUTE_INFORMATION)RxContext->Info.Buffer;
             DECLARE_CONST_UNICODE_STRING(FsName, FS_NAME);
@@ -5186,6 +5192,8 @@ NTSTATUS check_nfs41_setattr_args(
     FILE_INFORMATION_CLASS InfoClass = RxContext->Info.FileInformationClass;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+    __notnull PNFS41_NETROOT_EXTENSION pNetRootContext =
+        NFS41GetNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot->pNetRoot);
 
     if (pVNetRootContext->read_only) {
         print_error("check_nfs41_setattr_args: Read-only mount\n");
@@ -5218,7 +5226,7 @@ NTSTATUS check_nfs41_setattr_args(
 #ifdef DEBUG_FILE_SET
         DbgP("Attempting to rename to '%wZ'\n", &dst);
 #endif
-        if (isFilenameTooLong(&dst, pVNetRootContext)) {
+        if (isFilenameTooLong(&dst, pNetRootContext)) {
             status = STATUS_OBJECT_NAME_INVALID;
             goto out;
         }
@@ -5237,7 +5245,7 @@ NTSTATUS check_nfs41_setattr_args(
 #ifdef DEBUG_FILE_SET
         DbgP("Attempting to add link as '%wZ'\n", &dst);
 #endif
-        if (isFilenameTooLong(&dst, pVNetRootContext)) {
+        if (isFilenameTooLong(&dst, pNetRootContext)) {
             status = STATUS_OBJECT_NAME_INVALID;
             goto out;
         }
