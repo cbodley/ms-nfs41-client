@@ -404,12 +404,16 @@ static int referral_resolve(
     }
 
     /* format a new path from that location's root */
-    StringCchCopyA(rest_of_path, NFS41_MAX_PATH_LEN,
-        referral->name.name + referral->name.len);
+    if (FAILED(StringCchCopyA(rest_of_path, NFS41_MAX_PATH_LEN,
+            referral->name.name + referral->name.len))) {
+        status = ERROR_FILENAME_EXCED_RANGE;
+        goto out;
+    }
 
     AcquireSRWLockExclusive(&path_out->lock);
     abs_path_copy(path_out, &location->path);
-    StringCchCatA(path_out->path, NFS41_MAX_PATH_LEN, rest_of_path);
+    if (FAILED(StringCchCatA(path_out->path, NFS41_MAX_PATH_LEN, rest_of_path)))
+        status = ERROR_FILENAME_EXCED_RANGE;
     path_out->len = path_out->len + (unsigned short)strlen(rest_of_path);
     ReleaseSRWLockExclusive(&path_out->lock);
 
