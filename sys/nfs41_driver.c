@@ -4036,6 +4036,7 @@ NTSTATUS map_querydir_errors(
     case ERROR_INVALID_PARAMETER:   return STATUS_INVALID_PARAMETER;
     case ERROR_NO_MORE_FILES:       return STATUS_NO_MORE_FILES;
     case ERROR_OUTOFMEMORY:         return STATUS_INSUFFICIENT_RESOURCES;
+    case ERROR_FILENAME_EXCED_RANGE: return STATUS_NAME_TOO_LONG;
     default:
         print_error("failed to map windows error %d to NTSTATUS; "
             "defaulting to STATUS_INVALID_NETWORK_RESPONSE\n", status);

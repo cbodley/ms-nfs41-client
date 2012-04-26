@@ -216,7 +216,7 @@ static int format_abs_path(
     abs_path_copy(path_out, path);
     if (FAILED(StringCchPrintfA(path_out->path + path_out->len,
         NFS41_MAX_PATH_LEN - path_out->len, "\\%s", name->name))) {
-        status = ERROR_BUFFER_OVERFLOW;
+        status = ERROR_FILENAME_EXCED_RANGE;
         goto out;
     }
     path_out->len += name->len + 1;

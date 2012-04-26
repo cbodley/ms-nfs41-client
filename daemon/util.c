@@ -382,7 +382,7 @@ int create_silly_rename(
     int status = NO_ERROR, i;
 
     if (path->len + extra_len >= NFS41_MAX_PATH_LEN) {
-        status = ERROR_BUFFER_OVERFLOW;
+        status = ERROR_FILENAME_EXCED_RANGE;
         goto out;
     }
 

@@ -47,7 +47,7 @@ static int create_open_state(
 
     InitializeSRWLock(&state->path.lock);
     if (FAILED(StringCchCopyA(state->path.path, NFS41_MAX_PATH_LEN, path))) {
-        status = ERROR_BUFFER_OVERFLOW;
+        status = ERROR_FILENAME_EXCED_RANGE;
         goto out_free;
     }
     state->path.len = (unsigned short)strlen(state->path.path);
