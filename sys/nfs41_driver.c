@@ -1909,6 +1909,7 @@ NTSTATUS nfs41_downcall(
         }
         nfs41_RemoveEntry(downcallLock, downcall, cur);
         RxLowIoCompletion(cur->u.ReadWrite.rxcontext);
+        RxFreePool(cur);
     } else
         KeSetEvent(&cur->cond, 0, FALSE);    
 
