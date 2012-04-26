@@ -5348,6 +5348,19 @@ NTSTATUS nfs41_SetFileInformation(
                 nfs41_fcb->StandardInfo.EndOfFile = info->EndOfFile;
             break;
         }
+    case FileRenameInformation:
+        {
+            /* noop if filename and destination are the same */
+            PFILE_RENAME_INFORMATION rinfo =
+                (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
+            const UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
+                (USHORT)rinfo->FileNameLength, rinfo->FileName };
+            if (RtlCompareUnicodeString(&dst,
+                SrvOpen->pAlreadyPrefixedName, FALSE) == 0) {
+                status = STATUS_SUCCESS;
+                goto out;
+            }
+        }
     }
 
     status = nfs41_UpcallCreate(NFS41_FILE_SET, &nfs41_fobx->sec_ctx, 
