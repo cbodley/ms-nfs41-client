@@ -78,6 +78,11 @@ PRDBSS_DEVICE_OBJECT nfs41_dev;
 #define ENABLE_READWRITE_CACHING 3
 
 #define NFS41_MM_POOLTAG        ('nfs4')
+#define NFS41_MM_POOLTAG_ACL    ('acls')
+#define NFS41_MM_POOLTAG_MOUNT  ('mnts')
+#define NFS41_MM_POOLTAG_OPEN   ('open')
+#define NFS41_MM_POOLTAG_UP     ('upca')
+#define NFS41_MM_POOLTAG_DOWN   ('down')
 
 KEVENT upcallEvent;
 FAST_MUTEX upcallLock, downcallLock, fcblistLock;
@@ -1405,7 +1410,7 @@ NTSTATUS nfs41_UpcallCreate(
     SECURITY_QUALITY_OF_SERVICE sec_qos;
 
     entry = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
-                NFS41_MM_POOLTAG);
+                NFS41_MM_POOLTAG_UP);
     if (entry == NULL) {
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -1755,7 +1760,7 @@ NTSTATUS unmarshal_nfs41_getacl(
     RtlCopyMemory(&buf_len, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
     cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
-        buf_len, NFS41_MM_POOLTAG);
+        buf_len, NFS41_MM_POOLTAG_ACL);
     if (cur->u.Acl.buf == NULL) {
         cur->status = status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -1801,7 +1806,7 @@ NTSTATUS nfs41_downcall(
     print_hexbuf(0, (unsigned char *)"downcall buffer", buf, in_len);
 
     tmp = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
-            NFS41_MM_POOLTAG);
+            NFS41_MM_POOLTAG_DOWN);
     if (tmp == NULL)
         goto out;
 
@@ -2929,7 +2934,7 @@ NTSTATUS nfs41_CreateVNetRoot(
 #endif
         ExInitializeFastMutex(&pNetRootContext->mountLock);
         pNetRootContext->mounts = RxAllocatePoolWithTag(NonPagedPool, 
-            sizeof(nfs41_mount_list), NFS41_MM_POOLTAG);
+            sizeof(nfs41_mount_list), NFS41_MM_POOLTAG_MOUNT);
         if (pNetRootContext->mounts == NULL) {
             status = STATUS_INSUFFICIENT_RESOURCES;
             goto out;
@@ -3011,7 +3016,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         /* create a new mount entry and add it to the list */
         nfs41_mount_entry *entry;
         entry = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_mount_entry), 
-            NFS41_MM_POOLTAG);
+            NFS41_MM_POOLTAG_MOUNT);
         if (entry == NULL) {
             status = STATUS_INSUFFICIENT_RESOURCES;
             RxFreePool(pNetRootContext->mounts);
@@ -3766,7 +3771,7 @@ NTSTATUS nfs41_Create(
                 "ctime=%llu\n", SrvOpen, entry->u.Open.changeattr);
 #endif
             oentry = RxAllocatePoolWithTag(NonPagedPool, 
-                sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG);
+                sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG_OPEN);
             if (oentry == NULL) {
                 status = STATUS_INSUFFICIENT_RESOURCES;
                 goto out;
@@ -5546,7 +5551,7 @@ void enable_caching(
         DbgP("enable_caching: delegation recalled: srv_open=%p\n", SrvOpen);
 #endif
         oentry = RxAllocatePoolWithTag(NonPagedPool, 
-            sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG);
+            sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG_OPEN);
         if (oentry == NULL) return;
         oentry->fcb = SrvOpen->pFcb;
         oentry->session = session;
