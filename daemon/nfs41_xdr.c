@@ -2292,6 +2292,7 @@ static bool_t decode_readdir_entry(
 
     /* decode into temporaries so we can determine if there's enough
      * room in the buffer for this entry */
+    ZeroMemory(name, NFS4_OPAQUE_LIMIT);
     name_len = NFS4_OPAQUE_LIMIT;
     entry_len = (uint32_t)FIELD_OFFSET(nfs41_readdir_entry, name);
     attrs.attr_vals_len = NFS4_OPAQUE_LIMIT;
