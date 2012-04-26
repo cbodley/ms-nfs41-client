@@ -3396,7 +3396,7 @@ NTSTATUS check_nfs41_create_args(
     IN PRX_CONTEXT RxContext)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
+    PNT_CREATE_PARAMETERS params = &RxContext->Create.NtCreateParameters;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
@@ -3435,7 +3435,7 @@ NTSTATUS check_nfs41_create_args(
     }
 
     if (pVNetRootContext->read_only && 
-            (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
+            (params->DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
         status = STATUS_NETWORK_ACCESS_DENIED;
         goto out;
     }
@@ -3451,22 +3451,22 @@ NTSTATUS check_nfs41_create_args(
 
     /* ms-fsa: 3.1.5.1.2.1 page 68 */
     if (Fcb->OpenCount && nfs41_fcb->StandardInfo.DeletePending &&
-            !(params.ShareAccess & FILE_SHARE_DELETE) && 
-                (params.DesiredAccess & (FILE_EXECUTE | FILE_READ_DATA |
+            !(params->ShareAccess & FILE_SHARE_DELETE) && 
+                (params->DesiredAccess & (FILE_EXECUTE | FILE_READ_DATA |
                     FILE_WRITE_DATA | FILE_APPEND_DATA))) {
         status = STATUS_SHARING_VIOLATION;
         goto out;
     }
 
     /* rdbss seems miss this sharing_violation check */
-    if (Fcb->OpenCount && params.Disposition == FILE_SUPERSEDE) {
+    if (Fcb->OpenCount && params->Disposition == FILE_SUPERSEDE) {
         if ((!RxContext->CurrentIrpSp->FileObject->SharedRead && 
-                (params.DesiredAccess & FILE_READ_DATA)) ||
+                (params->DesiredAccess & FILE_READ_DATA)) ||
             (!RxContext->CurrentIrpSp->FileObject->SharedWrite &&
-                (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA | 
+                (params->DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA | 
                     FILE_WRITE_ATTRIBUTES)) ||
             (!RxContext->CurrentIrpSp->FileObject->SharedDelete &&
-                (params.DesiredAccess & DELETE)))) {
+                (params->DesiredAccess & DELETE)))) {
             status = STATUS_SHARING_VIOLATION;
             goto out;
         }
@@ -3476,14 +3476,14 @@ NTSTATUS check_nfs41_create_args(
         goto out;
     }
 
-    if (!areOpenParamsValid(&params)) {
+    if (!areOpenParamsValid(params)) {
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
 
     /* from ms-fsa 3.1.5.1.1 page 56 */
-    if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) &&
-            (params.FileAttributes & FILE_ATTRIBUTE_READONLY)) {
+    if ((params->CreateOptions & FILE_DELETE_ON_CLOSE) &&
+            (params->FileAttributes & FILE_ATTRIBUTE_READONLY)) {
         status = STATUS_CANNOT_DELETE;
         goto out;
     }
@@ -3497,7 +3497,7 @@ NTSTATUS check_nfs41_create_args(
                 status = STATUS_EAS_NOT_SUPPORTED;
                 goto out;
             }
-            if ((params.DesiredAccess & FILE_WRITE_EA) == 0) {
+            if ((params->DesiredAccess & FILE_WRITE_EA) == 0) {
                 status = STATUS_ACCESS_DENIED;
                 goto out;
             }
@@ -3518,7 +3518,7 @@ NTSTATUS nfs41_Create(
     nfs41_updowncall_entry *entry = NULL;
     FCB_INIT_PACKET InitPacket;
     RX_FILE_TYPE StorageType = 0;
-    NT_CREATE_PARAMETERS params = RxContext->Create.NtCreateParameters;
+    PNT_CREATE_PARAMETERS params = &RxContext->Create.NtCreateParameters;
     PFILE_FULL_EA_INFORMATION ea = (PFILE_FULL_EA_INFORMATION)
         RxContext->CurrentIrp->AssociatedIrp.SystemBuffer;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
@@ -3558,21 +3558,21 @@ NTSTATUS nfs41_Create(
     if (status) goto out;
 
     entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
-    entry->u.Open.access_mask = params.DesiredAccess;
-    entry->u.Open.access_mode = params.ShareAccess;
-    entry->u.Open.attrs = params.FileAttributes;
-    if (!(params.CreateOptions & FILE_DIRECTORY_FILE))
+    entry->u.Open.access_mask = params->DesiredAccess;
+    entry->u.Open.access_mode = params->ShareAccess;
+    entry->u.Open.attrs = params->FileAttributes;
+    if (!(params->CreateOptions & FILE_DIRECTORY_FILE))
         entry->u.Open.attrs |= FILE_ATTRIBUTE_ARCHIVE;
-    entry->u.Open.disp = params.Disposition;
-    entry->u.Open.copts = params.CreateOptions;
+    entry->u.Open.disp = params->Disposition;
+    entry->u.Open.copts = params->CreateOptions;
     /* treat the NfsActOnLink ea as FILE_OPEN_REPARSE_POINT */
     if (ea && AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength))
         entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
     entry->u.Open.srv_open = SrvOpen;
-    if (isDataAccess(params.DesiredAccess) || isOpen2Create(params.Disposition))
+    if (isDataAccess(params->DesiredAccess) || isOpen2Create(params->Disposition))
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
-    if (params.Disposition != FILE_OPEN && params.Disposition != FILE_OVERWRITE) {
+    if (params->Disposition != FILE_OPEN && params->Disposition != FILE_OVERWRITE) {
         entry->u.Open.mode = 0777;
         if (ea && AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)) {
             nfs3_attrs *attrs = (nfs3_attrs *)(ea->EaName + ea->EaNameLength + 1);
@@ -3581,7 +3581,7 @@ NTSTATUS nfs41_Create(
 #endif
             entry->u.Open.mode = attrs->mode;
         }
-        if (params.FileAttributes & FILE_ATTRIBUTE_READONLY)
+        if (params->FileAttributes & FILE_ATTRIBUTE_READONLY)
             entry->u.Open.mode = 0444;
     }
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
@@ -3684,7 +3684,7 @@ NTSTATUS nfs41_Create(
             sizeof(entry->u.Open.sinfo));
         nfs41_fcb->mode = entry->u.Open.mode;
         nfs41_fcb->changeattr = entry->u.Open.changeattr;
-        if (((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
+        if (((params->CreateOptions & FILE_DELETE_ON_CLOSE) && 
                 !pVNetRootContext->read_only) || oldDeletePending)
             nfs41_fcb->StandardInfo.DeletePending = TRUE;
 
@@ -3724,26 +3724,26 @@ NTSTATUS nfs41_Create(
 #endif
         RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
     } else if (!nfs41_fcb->StandardInfo.Directory && 
-                isDataAccess(params.DesiredAccess)) {
+                isDataAccess(params->DesiredAccess)) {
         nfs41_fobx->deleg_type = entry->u.Open.deleg_type;
 #ifdef DEBUG_OPEN
         DbgP("nfs41_Create: received delegation %d\n", entry->u.Open.deleg_type);
 #endif
-        if (!(params.CreateOptions & FILE_WRITE_THROUGH) &&
+        if (!(params->CreateOptions & FILE_WRITE_THROUGH) &&
                 !pVNetRootContext->write_thru &&
                 (entry->u.Open.deleg_type == 2 ||
-                (params.DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)))) {
+                (params->DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)))) {
 #ifdef DEBUG_OPEN
             DbgP("nfs41_Create: enabling write buffering\n");
 #endif
             SrvOpen->BufferingFlags |= 
                 (FCB_STATE_WRITECACHING_ENABLED | 
                 FCB_STATE_WRITEBUFFERING_ENABLED);
-        } else if (params.CreateOptions & FILE_WRITE_THROUGH ||
+        } else if (params->CreateOptions & FILE_WRITE_THROUGH ||
                     pVNetRootContext->write_thru)
             nfs41_fobx->write_thru = TRUE;
         if (entry->u.Open.deleg_type >= 1 ||
-                params.DesiredAccess & FILE_READ_DATA) {
+                params->DesiredAccess & FILE_READ_DATA) {
 #ifdef DEBUG_OPEN
             DbgP("nfs41_Create: enabling read buffering\n");
 #endif
@@ -3752,7 +3752,7 @@ NTSTATUS nfs41_Create(
                 FCB_STATE_READCACHING_ENABLED);
         }
         if (pVNetRootContext->nocache || 
-                (params.CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)) {
+                (params->CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING)) {
 #ifdef DEBUG_OPEN
             DbgP("nfs41_Create: disabling buffering\n");
 #endif
@@ -3779,12 +3779,12 @@ NTSTATUS nfs41_Create(
         }
     }
 
-    if ((params.CreateOptions & FILE_DELETE_ON_CLOSE) && 
+    if ((params->CreateOptions & FILE_DELETE_ON_CLOSE) && 
             !pVNetRootContext->read_only)
         nfs41_fcb->StandardInfo.DeletePending = TRUE;
 
     RxContext->Create.ReturnedCreateInformation = 
-        map_disposition_to_create_retval(params.Disposition, entry->errno);
+        map_disposition_to_create_retval(params->Disposition, entry->errno);
 
     RxContext->pFobx->OffsetOfNextEaToReturn = 1;
     RxContext->CurrentIrp->IoStatus.Information = 
@@ -3797,10 +3797,10 @@ out_free:
 out:
 #ifdef ENABLE_TIMINGS
     t2 = KeQueryPerformanceCounter(NULL);
-    if ((params.DesiredAccess & FILE_READ_DATA) ||
-            (params.DesiredAccess & FILE_WRITE_DATA) ||
-            (params.DesiredAccess & FILE_APPEND_DATA) ||
-            (params.DesiredAccess & FILE_EXECUTE)) {
+    if ((params->DesiredAccess & FILE_READ_DATA) ||
+            (params->DesiredAccess & FILE_WRITE_DATA) ||
+            (params->DesiredAccess & FILE_APPEND_DATA) ||
+            (params->DesiredAccess & FILE_EXECUTE)) {
         InterlockedIncrement(&open.tops); 
         InterlockedAdd64(&open.ticks, t2.QuadPart - t1.QuadPart);
 #ifdef ENABLE_INDV_TIMINGS
