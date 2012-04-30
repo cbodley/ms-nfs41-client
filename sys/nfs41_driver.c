@@ -2843,7 +2843,7 @@ NTSTATUS nfs41_CreateVNetRoot(
     IN OUT PMRX_CREATENETROOT_CONTEXT pCreateNetRootContext)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    NFS41_MOUNT_CONFIG Config;
+    NFS41_MOUNT_CONFIG *Config;
     __notnull PMRX_V_NET_ROOT pVNetRoot = (PMRX_V_NET_ROOT)
         pCreateNetRootContext->pVNetRoot;
     __notnull PMRX_NET_ROOT pNetRoot = pVNetRoot->pNetRoot;
@@ -2895,38 +2895,44 @@ NTSTATUS nfs41_CreateVNetRoot(
     pNetRoot->MRxNetRootState = MRX_NET_ROOT_STATE_GOOD;
     pNetRoot->DeviceType = FILE_DEVICE_DISK;
 
-    nfs41_MountConfig_InitDefaults(&Config);
+    Config = RxAllocatePoolWithTag(NonPagedPool, 
+            sizeof(NFS41_MOUNT_CONFIG), NFS41_MM_POOLTAG);
+    if (Config == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto out;
+    }
+    nfs41_MountConfig_InitDefaults(Config);
 
     if (pCreateNetRootContext->RxContext->Create.EaLength) {
         /* parse the extended attributes for mount options */
         status = nfs41_MountConfig_ParseOptions(
             pCreateNetRootContext->RxContext->Create.EaBuffer,
             pCreateNetRootContext->RxContext->Create.EaLength,
-            &Config);
+            Config);
         if (status != STATUS_SUCCESS)
-            goto out;
-        pVNetRootContext->read_only = Config.ReadOnly;
-        pVNetRootContext->write_thru = Config.write_thru;
-        pVNetRootContext->nocache = Config.nocache;        
+            goto out_free;
+        pVNetRootContext->read_only = Config->ReadOnly;
+        pVNetRootContext->write_thru = Config->write_thru;
+        pVNetRootContext->nocache = Config->nocache;        
     } else {
         /* use the SRV_CALL name (without leading \) as the hostname */
-        Config.SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
-        Config.SrvName.Length =
+        Config->SrvName.Buffer = pSrvCall->pSrvCallName->Buffer + 1;
+        Config->SrvName.Length =
             pSrvCall->pSrvCallName->Length - sizeof(WCHAR);
-        Config.SrvName.MaximumLength =
+        Config->SrvName.MaximumLength =
             pSrvCall->pSrvCallName->MaximumLength - sizeof(WCHAR);
     }
-    pVNetRootContext->timeout = Config.timeout;
+    pVNetRootContext->timeout = Config->timeout;
 
-    status = map_sec_flavor(&Config.SecFlavor, &pVNetRootContext->sec_flavor);
+    status = map_sec_flavor(&Config->SecFlavor, &pVNetRootContext->sec_flavor);
     if (status != STATUS_SUCCESS) {
-        DbgP("Invalid rpcsec security flavor %wZ\n", &Config.SecFlavor);
-        goto out;
+        DbgP("Invalid rpcsec security flavor %wZ\n", &Config->SecFlavor);
+        goto out_free;
     }
 
     status = nfs41_GetLUID(&luid);
     if (status)
-        goto out;
+        goto out_free;
 
     if (!pNetRootContext->mounts_init) {
 #ifdef DEBUG_MOUNT
@@ -2937,7 +2943,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             sizeof(nfs41_mount_list), NFS41_MM_POOLTAG_MOUNT);
         if (pNetRootContext->mounts == NULL) {
             status = STATUS_INSUFFICIENT_RESOURCES;
-            goto out;
+            goto out_free;
         }
         InitializeListHead(&pNetRootContext->mounts->head);
         pNetRootContext->mounts_init = TRUE;
@@ -2995,7 +3001,7 @@ NTSTATUS nfs41_CreateVNetRoot(
 
     if (!found_existing_mount || !found_matching_flavor) {
         /* send the mount upcall */
-        status = nfs41_mount(&Config, pVNetRootContext->sec_flavor,
+        status = nfs41_mount(Config, pVNetRootContext->sec_flavor,
             &pVNetRootContext->session, &nfs41d_version,
             &pVNetRootContext->FsAttrs);
         if (status != STATUS_SUCCESS) {
@@ -3005,9 +3011,9 @@ NTSTATUS nfs41_CreateVNetRoot(
                 pNetRootContext->mounts_init = FALSE;
                 pVNetRootContext->session = INVALID_HANDLE_VALUE;
             }
-            goto out;
+            goto out_free;
         }
-        pVNetRootContext->timeout = Config.timeout;
+        pVNetRootContext->timeout = Config->timeout;
         RtlCopyMemory(&pNetRootContext->FsAttrs, &pVNetRootContext->FsAttrs,
             sizeof(pVNetRootContext->FsAttrs));
     } 
@@ -3020,7 +3026,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         if (entry == NULL) {
             status = STATUS_INSUFFICIENT_RESOURCES;
             RxFreePool(pNetRootContext->mounts);
-            goto out;
+            goto out_free;
         }
         entry->authsys_session = entry->gss_session = 
             entry->gssi_session = entry->gssp_session = INVALID_HANDLE_VALUE;
@@ -3065,6 +3071,8 @@ NTSTATUS nfs41_CreateVNetRoot(
         &pVNetRootContext->mount_sec_ctx);
 #endif
 
+out_free:
+    RxFreePool(Config);
 out:
     pCreateNetRootContext->VirtualNetRootStatus = status;
     if (pNetRoot->Context == NULL)
