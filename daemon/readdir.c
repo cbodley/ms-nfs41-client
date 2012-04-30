@@ -459,7 +459,7 @@ static int handle_readdir(nfs41_upcall *upcall)
     bool_t eof;
     /* make sure we allocate enough space for one nfs41_readdir_entry */
     const uint32_t max_buf_len = max(args->buf_len,
-        sizeof(nfs41_readdir_entry) + NFS41_MAX_COMPONENT_SIZE);
+        sizeof(nfs41_readdir_entry) + NFS41_MAX_COMPONENT_LEN);
 
     dprintf(1, "-> handle_nfs41_dirquery(%s,%d,%d,%d)\n",
         args->filter, args->initial, args->restart, args->single);

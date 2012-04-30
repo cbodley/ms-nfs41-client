@@ -39,8 +39,6 @@
 #define NFS41_MAX_SERVER_CACHE  1024
 #define NFS41_MAX_RPC_REQS      128
 
-#define NFS41_MAX_COMPONENT_SIZE    64
-
 #define UPCALL_BUF_SIZE         2048
 
 /* MaximumComponentNameLength reported for FileFsAttributeInformation */
