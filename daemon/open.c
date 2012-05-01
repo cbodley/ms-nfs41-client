@@ -61,6 +61,7 @@ static int create_open_state(
     state->ref_count = 1;
     list_init(&state->locks.list);
     list_init(&state->client_entry);
+    InitializeCriticalSection(&state->locks.lock);
 
     *state_out = state;
     status = NO_ERROR;

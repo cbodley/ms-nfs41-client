@@ -149,6 +149,7 @@ typedef struct __nfs41_open_state {
         stateid4 stateid;
         struct list_entry list;
         uint32_t counter;
+        CRITICAL_SECTION lock;
     } locks;
 
     HANDLE srv_open; /* for data cache invalidation */

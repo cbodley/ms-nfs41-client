@@ -236,6 +236,8 @@ static int handle_lock(nfs41_upcall *upcall)
         goto out_free;
     }
 
+    EnterCriticalSection(&state->locks.lock);
+
     lock_stateid_arg(state, &stateid);
 
     status = nfs41_lock(state->session, &state->file, &state->owner,
@@ -244,11 +246,14 @@ static int handle_lock(nfs41_upcall *upcall)
         dprintf(LKLVL, "nfs41_lock failed with %s\n",
             nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
+        LeaveCriticalSection(&state->locks.lock);
         goto out_free;
     }
 
     /* save lock state with the open */
     open_lock_add(state, &stateid, lock);
+    LeaveCriticalSection(&state->locks.lock);
+
     args->acquired = TRUE; /* for cancel_lock() */
 out:
     return status;
@@ -281,12 +286,15 @@ static void cancel_lock(IN nfs41_upcall *upcall)
     if (status != ERROR_LOCKED)
         goto out;
 
+    EnterCriticalSection(&state->locks.lock);
     lock_stateid_arg(state, &stateid);
 
     status = nfs41_unlock(state->session, &state->file,
         args->offset, args->length, &stateid);
 
     open_unlock_remove(state, &stateid, &input);
+    LeaveCriticalSection(&state->locks.lock);
+
     status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
 out:
     dprintf(1, "<-- cancel_lock() returning %d\n", status);
@@ -321,8 +329,6 @@ static int handle_unlock(nfs41_upcall *upcall)
     uint32_t i;
     int status = NO_ERROR;
 
-    lock_stateid_arg(state, &stateid);
-
     for (i = 0; i < args->count; i++) {
         if (safe_read(&buf, &buf_len, &input.offset, sizeof(LONGLONG))) break;
         if (safe_read(&buf, &buf_len, &input.length, sizeof(LONGLONG))) break;
@@ -336,10 +342,15 @@ static int handle_unlock(nfs41_upcall *upcall)
         if (status != ERROR_LOCKED)
             continue;
 
+        EnterCriticalSection(&state->locks.lock);
+        lock_stateid_arg(state, &stateid);
+
         status = nfs41_unlock(state->session, &state->file,
             input.offset, input.length, &stateid);
 
         open_unlock_remove(state, &stateid, &input);
+        LeaveCriticalSection(&state->locks.lock);
+
         status = nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
     }
     return status;
