@@ -41,8 +41,8 @@ enum {
 
 #define NAME_CACHE_EXPIRATION 20 /* TODO: get from configuration */
 
-/* allow up to 128K of memory for name and attribute cache entries */
-#define NAME_CACHE_MAX_SIZE 131072
+/* allow up to 256K of memory for name and attribute cache entries */
+#define NAME_CACHE_MAX_SIZE 262144
 
 /* negative lookup caching
  *
