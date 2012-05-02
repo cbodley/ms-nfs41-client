@@ -2984,7 +2984,8 @@ NTSTATUS nfs41_CreateVNetRoot(
                         pVNetRootContext->session = existing_mount->gssp_session;
                     break;
                 }
-                if (pVNetRootContext->session)
+                if (pVNetRootContext->session && 
+                        pVNetRootContext->session != INVALID_HANDLE_VALUE)
                     found_matching_flavor = 1;
                 break;                
             }
