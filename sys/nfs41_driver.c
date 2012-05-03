@@ -3402,7 +3402,8 @@ BOOLEAN areOpenParamsValid(NT_CREATE_PARAMETERS *params)
                 params->Disposition == FILE_OVERWRITE_IF))
         return FALSE;
     if ((params->CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) &&
-            (params->DesiredAccess & FILE_APPEND_DATA))
+            (params->DesiredAccess & FILE_APPEND_DATA) &&
+            !(params->DesiredAccess & FILE_WRITE_DATA))
         return FALSE;
     /* from ms-fsa 3.1.5.1.1 page 56 */
     if ((params->CreateOptions & FILE_DIRECTORY_FILE) &&
