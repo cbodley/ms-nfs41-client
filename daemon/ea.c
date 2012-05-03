@@ -108,6 +108,8 @@ static int is_cygwin_ea(
             && sizeof("NfsSymlinkTargetName")-1 == ea->EaNameLength);
 }
 
+#define NEXT_ENTRY(ea) ((PBYTE)(ea) + (ea)->NextEntryOffset)
+
 int nfs41_ea_set(
     IN nfs41_open_state *state,
     IN PFILE_FULL_EA_INFORMATION ea)
@@ -128,7 +130,7 @@ int nfs41_ea_set(
 
         if (ea->NextEntryOffset == 0)
             break;
-        ea = (PFILE_FULL_EA_INFORMATION)((PBYTE)ea + ea->NextEntryOffset);
+        ea = (PFILE_FULL_EA_INFORMATION)NEXT_ENTRY(ea);
     }
 out:
     return status;
@@ -225,6 +227,182 @@ out:
     return status;
 }
 
+#define READDIR_LEN_INITIAL 8192
+#define READDIR_LEN_MIN 2048
+
+/* call readdir repeatedly to get a complete list of entries */
+static int read_entire_dir(
+    IN nfs41_session *session,
+    IN nfs41_path_fh *eadir,
+    OUT unsigned char **buffer_out,
+    OUT uint32_t *length_out)
+{
+    nfs41_readdir_cookie cookie = { 0 };
+    bitmap4 attr_request;
+    nfs41_readdir_entry *last_entry;
+    unsigned char *buffer;
+    uint32_t buffer_len, len, total_len;
+    bool_t eof;
+    int status = NO_ERROR;
+
+    attr_request.count = 0; /* don't request attributes */
+
+    /* allocate the buffer for readdir entries */
+    buffer_len = READDIR_LEN_INITIAL;
+    buffer = calloc(1, buffer_len);
+    if (buffer == NULL) {
+        status = GetLastError();
+        goto out;
+    }
+
+    last_entry = NULL;
+    total_len = 0;
+    eof = FALSE;
+
+    while (!eof) {
+        len = buffer_len - total_len;
+        if (len < READDIR_LEN_MIN) {
+            const ptrdiff_t diff = (unsigned char*)last_entry - buffer;
+            /* realloc the buffer to fit more entries */
+            unsigned char *tmp = realloc(buffer, buffer_len * 2);
+            if (tmp == NULL) {
+                status = GetLastError();
+                goto out_free;
+            }
+
+            if (last_entry) /* fix last_entry pointer */
+                last_entry = (nfs41_readdir_entry*)(tmp + diff);
+            buffer = tmp;
+            buffer_len *= 2;
+            len = buffer_len - total_len;
+        }
+
+        /* fetch the next group of entries */
+        status = nfs41_readdir(session, eadir, &attr_request,
+            &cookie, buffer + total_len, &len, &eof);
+        if (status)
+            goto out_free;
+
+        if (last_entry == NULL) {
+            /* initialize last_entry to the front of the list */
+            last_entry = (nfs41_readdir_entry*)(buffer + total_len);
+        } else if (len) {
+            /* link the previous list to the new one */
+            last_entry->next_entry_offset = (uint32_t)FIELD_OFFSET(
+                nfs41_readdir_entry, name) + last_entry->name_len;
+        }
+
+        /* find the new last entry */
+        while (last_entry->next_entry_offset) {
+            last_entry = (nfs41_readdir_entry*)((char*)last_entry +
+                last_entry->next_entry_offset);
+        }
+
+        cookie.cookie = last_entry->cookie;
+        total_len += len;
+    }
+
+    *buffer_out = buffer;
+    *length_out = total_len;
+out:
+    return status;
+
+out_free:
+    free(buffer);
+    goto out;
+}
+
+#define ALIGNED_EASIZE(len) (align4(sizeof(FILE_GET_EA_INFORMATION) + len))
+
+static uint32_t calculate_ea_list_length(
+    IN const unsigned char *position,
+    IN uint32_t remaining)
+{
+    const nfs41_readdir_entry *entry;
+    uint32_t length = 0;
+
+    while (remaining) {
+        entry = (const nfs41_readdir_entry*)position;
+        length += ALIGNED_EASIZE(entry->name_len);
+
+        if (!entry->next_entry_offset)
+            break;
+
+        position += entry->next_entry_offset;
+        remaining -= entry->next_entry_offset;
+    }
+    return length;
+}
+
+static void populate_ea_list(
+    IN const unsigned char *position,
+    OUT PFILE_GET_EA_INFORMATION ea_list)
+{
+    const nfs41_readdir_entry *entry;
+    PFILE_GET_EA_INFORMATION ea = ea_list, prev = NULL;
+
+    for (;;) {
+        entry = (const nfs41_readdir_entry*)position;
+        StringCchCopyA(ea->EaName, entry->name_len, entry->name);
+        ea->EaNameLength = (UCHAR)entry->name_len - 1;
+
+        if (!entry->next_entry_offset) {
+            ea->NextEntryOffset = 0;
+            break;
+        }
+
+        prev = ea;
+        ea->NextEntryOffset = ALIGNED_EASIZE(ea->EaNameLength);
+        ea = (PFILE_GET_EA_INFORMATION)NEXT_ENTRY(ea);
+        position += entry->next_entry_offset;
+    }
+}
+
+static int get_ea_list(
+    IN OUT nfs41_open_state *state,
+    IN nfs41_path_fh *eadir,
+    OUT PFILE_GET_EA_INFORMATION *ealist_out)
+{
+    unsigned char *entry_list;
+    PFILE_GET_EA_INFORMATION ea_list;
+    uint32_t entry_len, ea_size;
+    int status = NO_ERROR;
+
+    EnterCriticalSection(&state->ea.lock);
+
+    if (state->ea.list != INVALID_HANDLE_VALUE) {
+        /* use cached ea names */
+        *ealist_out = state->ea.list;
+        goto out;
+    }
+
+    /* read the entire directory into a nfs41_readdir_entry buffer */
+    status = read_entire_dir(state->session, eadir, &entry_list, &entry_len);
+    if (status)
+        goto out;
+
+    ea_size = calculate_ea_list_length(entry_list, entry_len);
+    if (ea_size == 0) {
+        *ealist_out = state->ea.list = NULL;
+        goto out_free;
+    }
+    ea_list = calloc(1, ea_size);
+    if (ea_list == NULL) {
+        status = GetLastError();
+        goto out_free;
+    }
+
+    populate_ea_list(entry_list, ea_list);
+
+    *ealist_out = state->ea.list = ea_list;
+
+out_free:
+    free(entry_list); /* allocated by read_entire_dir() */
+out:
+    LeaveCriticalSection(&state->ea.lock);
+    return status;
+}
+
 static int handle_getexattr(nfs41_upcall *upcall)
 {
     int status = 0;
@@ -249,6 +427,13 @@ static int handle_getexattr(nfs41_upcall *upcall)
             nfs_error_string(status));
         status = nfs_to_windows_error(status, ERROR_NOT_SUPPORTED);
         goto out;
+    }
+
+    if (gea == NULL) {
+        /* if no names are queried, use READDIR to list them all */
+        status = get_ea_list(state, &parent, &gea);
+        if (status)
+            goto out;
     }
 
     entry_buf = malloc(UPCALL_BUF_SIZE);

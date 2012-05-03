@@ -31,6 +31,9 @@ struct __nfs41_client;
 struct __rpc_client;
 struct __nfs41_root;
 
+struct _FILE_GET_EA_INFORMATION;
+struct _FILE_FULL_EA_INFORMATION;
+
 typedef struct __nfs41_superblock {
     nfs41_fsid fsid;
     struct list_entry entry; /* position in nfs41_server.superblocks */
@@ -151,6 +154,11 @@ typedef struct __nfs41_open_state {
         uint32_t counter;
         CRITICAL_SECTION lock;
     } locks;
+
+    struct {
+        struct _FILE_GET_EA_INFORMATION *list;
+        CRITICAL_SECTION lock;
+    } ea;
 
     HANDLE srv_open; /* for data cache invalidation */
 } nfs41_open_state;
@@ -505,7 +513,6 @@ void nfs41_open_stateid_arg(
 
 
 /* ea.c */
-struct _FILE_FULL_EA_INFORMATION;
 int nfs41_ea_set(
     IN nfs41_open_state *state,
     IN struct _FILE_FULL_EA_INFORMATION *ea);

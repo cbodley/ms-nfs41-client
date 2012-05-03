@@ -63,6 +63,9 @@ static int create_open_state(
     list_init(&state->client_entry);
     InitializeCriticalSection(&state->locks.lock);
 
+    state->ea.list = INVALID_HANDLE_VALUE;
+    InitializeCriticalSection(&state->ea.lock);
+
     *state_out = state;
     status = NO_ERROR;
 out:
@@ -83,6 +86,8 @@ static void open_state_free(
         free(list_container(entry, nfs41_lock_state, open_entry));
     if (state->delegation.state)
         nfs41_delegation_deref(state->delegation.state);
+    if (state->ea.list != INVALID_HANDLE_VALUE)
+        free(state->ea.list);
     free(state);
 }
 
