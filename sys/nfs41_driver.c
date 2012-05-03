@@ -6875,6 +6875,8 @@ unload:
         RxFreePool(upcall);
     if (downcall)
         RxFreePool(downcall);
+    if (openlist)
+        RxFreePool(openlist);
     RxUnload(drv);
 
     DbgP("driver unloaded %p\n", drv);
