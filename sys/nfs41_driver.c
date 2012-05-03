@@ -387,6 +387,7 @@ typedef struct _NFS41_V_NET_ROOT_EXTENSION {
     FILE_FS_ATTRIBUTE_INFORMATION FsAttrs;
     DWORD                   sec_flavor;
     DWORD                   timeout;
+    USHORT                  MountPathLen;
     BOOLEAN                 read_only;
     BOOLEAN                 write_thru;
     BOOLEAN                 nocache;
@@ -2977,6 +2978,7 @@ NTSTATUS nfs41_CreateVNetRoot(
         Config->SrvName.MaximumLength =
             pSrvCall->pSrvCallName->MaximumLength - sizeof(WCHAR);
     }
+    pVNetRootContext->MountPathLen = Config->MntPt.Length;
     pVNetRootContext->timeout = Config->timeout;
 
     status = map_sec_flavor(&Config->SecFlavor, &pVNetRootContext->sec_flavor);
@@ -4284,10 +4286,15 @@ static BOOLEAN is_root_directory(
 {
     __notnull PV_NET_ROOT VNetRoot = (PV_NET_ROOT)
         RxContext->pRelevantSrvOpen->pVNetRoot;
-    /* compare the FileObject name with the VNetRoot prefix to determine
-     * whether it's the root directory (allowing for added \) */
-    return RxContext->CurrentIrpSp->FileObject->FileName.Length <=
-        VNetRoot->PrefixEntry.Prefix.Length + sizeof(WCHAR);
+    __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
+        NFS41GetVNetRootExtension(RxContext->pRelevantSrvOpen->pVNetRoot);
+
+    /* calculate the root directory's length, including vnetroot prefix,
+     * mount path, and a trailing \ */
+    const USHORT RootPathLen = VNetRoot->PrefixEntry.Prefix.Length +
+            pVNetRootContext->MountPathLen + sizeof(WCHAR);
+
+    return RxContext->CurrentIrpSp->FileObject->FileName.Length <= RootPathLen;
 }
 
 NTSTATUS nfs41_QueryVolumeInformation(
