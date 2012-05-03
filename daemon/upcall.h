@@ -53,6 +53,7 @@ typedef struct __open_upcall_args {
     ULONGLONG changeattr;
     HANDLE srv_open;
     DWORD deleg_type;
+    PFILE_FULL_EA_INFORMATION ea;
     BOOLEAN created;
     BOOLEAN symlink_embedded;
 } open_upcall_args;

@@ -275,13 +275,15 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->srv_open, sizeof(HANDLE));
     if (status) goto out;
+    status = safe_read(&buffer, &length, &args->ea, sizeof(HANDLE));
+    if (status) goto out;
 
     dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
         "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
         "(kernel) disposition=%d\n\topen_owner_id=%d mode=%o "
-        "srv_open=%x\n", args->path, args->access_mask, args->access_mode, 
-        args->file_attrs, args->create_opts, args->disposition, 
-        args->open_owner_id, args->mode, args->srv_open);
+        "srv_open=%p ea=%p\n", args->path, args->access_mask, args->access_mode,
+        args->file_attrs, args->create_opts, args->disposition,
+        args->open_owner_id, args->mode, args->srv_open, args->ea);
     print_disposition(2, args->disposition);
     print_access_mask(2, args->access_mask);
     print_share_mode(2, args->access_mode);

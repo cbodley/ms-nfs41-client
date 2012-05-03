@@ -205,6 +205,8 @@ typedef struct _updowncall_entry {
             HANDLE srv_open;
             DWORD deleg_type;
             BOOLEAN symlink_embedded;
+            PMDL EaMdl;
+            PVOID EaBuffer;
         } Open;
         struct {
             PUNICODE_STRING filename;
@@ -680,7 +682,7 @@ NTSTATUS marshal_nfs41_open(
     else 
         tmp += *len;
     header_len = *len + length_as_utf8(entry->u.Open.filename) +
-        5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD) + sizeof(HANDLE);
+        5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD) + 2 * sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -705,16 +707,35 @@ NTSTATUS marshal_nfs41_open(
     RtlCopyMemory(tmp, &entry->u.Open.mode, sizeof(DWORD));
     tmp += sizeof(DWORD);
     RtlCopyMemory(tmp, &entry->u.Open.srv_open, sizeof(HANDLE));
+    tmp += sizeof(HANDLE);
+
+    __try {
+        if (entry->u.Open.EaMdl) {
+            entry->u.Open.EaBuffer =
+                MmMapLockedPagesSpecifyCache(entry->u.Open.EaMdl,
+                    UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
+            if (entry->u.Open.EaBuffer == NULL) {
+                print_error("MmMapLockedPagesSpecifyCache failed to map pages\n");
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                goto out;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        print_error("Call to MmMapLocked failed due to exception 0x%x\n", GetExceptionCode());
+        status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+    RtlCopyMemory(tmp, &entry->u.Open.EaBuffer, sizeof(HANDLE));
 
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_open: name=%wZ mask=0x%x access=0x%x attrs=0x%x "
-         "opts=0x%x dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p\n", 
-         entry->u.Open.filename, entry->u.Open.access_mask, 
-         entry->u.Open.access_mode, entry->u.Open.attrs, entry->u.Open.copts, 
+         "opts=0x%x dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p ea=%p\n",
+         entry->u.Open.filename, entry->u.Open.access_mask,
+         entry->u.Open.access_mode, entry->u.Open.attrs, entry->u.Open.copts,
          entry->u.Open.disp, entry->u.Open.open_owner_id, entry->u.Open.mode,
-         entry->u.Open.srv_open); 
+         entry->u.Open.srv_open, entry->u.Open.EaBuffer);
 #endif
 out:
     return status;
@@ -1650,6 +1671,15 @@ NTSTATUS unmarshal_nfs41_open(
 {
     NTSTATUS status = STATUS_SUCCESS;
 
+    __try {
+        if (cur->u.Open.EaBuffer)
+            MmUnmapLockedPages(cur->u.Open.EaBuffer, cur->u.Open.EaMdl);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        print_error("MmUnmapLockedPages thrown exception=0x%0x\n", GetExceptionCode());
+        status = cur->status = STATUS_ACCESS_DENIED;
+        goto out;
+    }
+
     RtlCopyMemory(&cur->u.Open.binfo, *buf, sizeof(FILE_BASIC_INFORMATION));
     *buf += sizeof(FILE_BASIC_INFORMATION);
     RtlCopyMemory(&cur->u.Open.sinfo, *buf, sizeof(FILE_STANDARD_INFORMATION));
@@ -1846,6 +1876,14 @@ NTSTATUS nfs41_downcall(
             MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, 
                     cur->u.QueryFile.mdl);
             IoFreeMdl(cur->u.QueryFile.mdl);
+            break;
+        case NFS41_OPEN:
+            if (cur->u.Open.EaMdl) {
+                MmUnmapLockedPages(cur->u.Open.EaBuffer,
+                        cur->u.Open.EaMdl);
+                IoFreeMdl(cur->u.Open.EaMdl);
+            }
+            break;
         }
         ExReleaseFastMutex(&cur->lock);
         nfs41_RemoveEntry(downcallLock, downcall, cur);
@@ -3407,6 +3445,21 @@ DWORD map_disposition_to_create_retval(
     }
 }
 
+static BOOLEAN create_should_pass_ea(
+    IN PFILE_FULL_EA_INFORMATION ea,
+    IN ULONG disposition)
+{
+    /* don't pass cygwin EAs (until we support NfsSymlinkTargetName) */
+    if (AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)
+        || AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength)
+        || AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength))
+        return FALSE;
+    /* only set EAs on file creation */
+    return disposition == FILE_SUPERSEDE || disposition == FILE_CREATE
+        || disposition == FILE_OPEN_IF || disposition == FILE_OVERWRITE
+        || disposition == FILE_OVERWRITE_IF;
+}
+
 NTSTATUS check_nfs41_create_args(
     IN PRX_CONTEXT RxContext)
 {
@@ -3512,10 +3565,6 @@ NTSTATUS check_nfs41_create_args(
                 status = STATUS_EAS_NOT_SUPPORTED;
                 goto out;
             }
-            if ((params->DesiredAccess & FILE_WRITE_EA) == 0) {
-                status = STATUS_ACCESS_DENIED;
-                goto out;
-            }
         }
     } else if (RxContext->CurrentIrpSp->Parameters.Create.EaLength) {
         status = STATUS_INVALID_PARAMETER;
@@ -3599,11 +3648,31 @@ NTSTATUS nfs41_Create(
         if (params->FileAttributes & FILE_ATTRIBUTE_READONLY)
             entry->u.Open.mode = 0444;
     }
+
+    if (ea && create_should_pass_ea(ea, params->Disposition)) {
+        /* lock the extended attribute buffer for read access in user space */
+        entry->u.Open.EaMdl = IoAllocateMdl(ea,
+            RxContext->CurrentIrpSp->Parameters.Create.EaLength,
+            FALSE, FALSE, NULL);
+        if (entry->u.Open.EaMdl == NULL) {
+            status = STATUS_INTERNAL_ERROR;
+            RxFreePool(entry);
+            goto out;
+        }
+        entry->u.Open.EaMdl->MdlFlags |= MDL_MAPPING_CAN_FAIL;
+        MmProbeAndLockPages(entry->u.Open.EaMdl, KernelMode, IoModifyAccess);
+    }
+
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
 #ifndef USE_MOUNT_SEC_CONTEXT
     SeDeleteClientSecurity(&entry->sec_ctx);
 #endif
     if (status) goto out;
+
+    if (entry->u.Open.EaMdl) {
+        MmUnlockPages(entry->u.Open.EaMdl);
+        IoFreeMdl(entry->u.Open.EaMdl);
+    }
 
     if (entry->status == NO_ERROR && entry->errno == ERROR_REPARSE) {
         /* symbolic link handling. when attempting to open a symlink when the
