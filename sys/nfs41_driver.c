@@ -291,11 +291,11 @@ typedef struct _nfs41_mount_list {
 
 #define nfs41_AddEntry(lock,pList,pEntry)                   \
             ExAcquireFastMutex(&lock);                      \
-            InsertTailList(&pList->head, &(pEntry)->next);  \
+            InsertTailList(&(pList)->head, &(pEntry)->next);\
             ExReleaseFastMutex(&lock);
 #define nfs41_RemoveFirst(lock,pList,pEntry)                \
             ExAcquireFastMutex(&lock);                      \
-            pEntry = (IsListEmpty(&pList->head)             \
+            pEntry = (IsListEmpty(&(pList)->head)           \
             ? NULL                                          \
             : RemoveHeadList(&pList->head));                \
             ExReleaseFastMutex(&lock);
@@ -318,10 +318,10 @@ typedef struct _nfs41_mount_list {
             ExReleaseFastMutex(&lock);
 #define nfs41_GetFirstMountEntry(lock,pList,pEntry)         \
             ExAcquireFastMutex(&lock);                      \
-            pEntry = (IsListEmpty(&pList->head)             \
+            pEntry = (IsListEmpty(&(pList)->head)           \
              ? NULL                                         \
              : (nfs41_mount_entry *)                        \
-               (CONTAINING_RECORD(pList->head.Flink,        \
+               (CONTAINING_RECORD((pList)->head.Flink,      \
                                   nfs41_mount_entry,        \
                                   next)));                  \
             ExReleaseFastMutex(&lock);
@@ -364,7 +364,7 @@ typedef struct _NFS41_NETROOT_EXTENSION {
     DWORD                   nfs41d_version;
     BOOLEAN                 mounts_init;
     FAST_MUTEX              mountLock;
-    nfs41_mount_list        *mounts;
+    nfs41_mount_list        mounts;
     FILE_FS_ATTRIBUTE_INFORMATION FsAttrs;
 } NFS41_NETROOT_EXTENSION, *PNFS41_NETROOT_EXTENSION;
 #define NFS41GetNetRootExtension(pNetRoot)      \
@@ -2995,19 +2995,13 @@ NTSTATUS nfs41_CreateVNetRoot(
         DbgP("Initializing mount array\n");
 #endif
         ExInitializeFastMutex(&pNetRootContext->mountLock);
-        pNetRootContext->mounts = RxAllocatePoolWithTag(NonPagedPool, 
-            sizeof(nfs41_mount_list), NFS41_MM_POOLTAG_MOUNT);
-        if (pNetRootContext->mounts == NULL) {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-            goto out_free;
-        }
-        InitializeListHead(&pNetRootContext->mounts->head);
+        InitializeListHead(&pNetRootContext->mounts.head);
         pNetRootContext->mounts_init = TRUE;
     } else {
         PLIST_ENTRY pEntry;
 
         ExAcquireFastMutex(&pNetRootContext->mountLock); 
-        pEntry = &pNetRootContext->mounts->head;
+        pEntry = &pNetRootContext->mounts.head;
         pEntry = pEntry->Flink;
         while (pEntry != NULL) {
             existing_mount = (nfs41_mount_entry *)CONTAINING_RECORD(pEntry, 
@@ -3043,9 +3037,9 @@ NTSTATUS nfs41_CreateVNetRoot(
                 if (pVNetRootContext->session && 
                         pVNetRootContext->session != INVALID_HANDLE_VALUE)
                     found_matching_flavor = 1;
-                break;                
+                break;
             }
-            if (pEntry->Flink == &pNetRootContext->mounts->head)
+            if (pEntry->Flink == &pNetRootContext->mounts.head)
                 break;
             pEntry = pEntry->Flink;
         }
@@ -3063,8 +3057,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             &pVNetRootContext->FsAttrs);
         if (status != STATUS_SUCCESS) {
             if (!found_existing_mount && 
-                    IsListEmpty(&pNetRootContext->mounts->head)) {
-                RxFreePool(pNetRootContext->mounts);
+                    IsListEmpty(&pNetRootContext->mounts.head)) {
                 pNetRootContext->mounts_init = FALSE;
                 pVNetRootContext->session = INVALID_HANDLE_VALUE;
             }
@@ -3082,7 +3075,6 @@ NTSTATUS nfs41_CreateVNetRoot(
             NFS41_MM_POOLTAG_MOUNT);
         if (entry == NULL) {
             status = STATUS_INSUFFICIENT_RESOURCES;
-            RxFreePool(pNetRootContext->mounts);
             goto out_free;
         }
         entry->authsys_session = entry->gss_session = 
@@ -3098,7 +3090,7 @@ NTSTATUS nfs41_CreateVNetRoot(
             entry->gssp_session = pVNetRootContext->session; break;
         }
         RtlCopyLuid(&entry->login_id, &luid);
-        nfs41_AddEntry(pNetRootContext->mountLock, pNetRootContext->mounts, entry);
+        nfs41_AddEntry(pNetRootContext->mountLock, &pNetRootContext->mounts, entry);
     } else if (!found_matching_flavor) {
         ASSERT(existing_mount != NULL);
         /* modify existing mount entry */
@@ -3239,8 +3231,8 @@ NTSTATUS nfs41_FinalizeNetRoot(
     }
 
     do {
-        nfs41_GetFirstMountEntry(pNetRootContext->mountLock, 
-            pNetRootContext->mounts, mount_tmp);
+        nfs41_GetFirstMountEntry(pNetRootContext->mountLock,
+            &pNetRootContext->mounts, mount_tmp);
         if (mount_tmp == NULL)
             break;
 #ifdef DEBUG_MOUNT
@@ -3274,13 +3266,12 @@ NTSTATUS nfs41_FinalizeNetRoot(
                 print_error("nfs41_unmount RPCSEC_GSS_KRB5P failed with %d\n", 
                             status);
         }
-        nfs41_RemoveEntry(pNetRootContext->mountLock, pNetRootContext->mounts, 
+        nfs41_RemoveEntry(pNetRootContext->mountLock, &pNetRootContext->mounts, 
             mount_tmp);
         RxFreePool(mount_tmp);
     } while (1);
     /* ignore any errors from unmount */
     status = STATUS_SUCCESS;
-    RxFreePool(pNetRootContext->mounts);
 
     // check if there is anything waiting in the upcall or downcall queue
     do {
