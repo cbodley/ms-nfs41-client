@@ -274,7 +274,7 @@ typedef struct _updowncall_entry {
 typedef struct _updowncall_list {
     LIST_ENTRY head;
 } nfs41_updowncall_list;
-nfs41_updowncall_list *upcall = NULL, *downcall = NULL;
+nfs41_updowncall_list upcall, downcall;
 
 typedef struct _nfs41_mount_entry {
     LIST_ENTRY next;
@@ -289,39 +289,39 @@ typedef struct _nfs41_mount_list {
     LIST_ENTRY head;
 } nfs41_mount_list;
 
-#define nfs41_AddEntry(lock,pList,pEntry)                   \
+#define nfs41_AddEntry(lock,list,pEntry)                    \
             ExAcquireFastMutex(&lock);                      \
-            InsertTailList(&(pList)->head, &(pEntry)->next);\
+            InsertTailList(&(list).head, &(pEntry)->next);  \
             ExReleaseFastMutex(&lock);
-#define nfs41_RemoveFirst(lock,pList,pEntry)                \
+#define nfs41_RemoveFirst(lock,list,pEntry)                 \
             ExAcquireFastMutex(&lock);                      \
-            pEntry = (IsListEmpty(&(pList)->head)           \
+            pEntry = (IsListEmpty(&(list).head)             \
             ? NULL                                          \
-            : RemoveHeadList(&pList->head));                \
+            : RemoveHeadList(&(list).head));                \
             ExReleaseFastMutex(&lock);
-#define nfs41_RemoveEntry(lock,pList,pEntry)                \
+#define nfs41_RemoveEntry(lock,pEntry)                      \
             ExAcquireFastMutex(&lock);                      \
             RemoveEntryList(&pEntry->next);                 \
-            ExReleaseFastMutex(&lock);                      
-#define nfs41_IsListEmpty(lock,pList,flag)                  \
-            ExAcquireFastMutex(&lock);                      \
-            *flag = IsListEmpty(&pList->head);              \
             ExReleaseFastMutex(&lock);
-#define nfs41_GetFirstEntry(lock,pList,pEntry)              \
+#define nfs41_IsListEmpty(lock,list,flag)                   \
             ExAcquireFastMutex(&lock);                      \
-            pEntry = (IsListEmpty(&pList->head)             \
+            flag = IsListEmpty(&(list).head);               \
+            ExReleaseFastMutex(&lock);
+#define nfs41_GetFirstEntry(lock,list,pEntry)               \
+            ExAcquireFastMutex(&lock);                      \
+            pEntry = (IsListEmpty(&(list).head)             \
              ? NULL                                         \
              : (nfs41_updowncall_entry *)                   \
-               (CONTAINING_RECORD(pList->head.Flink,        \
+               (CONTAINING_RECORD((list).head.Flink,        \
                                   nfs41_updowncall_entry,   \
                                   next)));                  \
             ExReleaseFastMutex(&lock);
-#define nfs41_GetFirstMountEntry(lock,pList,pEntry)         \
+#define nfs41_GetFirstMountEntry(lock,list,pEntry)          \
             ExAcquireFastMutex(&lock);                      \
-            pEntry = (IsListEmpty(&(pList)->head)           \
+            pEntry = (IsListEmpty(&(list).head)             \
              ? NULL                                         \
              : (nfs41_mount_entry *)                        \
-               (CONTAINING_RECORD((pList)->head.Flink,      \
+               (CONTAINING_RECORD((list).head.Flink,        \
                                   nfs41_mount_entry,        \
                                   next)));                  \
             ExReleaseFastMutex(&lock);
@@ -463,7 +463,7 @@ typedef struct _nfs41_fcb_list_entry {
 typedef struct _nfs41_fcb_list {
     LIST_ENTRY head;
 } nfs41_fcb_list;
-nfs41_fcb_list *openlist = NULL;
+nfs41_fcb_list openlist;
 
 typedef enum _NULMRX_STORAGE_TYPE_CODES {
     NTC_NFS41_DEVICE_EXTENSION      =   (NODE_TYPE_CODE)0xFC00,    
@@ -1543,7 +1543,7 @@ NTSTATUS nfs41_UpcallWaitForReply(
         ExReleaseFastMutex(&entry->lock);
         goto out;
     }
-    nfs41_RemoveEntry(downcallLock, downcall, entry);
+    nfs41_RemoveEntry(downcallLock, entry);
 out:
     return status;
 }
@@ -1862,7 +1862,7 @@ NTSTATUS nfs41_downcall(
     unmarshal_nfs41_header(tmp, &buf);
 
     ExAcquireFastMutex(&downcallLock); 
-    pEntry = &downcall->head;
+    pEntry = &downcall.head;
     pEntry = pEntry->Flink;
     while (pEntry != NULL) {
         cur = (nfs41_updowncall_entry *)CONTAINING_RECORD(pEntry, 
@@ -1871,7 +1871,7 @@ NTSTATUS nfs41_downcall(
             found = 1;
             break;
         }
-        if (pEntry->Flink == &downcall->head)
+        if (pEntry->Flink == &downcall.head)
             break;
         pEntry = pEntry->Flink;
     }
@@ -1905,7 +1905,7 @@ NTSTATUS nfs41_downcall(
             break;
         }
         ExReleaseFastMutex(&cur->lock);
-        nfs41_RemoveEntry(downcallLock, downcall, cur);
+        nfs41_RemoveEntry(downcallLock, cur);
         RxFreePool(cur);
         status = STATUS_UNSUCCESSFUL;
         goto out_free;
@@ -1968,7 +1968,7 @@ NTSTATUS nfs41_downcall(
                 map_readwrite_errors(cur->status);
             cur->u.ReadWrite.rxcontext->InformationToReturn = 0;
         }
-        nfs41_RemoveEntry(downcallLock, downcall, cur);
+        nfs41_RemoveEntry(downcallLock, cur);
         RxLowIoCompletion(cur->u.ReadWrite.rxcontext);
         RxFreePool(cur);
     } else
@@ -3056,10 +3056,11 @@ NTSTATUS nfs41_CreateVNetRoot(
         &pVNetRootContext->session, &nfs41d_version,
         &pVNetRootContext->FsAttrs);
     if (status != STATUS_SUCCESS) {
-        if (!found_existing_mount &&
-                IsListEmpty(&pNetRootContext->mounts.head)) {
+        BOOLEAN MountsEmpty;
+        nfs41_IsListEmpty(pNetRootContext->mountLock,
+            pNetRootContext->mounts, MountsEmpty);
+        if (!found_existing_mount && MountsEmpty)
             pNetRootContext->mounts_init = FALSE;
-        }
         pVNetRootContext->session = INVALID_HANDLE_VALUE;
         goto out_free;
     }
@@ -3087,7 +3088,8 @@ NTSTATUS nfs41_CreateVNetRoot(
             entry->gssp_session = pVNetRootContext->session; break;
         }
         RtlCopyLuid(&entry->login_id, &luid);
-        nfs41_AddEntry(pNetRootContext->mountLock, &pNetRootContext->mounts, entry);
+        nfs41_AddEntry(pNetRootContext->mountLock,
+            pNetRootContext->mounts, entry);
     } else if (!found_matching_flavor) {
         ASSERT(existing_mount != NULL);
         /* modify existing mount entry */
@@ -3227,7 +3229,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
 
     do {
         nfs41_GetFirstMountEntry(pNetRootContext->mountLock,
-            &pNetRootContext->mounts, mount_tmp);
+            pNetRootContext->mounts, mount_tmp);
         if (mount_tmp == NULL)
             break;
 #ifdef DEBUG_MOUNT
@@ -3261,8 +3263,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
                 print_error("nfs41_unmount RPCSEC_GSS_KRB5P failed with %d\n", 
                             status);
         }
-        nfs41_RemoveEntry(pNetRootContext->mountLock, &pNetRootContext->mounts, 
-            mount_tmp);
+        nfs41_RemoveEntry(pNetRootContext->mountLock, mount_tmp);
         RxFreePool(mount_tmp);
     } while (1);
     /* ignore any errors from unmount */
@@ -3273,7 +3274,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
         nfs41_GetFirstEntry(upcallLock, upcall, tmp);
         if (tmp != NULL) {
             DbgP("Removing entry from upcall list\n");
-            nfs41_RemoveEntry(upcallLock, upcall, tmp);
+            nfs41_RemoveEntry(upcallLock, tmp);
             tmp->status = STATUS_INSUFFICIENT_RESOURCES;
             KeSetEvent(&tmp->cond, 0, FALSE);
         } else
@@ -3284,7 +3285,7 @@ NTSTATUS nfs41_FinalizeNetRoot(
         nfs41_GetFirstEntry(downcallLock, downcall, tmp);
         if (tmp != NULL) {
             DbgP("Removing entry from downcall list\n");
-            nfs41_RemoveEntry(downcallLock, downcall, tmp);
+            nfs41_RemoveEntry(downcallLock, tmp);
             tmp->status = STATUS_INSUFFICIENT_RESOURCES;
             KeSetEvent(&tmp->cond, 0, FALSE);
         } else
@@ -3964,8 +3965,8 @@ VOID nfs41_remove_fcb_entry(
     nfs41_fcb_list_entry *cur;
     ExAcquireFastMutex(&fcblistLock);
 
-    pEntry = openlist->head.Flink;
-    while (!IsListEmpty(&openlist->head)) {
+    pEntry = openlist.head.Flink;
+    while (!IsListEmpty(&openlist.head)) {
         cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_fcb_list_entry, next);
         if (cur->fcb == fcb) {
@@ -3976,7 +3977,7 @@ VOID nfs41_remove_fcb_entry(
             RxFreePool(cur);
             break;
         }
-        if (pEntry->Flink == &openlist->head) {
+        if (pEntry->Flink == &openlist.head) {
 #ifdef DEBUG_CLOSE
             DbgP("nfs41_remove_srvopen_entry: reached EOL looking for fcb "
                 "%p\n", fcb);
@@ -4454,8 +4455,8 @@ VOID nfs41_update_fcb_list(
     PLIST_ENTRY pEntry;
     nfs41_fcb_list_entry *cur;
     ExAcquireFastMutex(&fcblistLock); 
-    pEntry = openlist->head.Flink;
-    while (!IsListEmpty(&openlist->head)) {
+    pEntry = openlist.head.Flink;
+    while (!IsListEmpty(&openlist.head)) {
         cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry, 
                 nfs41_fcb_list_entry, next);
         if (cur->fcb == fcb && 
@@ -4469,7 +4470,7 @@ VOID nfs41_update_fcb_list(
             break;
         }
         /* place an upcall for this srv_open */
-        if (pEntry->Flink == &openlist->head) {
+        if (pEntry->Flink == &openlist.head) {
 #if defined(DEBUG_FILE_SET) || defined(DEBUG_ACL_SET) || \
     defined(DEBUG_WRITE) || defined(DEBUG_EA_SET)
             DbgP("nfs41_update_fcb_list: reached EOL loooking for "
@@ -5637,8 +5638,8 @@ void enable_caching(
     RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
 
     ExAcquireFastMutex(&fcblistLock);
-    pEntry = openlist->head.Flink;
-    while (!IsListEmpty(&openlist->head)) {
+    pEntry = openlist.head.Flink;
+    while (!IsListEmpty(&openlist.head)) {
         cur = (nfs41_fcb_list_entry *)CONTAINING_RECORD(pEntry,
                 nfs41_fcb_list_entry, next);
         if (cur->fcb == SrvOpen->pFcb) {
@@ -5650,7 +5651,7 @@ void enable_caching(
             found = TRUE;
             break;
         }
-        if (pEntry->Flink == &openlist->head) {
+        if (pEntry->Flink == &openlist.head) {
 #ifdef DEBUG_TIME_BASED_COHERENCY
             DbgP("enable_caching: reached EOL looking for fcb=%p %wZ\n",
                 SrvOpen->pFcb, SrvOpen->pAlreadyPrefixedName);
@@ -5672,7 +5673,7 @@ void enable_caching(
         oentry->nfs41_fobx = nfs41_fobx;
         oentry->ChangeTime = ChangeTime;
         oentry->skip = FALSE;
-        InsertTailList(&openlist->head, &oentry->next);
+        InsertTailList(&openlist.head, &oentry->next);
         nfs41_fobx->deleg_type = 0;
     }
     ExReleaseFastMutex(&fcblistLock);
@@ -6644,8 +6645,8 @@ VOID fcbopen_main(PVOID ctx)
         nfs41_fcb_list_entry *cur;
         status = KeDelayExecutionThread(KernelMode, TRUE, &timeout);
         ExAcquireFastMutex(&fcblistLock);
-        pEntry = openlist->head.Flink;
-        while (!IsListEmpty(&openlist->head)) {
+        pEntry = openlist.head.Flink;
+        while (!IsListEmpty(&openlist.head)) {
             PNFS41_NETROOT_EXTENSION pNetRootContext;
             nfs41_updowncall_entry *entry;
             FILE_BASIC_INFORMATION binfo;
@@ -6714,7 +6715,7 @@ VOID fcbopen_main(PVOID ctx)
             nfs41_fcb->changeattr = entry->u.QueryFile.ChangeTime;
             RxFreePool(entry);
 out:
-            if (pEntry->Flink == &openlist->head) {
+            if (pEntry->Flink == &openlist.head) {
 #ifdef DEBUG_TIME_BASED_COHERENCY
                 DbgP("fcbopen_main: reached end of the fcb list\n");
 #endif
@@ -6788,35 +6789,14 @@ NTSTATUS DriverEntry(
     ExInitializeFastMutex(&xidLock);
     ExInitializeFastMutex(&openOwnerLock);
     ExInitializeFastMutex(&fcblistLock);
-    upcall = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_list), 
-                NFS41_MM_POOLTAG);
-    if (upcall == NULL) 
-        goto out_unregister;
-    InitializeListHead(&upcall->head);
-    downcall = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_list), 
-                NFS41_MM_POOLTAG);
-    if (downcall == NULL) {
-        RxFreePool(upcall);
-        goto out_unregister;
-    }
-    InitializeListHead(&downcall->head);
-    openlist = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_fcb_list), 
-                NFS41_MM_POOLTAG);
-    if (openlist == NULL) {
-        RxFreePool(upcall);
-        RxFreePool(downcall);
-        goto out_unregister;
-    }
-    InitializeListHead(&openlist->head);
+    InitializeListHead(&upcall.head);
+    InitializeListHead(&downcall.head);
+    InitializeListHead(&openlist.head);
     InitializeObjectAttributes(&oattrs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
     status = PsCreateSystemThread(&dev_exts->openlistHandle, mask, 
         &oattrs, NULL, NULL, &fcbopen_main, NULL);
-    if (status != STATUS_SUCCESS) {
-        RxFreePool(upcall);
-        RxFreePool(downcall);
-        RxFreePool(openlist);
-        goto out;
-    }
+    if (status != STATUS_SUCCESS)
+        goto out_unregister;
 
     drv->DriverUnload = nfs41_driver_unload;
 
@@ -6860,12 +6840,6 @@ unload:
     if (status != STATUS_SUCCESS) {
         print_error("couldn't delete pipe symbolic link\n");
     }
-    if (upcall) 
-        RxFreePool(upcall);
-    if (downcall)
-        RxFreePool(downcall);
-    if (openlist)
-        RxFreePool(openlist);
     RxUnload(drv);
 
     DbgP("driver unloaded %p\n", drv);
