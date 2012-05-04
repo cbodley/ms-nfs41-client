@@ -2619,7 +2619,7 @@ NTSTATUS nfs41_mount(
     DbgP("Server Name %wZ Mount Point %wZ SecFlavor %d\n",
         &config->SrvName, &config->MntPt, sec_flavor);
 #endif
-    status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, INVALID_HANDLE_VALUE,
+    status = nfs41_UpcallCreate(NFS41_MOUNT, NULL, *session,
         INVALID_HANDLE_VALUE, *version, &config->MntPt, &entry);
     if (status) goto out;
 
@@ -3050,23 +3050,21 @@ NTSTATUS nfs41_CreateVNetRoot(
 #endif
     }
 
-    if (!found_existing_mount || !found_matching_flavor) {
-        /* send the mount upcall */
-        status = nfs41_mount(Config, pVNetRootContext->sec_flavor,
-            &pVNetRootContext->session, &nfs41d_version,
-            &pVNetRootContext->FsAttrs);
-        if (status != STATUS_SUCCESS) {
-            if (!found_existing_mount && 
-                    IsListEmpty(&pNetRootContext->mounts.head)) {
-                pNetRootContext->mounts_init = FALSE;
-                pVNetRootContext->session = INVALID_HANDLE_VALUE;
-            }
-            goto out_free;
+    /* send the mount upcall */
+    status = nfs41_mount(Config, pVNetRootContext->sec_flavor,
+        &pVNetRootContext->session, &nfs41d_version,
+        &pVNetRootContext->FsAttrs);
+    if (status != STATUS_SUCCESS) {
+        if (!found_existing_mount &&
+                IsListEmpty(&pNetRootContext->mounts.head)) {
+            pNetRootContext->mounts_init = FALSE;
         }
-        pVNetRootContext->timeout = Config->timeout;
-        RtlCopyMemory(&pNetRootContext->FsAttrs, &pVNetRootContext->FsAttrs,
-            sizeof(pVNetRootContext->FsAttrs));
-    } 
+        pVNetRootContext->session = INVALID_HANDLE_VALUE;
+        goto out_free;
+    }
+    pVNetRootContext->timeout = Config->timeout;
+    RtlCopyMemory(&pNetRootContext->FsAttrs, &pVNetRootContext->FsAttrs,
+        sizeof(pVNetRootContext->FsAttrs));
 
     if (!found_existing_mount) {
         /* create a new mount entry and add it to the list */

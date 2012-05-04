@@ -69,17 +69,24 @@ static int handle_mount(nfs41_upcall *upcall)
         eprintf("nfs41_server_resolve() failed with %d\n", status);
         goto out;
     }
-    // create root
-    status = nfs41_root_create(args->hostname, args->sec_flavor,
-        args->wsize + WRITE_OVERHEAD, args->rsize + READ_OVERHEAD, &root);
-    if (status) {
-        eprintf("nfs41_root_create() failed %d\n", status);
-        goto out;
-    }
-    // add a mount
-    root->uid = upcall->uid;
-    root->gid = upcall->gid;
 
+    if (upcall->root_ref != INVALID_HANDLE_VALUE) {
+        /* use an existing root from a previous mount, but don't take an
+         * extra reference; we'll only get one UNMOUNT upcall for each root */
+        root = upcall->root_ref;
+    } else {
+        // create root
+        status = nfs41_root_create(args->hostname, args->sec_flavor,
+            args->wsize + WRITE_OVERHEAD, args->rsize + READ_OVERHEAD, &root);
+        if (status) {
+            eprintf("nfs41_root_create() failed %d\n", status);
+            goto out;
+        }
+        root->uid = upcall->uid;
+        root->gid = upcall->gid;
+    }
+
+    // find or create the client/session
     status = nfs41_root_mount_addrs(root, &addrs, 0, 0, &client);
     if (status) {
         eprintf("nfs41_root_mount_addrs() failed with %d\n", status);
@@ -89,7 +96,7 @@ static int handle_mount(nfs41_upcall *upcall)
     // make a copy of the path for nfs41_lookup()
     InitializeSRWLock(&path.lock);
     if (FAILED(StringCchCopyA(path.path, NFS41_MAX_PATH_LEN, args->path))) {
-        status = ERROR_BUFFER_OVERFLOW;
+        status = ERROR_FILENAME_EXCED_RANGE;
         goto out_err;
     }
     path.len = (unsigned short)strlen(path.path);
@@ -105,14 +112,16 @@ static int handle_mount(nfs41_upcall *upcall)
 
     nfs41_superblock_fs_attributes(file.fh.superblock, &args->FsAttrs);
 
+    if (upcall->root_ref == INVALID_HANDLE_VALUE)
+        nfs41_root_ref(root);
     upcall->root_ref = root;
-    nfs41_root_ref(upcall->root_ref);
     args->lease_time = client->session->lease_time;
 out:
     return status;
 
 out_err:
-    nfs41_root_deref(root);
+    if (upcall->root_ref == INVALID_HANDLE_VALUE)
+        nfs41_root_deref(root);
     goto out;
 }
 
