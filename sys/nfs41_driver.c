@@ -527,6 +527,13 @@ NTSTATUS marshall_unicode_as_utf8(
     ULONG ActualCount;
     NTSTATUS status;
 
+    if (str->Length == 0) {
+        status = STATUS_SUCCESS;
+        ActualCount = 0;
+        ansi.MaximumLength = 1;
+        goto out_copy;
+    }
+
     /* query the number of bytes required for the utf8 encoding */
     status = RtlUnicodeToUTF8N(NULL, 0xffff,
         &ActualCount, str->Buffer, str->Length);
@@ -547,6 +554,7 @@ NTSTATUS marshall_unicode_as_utf8(
         goto out;
     }
 
+out_copy:
     RtlCopyMemory(*pos, &ansi.MaximumLength, sizeof(ansi.MaximumLength));
     *pos += sizeof(ansi.MaximumLength);
     (*pos)[ActualCount] = '\0';
@@ -683,7 +691,8 @@ NTSTATUS marshal_nfs41_open(
     else 
         tmp += *len;
     header_len = *len + length_as_utf8(entry->u.Open.filename) +
-        5 * sizeof(ULONG) + sizeof(LONG) + sizeof(DWORD) + 2 * sizeof(HANDLE);
+        7 * sizeof(ULONG) + 2 * sizeof(HANDLE) +
+        length_as_utf8(&entry->u.Open.symlink);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -709,6 +718,8 @@ NTSTATUS marshal_nfs41_open(
     tmp += sizeof(DWORD);
     RtlCopyMemory(tmp, &entry->u.Open.srv_open, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
+    status = marshall_unicode_as_utf8(&tmp, &entry->u.Open.symlink);
+    if (status) goto out;
 
     __try {
         if (entry->u.Open.EaMdl) {
@@ -3408,6 +3419,7 @@ NTSTATUS map_open_errors(
     case ERROR_ACCESS_DENIED:
         if (len > 0)                    return STATUS_ACCESS_DENIED;
         else                            return STATUS_SUCCESS;
+    case ERROR_INVALID_REPARSE_DATA:
     case ERROR_INVALID_NAME:            return STATUS_OBJECT_NAME_INVALID;
     case ERROR_FILE_EXISTS:             return STATUS_OBJECT_NAME_COLLISION;
     case ERROR_FILE_INVALID:            return STATUS_FILE_INVALID;
@@ -3455,7 +3467,7 @@ static BOOLEAN create_should_pass_ea(
     IN PFILE_FULL_EA_INFORMATION ea,
     IN ULONG disposition)
 {
-    /* don't pass cygwin EAs (until we support NfsSymlinkTargetName) */
+    /* don't pass cygwin EAs */
     if (AnsiStrEq(&NfsV3Attributes, ea->EaName, ea->EaNameLength)
         || AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength)
         || AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength))
@@ -3654,7 +3666,12 @@ NTSTATUS nfs41_Create(
         if (params->FileAttributes & FILE_ATTRIBUTE_READONLY)
             entry->u.Open.mode = 0444;
     }
-
+    if (entry->u.Open.disp == FILE_CREATE && ea &&
+            AnsiStrEq(&NfsSymlinkTargetName, ea->EaName, ea->EaNameLength)) {
+        /* for a cygwin symlink, given as a unicode string */
+        entry->u.Open.symlink.Buffer = (PWCH)(ea->EaName + ea->EaNameLength + 1);
+        entry->u.Open.symlink.MaximumLength = entry->u.Open.symlink.Length = ea->EaValueLength;
+    }
     if (ea && create_should_pass_ea(ea, params->Disposition)) {
         /* lock the extended attribute buffer for read access in user space */
         entry->u.Open.EaMdl = IoAllocateMdl(ea,
@@ -6353,10 +6370,12 @@ NTSTATUS check_nfs41_getreparse_args(
         status = STATUS_INVALID_PARAMETER;
         goto out;
     }
+    /* ifs reparse tests expect STATUS_INVALID_PARAMETER,
+     * but 'dir' passes a buffer here when querying symlinks
     if (FsCtl->pInputBuffer != NULL) {
         status = STATUS_INVALID_PARAMETER;
         goto out;
-    }
+    } */
     if (!FsCtl->pOutputBuffer) {
         status = STATUS_INVALID_USER_BUFFER;
         goto out;

@@ -208,18 +208,6 @@ out:
     return status;
 }
 
-static int map_symlink_errors(int status)
-{
-    switch (status) {
-    case NFS4ERR_BADCHAR:
-    case NFS4ERR_BADNAME:       return ERROR_INVALID_REPARSE_DATA;
-    case NFS4ERR_WRONG_TYPE:    return ERROR_NOT_A_REPARSE_POINT;
-    case NFS4ERR_ACCESS:        return ERROR_ACCESS_DENIED;
-    case NFS4ERR_NOTEMPTY:      return ERROR_NOT_EMPTY;
-    default: return nfs_to_windows_error(status, ERROR_BAD_NET_RESP);
-    }
-}
-
 static int handle_symlink(nfs41_upcall *upcall)
 {
     symlink_upcall_args *args = &upcall->args.symlink;
@@ -250,7 +238,7 @@ static int handle_symlink(nfs41_upcall *upcall)
         }
 
         /* create the symlink */
-        createattrs.attrmask.count = 1;
+        createattrs.attrmask.count = 2;
         createattrs.attrmask.arr[0] = 0;
         createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE;
         createattrs.mode = 0777;

@@ -185,6 +185,7 @@ bool_t multi_addr_find(
  */
 int nfs_to_windows_error(int status, int default_error);
 
+int map_symlink_errors(int status);
 
 __inline uint32_t align8(uint32_t offset) {
     return 8 + ((offset - 1) & ~7);

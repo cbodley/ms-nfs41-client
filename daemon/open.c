@@ -256,6 +256,23 @@ static int open_or_delegate(
 }
 
 
+static int parse_abs_path(unsigned char **buffer, uint32_t *length, nfs41_abs_path *path)
+{
+    int status = safe_read(buffer, length, &path->len, sizeof(USHORT));
+    if (status) goto out;
+    if (path->len == 0)
+        goto out;
+    if (path->len >= NFS41_MAX_PATH_LEN) {
+        status = ERROR_BUFFER_OVERFLOW;
+        goto out;
+    }
+    status = safe_read(buffer, length, path->path, path->len);
+    if (status) goto out;
+    path->len--; /* subtract 1 for null */
+out:
+    return status;
+}
+
 /* NFS41_OPEN */
 static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upcall)
 {
@@ -280,15 +297,18 @@ static int parse_open(unsigned char *buffer, uint32_t length, nfs41_upcall *upca
     if (status) goto out;
     status = safe_read(&buffer, &length, &args->srv_open, sizeof(HANDLE));
     if (status) goto out;
+    status = parse_abs_path(&buffer, &length, &args->symlink);
+    if (status) goto out;
     status = safe_read(&buffer, &length, &args->ea, sizeof(HANDLE));
     if (status) goto out;
 
     dprintf(1, "parsing NFS41_OPEN: filename='%s' access mask=%d "
         "access mode=%d\n\tfile attrs=0x%x create attrs=0x%x "
         "(kernel) disposition=%d\n\topen_owner_id=%d mode=%o "
-        "srv_open=%p ea=%p\n", args->path, args->access_mask, args->access_mode,
-        args->file_attrs, args->create_opts, args->disposition,
-        args->open_owner_id, args->mode, args->srv_open, args->ea);
+        "srv_open=%p symlink=%s ea=%p\n", args->path, args->access_mask,
+        args->access_mode, args->file_attrs, args->create_opts,
+        args->disposition, args->open_owner_id, args->mode, args->srv_open,
+        args->symlink.path, args->ea);
     print_disposition(2, args->disposition);
     print_access_mask(2, args->access_mask);
     print_share_mode(2, args->access_mode);
@@ -590,6 +610,29 @@ static int handle_open(nfs41_upcall *upcall)
         state->file.fh.superblock = state->parent.fh.superblock;
 
         status = NO_ERROR;
+    } else if (args->symlink.len) {
+        /* handle cygwin symlinks */
+        nfs41_file_info createattrs;
+        createattrs.attrmask.count = 2;
+        createattrs.attrmask.arr[0] = 0;
+        createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE;
+        createattrs.mode = 0777;
+
+        dprintf(1, "creating cygwin symlink %s -> %s\n",
+            state->file.name.name, args->symlink.path);
+
+        status = nfs41_create(state->session, NF4LNK, &createattrs,
+            args->symlink.path, &state->parent, &state->file, &info);
+        if (status) {
+            eprintf("nfs41_create() for symlink=%s failed with %s\n",
+                args->symlink.path, nfs_error_string(status));
+            status = map_symlink_errors(status);
+            goto out_free_state;
+        }
+        nfs_to_basic_info(&info, &args->basic_info);
+        nfs_to_standard_info(&info, &args->std_info);
+        args->mode = info.mode;
+        args->changeattr = info.change;
     } else if (open_for_attributes(state->type, args->access_mask, 
                 args->disposition, status)) {
         if (status) {
