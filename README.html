@@ -156,6 +156,7 @@
     <li>Symbolic links are not supported in Cygwin. Connectathon's basic test8 and special test nfsidem have been commented out.</li>
     <li>Does not allow renaming a file on top of an existing open file. Connectathon's special test op_ren has been commented out.</li>
     <li>The Windows DFS client interferes with some requests, indicated by long delays during operation. To disable the DFS client, use regedit.exe to navigate to HKLM\System\CurrentControlSet\Services\Mup, and add a REG_DWORD entry named 'DisableDfs' with a value of 1. See <a href="http://support.microsoft.com/kb/171386">http://support.microsoft.com/kb/171386</a> for more information.</li>
+    <li>Extended attributes are supported with some limitations: a) the server must support <a href="https://tools.ietf.org/html/rfc5661#section-5.3" title="RFC 5661: 5.3. Named Attributes">NFS Named Attributes</a>, b) the order of listings cannot be guaranteed by NFS, and c) the EaSize field cannot be reported for directory queries of FileBothDirInformation, FileFullDirInfo, or FileIdFullDirInfo.</li>
 </ul>
 <p>Please direct any questions to <a href="mailto:ms-nfs41-client-devel@lists.sourceforge.net">ms-nfs41-client-devel@lists.sourceforge.net</a>.</p>
 </div>
