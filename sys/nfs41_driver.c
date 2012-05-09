@@ -3672,6 +3672,7 @@ NTSTATUS nfs41_Create(
         entry->u.Open.symlink.Buffer = (PWCH)(ea->EaName + ea->EaNameLength + 1);
         entry->u.Open.symlink.MaximumLength = entry->u.Open.symlink.Length = ea->EaValueLength;
     }
+retry_on_link:
     if (ea && create_should_pass_ea(ea, params->Disposition)) {
         /* lock the extended attribute buffer for read access in user space */
         entry->u.Open.EaMdl = IoAllocateMdl(ea,
@@ -3742,9 +3743,17 @@ NTSTATUS nfs41_Create(
             "FileName is '%wZ'\n", entry->u.Open.symlink_embedded,
             &AbsPath, status, &RxContext->CurrentIrpSp->FileObject->FileName);
 #endif
-        if (status == STATUS_SUCCESS)
-            status = ReparseRequired ? STATUS_REPARSE :
-                STATUS_OBJECT_PATH_NOT_FOUND;
+        if (status == STATUS_SUCCESS) {
+            /* if a reparse is not required, reopen the link itself.  this
+             * happens with operations on cygwin symlinks, where the reparse
+             * flag is not set */
+            if (!ReparseRequired) {
+                entry->u.Open.symlink.Length = 0;
+                entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
+                goto retry_on_link;
+            }
+            status = STATUS_REPARSE;
+        }
         goto out_free;
     }
 
