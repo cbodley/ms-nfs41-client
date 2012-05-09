@@ -221,8 +221,9 @@ typedef struct __nfs41_slot_table {
     uint32_t used_slots[NFS41_MAX_NUM_SLOTS];
     uint32_t max_slots;
     uint32_t highest_used;
-    HANDLE lock;
-    HANDLE cond;
+    uint32_t num_used;
+    CRITICAL_SECTION lock;
+    CONDITION_VARIABLE cond;
 } nfs41_slot_table;
 
 typedef struct __nfs41_channel_attrs {

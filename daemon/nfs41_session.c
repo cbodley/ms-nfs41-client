@@ -29,86 +29,45 @@
 #include "daemon_debug.h"
 
 
+/* predicate for nfs41_slot_table.cond */
+static int slot_table_avail(
+    IN const nfs41_slot_table *table)
+{
+    return table->num_used < table->max_slots;
+}
+
 /* session slot mechanism */
-static int init_slot_table(nfs41_slot_table *table) 
+static void init_slot_table(nfs41_slot_table *table) 
 {
-    int i, status = 0;
-
-    //initialize slot table lock
-    table->lock = CreateMutex(NULL, FALSE, NULL);
-    if (table->lock == NULL) {
-        status = GetLastError();
-        eprintf("init_slot_table: CreateMutex failed %d\n", status);
-        goto out;
-    }
-    //initialize condition variable for slots
-    table->cond = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (table->cond == NULL) {
-        status = GetLastError();
-        eprintf("init_slot_table: CreateEvent failed %d\n", status);
-        goto out_mutex;
-    }
-
+    uint32_t i;
+    EnterCriticalSection(&table->lock);
     table->max_slots = NFS41_MAX_NUM_SLOTS;
-    for(i = 0; i < NFS41_MAX_NUM_SLOTS; i++) {
+    for (i = 0; i < NFS41_MAX_NUM_SLOTS; i++) {
         table->seq_nums[i] = 1;
         table->used_slots[i] = 0;
     }
-    table->highest_used = 0;
-out:
-    return status;
-out_mutex:
-    CloseHandle(table->lock);
-    goto out;
-}
+    table->highest_used = table->num_used = 0;
 
-static int reinit_slot_table(nfs41_slot_table *table) 
-{
-    int i, status = 0;
-
-    status = WaitForSingleObject(table->lock, INFINITE);
-    if (status != WAIT_OBJECT_0) {
-        dprintf(1, "reinit_slot_table: WaitForSingleObject failed\n");
-        print_condwait_status(1, status);
-        status = ERROR_LOCK_VIOLATION;
-        goto out;
-    }
-
-    table->max_slots = NFS41_MAX_NUM_SLOTS;
-    for(i = 0; i < NFS41_MAX_NUM_SLOTS; i++) {
-        table->seq_nums[i] = 1;
-        table->used_slots[i] = 0;
-    }
-    table->highest_used = 0;
-    SetEvent(table->cond);
-    ReleaseMutex(table->lock);
-out:
-    return status;
-}
-
-static void free_slot_table(nfs41_slot_table *table)
-{
-    CloseHandle(table->lock);
-    CloseHandle(table->cond);
+    /* wake any threads waiting on a slot */
+    if (slot_table_avail(table))
+        WakeAllConditionVariable(&table->cond);
+    LeaveCriticalSection(&table->lock);
 }
 
 int nfs41_session_bump_seq(
     IN nfs41_session *session,
     IN uint32_t slotid)
 {
-    int status;
+    nfs41_slot_table *table = &session->table;
+    int status = NO_ERROR;
 
     AcquireSRWLockShared(&session->client->session_lock);
-    status = WaitForSingleObject(session->table.lock, INFINITE);
-    if (status != WAIT_OBJECT_0) {
-        dprintf(1, "nfs41_session_bump_seq: WaitForSingleObject failed\n");
-        print_condwait_status(1, status);
-        status = ERROR_LOCK_VIOLATION;
-        goto out;
-    }
-    session->table.seq_nums[slotid]++;
-    ReleaseMutex(session->table.lock);
-out:
+    EnterCriticalSection(&table->lock);
+
+    if (slotid < NFS41_MAX_NUM_SLOTS)
+        table->seq_nums[slotid]++;
+
+    LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
     return status;
 }
@@ -117,87 +76,70 @@ int nfs41_session_free_slot(
     IN nfs41_session *session,
     IN uint32_t slotid)
 {
-    int status, i;
+    nfs41_slot_table *table = &session->table;
+    int status = NO_ERROR;
 
     AcquireSRWLockShared(&session->client->session_lock);
-    status = WaitForSingleObject(session->table.lock, INFINITE);
-    if (status != WAIT_OBJECT_0) {
-        dprintf(1, "nfs41_session_free_slot: WaitForSingleObject failed\n");
-        print_condwait_status(1, status);
-        status = ERROR_LOCK_VIOLATION;
-        goto out;
+    EnterCriticalSection(&table->lock);
+
+    /* flag the slot as unused */
+    if (slotid < NFS41_MAX_NUM_SLOTS && table->used_slots[slotid]) {
+        table->used_slots[slotid] = 0;
+        table->num_used--;
     }
-    session->table.used_slots[slotid] = 0;
-    if (slotid == session->table.highest_used) {
-        session->table.highest_used = 0;
-        for (i = slotid; i > 0; i--) {
-            if (session->table.used_slots[i]) {
-                session->table.highest_used = i;
-                break;
-            }
-        }
+    /* update highest_used if necessary */
+    if (slotid == table->highest_used) {
+        while (table->highest_used && !table->used_slots[table->highest_used])
+            table->highest_used--;
     }
-    dprintf(3, "freeing slot#=%d highest=%d\n", slotid, session->table.highest_used);
-    SetEvent(session->table.cond);
-    ReleaseMutex(session->table.lock);
-out:
+    dprintf(3, "freeing slot#=%d used=%d highest=%d\n",
+        slotid, table->num_used, table->highest_used);
+
+    /* wake any threads waiting on a slot */
+    if (slot_table_avail(table))
+        WakeAllConditionVariable(&table->cond);
+
+    LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
     return status;
 }
 
 int nfs41_session_get_slot(
-    IN nfs41_session *session, 
-    OUT uint32_t *slot, 
-    OUT uint32_t *seq, 
+    IN nfs41_session *session,
+    OUT uint32_t *slot,
+    OUT uint32_t *seqid,
     OUT uint32_t *highest)
 {
-    uint32_t status = NO_ERROR;
+    nfs41_slot_table *table = &session->table;
     uint32_t i;
+    int status = NO_ERROR;
 
     AcquireSRWLockShared(&session->client->session_lock);
-look_for_slot:
-    status = WaitForSingleObject(session->table.lock, INFINITE);
-    if (status != WAIT_OBJECT_0) {
-        eprintf("nfs41_session_get_slot: WaitForSingleObject failed with %d\n", 
-            status);
-        print_condwait_status(1, status);
-        status = ERROR_LOCK_VIOLATION;
-        goto out;
+    EnterCriticalSection(&table->lock);
+
+    /* wait for an available slot */
+    while (!slot_table_avail(table))
+        SleepConditionVariableCS(&table->cond, &table->lock, INFINITE);
+
+    for (i = 0; i < table->max_slots; i++) {
+        if (table->used_slots[i])
+            continue;
+
+        table->used_slots[i] = 1;
+        table->num_used++;
+        if (i > table->highest_used)
+            table->highest_used = i;
+
+        *slot = i;
+        *seqid = table->seq_nums[i];
+        *highest = table->highest_used;
+        break;
     }
-    dprintf(3, "looking for a free slot in the slot table\n");
-    *highest = session->table.highest_used;
-    for (i = 0; i < session->table.max_slots; i++) {
-        if (!session->table.used_slots[i]) {
-            session->table.used_slots[i] = 1; // mark slot used
-            *slot = i; // return slot number
-            *seq = session->table.seq_nums[i]; // return sequence number for the slot
-            //update highest_slot_used if needed
-            if (i > session->table.highest_used) 
-                *highest = session->table.highest_used = i; 
-            break;
-        }
-    }
-    if (i == session->table.max_slots) {
-        dprintf(1, "all (%d) slots are used. waiting for a free slot\n", 
-            session->table.max_slots);
-        ReleaseMutex(session->table.lock);
-        status = WaitForSingleObject(session->table.cond, INFINITE);
-        if (status == WAIT_OBJECT_0) {
-            dprintf(1, "received a signal to look for a free slot\n");
-            ResetEvent(session->table.cond);
-            goto look_for_slot;
-        } else {
-            eprintf("nfs41_session_get_slot: WaitForSingleObject failed "
-                "with %d\n", status);
-            print_condwait_status(1, status);
-            status = ERROR_LOCK_VIOLATION;
-            goto out;
-        }
-    }        
-    ReleaseMutex(session->table.lock);
-    dprintf(2, "session %p: using slot#=%d with seq#=%d highest=%d\n", session, *slot, *seq, *highest);
-out:
+    LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
+
+    dprintf(2, "session %p: using slot#=%d with seq#=%d highest=%d\n",
+        session, *slot, *seqid, *highest);
     return status;
 }
 
@@ -243,8 +185,8 @@ static int session_alloc(
     IN nfs41_client *client,
     OUT nfs41_session **session_out)
 {
-    int status;
     nfs41_session *session;
+    int status = NO_ERROR;
 
     session = calloc(1, sizeof(nfs41_session));
     if (session == NULL) {
@@ -255,9 +197,10 @@ static int session_alloc(
     session->renew_thread = INVALID_HANDLE_VALUE;
     session->isValidState = FALSE;
 
-    status = init_slot_table(&session->table);
-    if (status)
-        goto out_err_session;
+    InitializeCriticalSection(&session->table.lock);
+    InitializeConditionVariable(&session->table.cond);
+
+    init_slot_table(&session->table);
 
     //initialize session lock
     InitializeSRWLock(&client->session_lock);
@@ -268,9 +211,6 @@ static int session_alloc(
     *session_out = session;
 out:
     return status;
-out_err_session:
-    free(session);
-    goto out;
 }
 
 int nfs41_session_create(
@@ -320,16 +260,9 @@ int nfs41_session_renew(
 
     AcquireSRWLockExclusive(&session->client->session_lock);
     session->cb_session.cb_seqnum = 0;
-    status = reinit_slot_table(&session->table);
-    if (status)
-        goto out_unlock;
+    init_slot_table(&session->table);
 
     status = nfs41_create_session(session->client, session, FALSE);
-    if (status) {
-        eprintf("nfs41_create_session failed %d\n", status);
-        goto out_unlock;
-    }
-out_unlock:
     ReleaseSRWLockExclusive(&session->client->session_lock);
     return status;
 }
@@ -380,7 +313,7 @@ void nfs41_session_free(
         session->client->rpc->is_valid_session = FALSE;
         nfs41_destroy_session(session);
     }
-    free_slot_table(&session->table);
+    DeleteCriticalSection(&session->table.lock);
     ReleaseSRWLockExclusive(&session->client->session_lock);
     free(session);
 }
