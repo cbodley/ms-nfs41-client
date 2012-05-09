@@ -347,7 +347,8 @@ void nfs41_session_free(
 
 void nfs41_session_bump_seq(
     IN nfs41_session *session,
-    IN uint32_t slotid);
+    IN uint32_t slotid,
+    IN uint32_t target_highest_slotid);
 
 void nfs41_session_free_slot(
     IN nfs41_session *session,
@@ -358,6 +359,10 @@ void nfs41_session_get_slot(
     OUT uint32_t *slot, 
     OUT uint32_t *seq, 
     OUT uint32_t *highest);
+
+int nfs41_session_recall_slot(
+    IN nfs41_session *session,
+    IN OUT uint32_t target_highest_slotid);
 
 struct __nfs41_sequence_args;
 void nfs41_session_sequence(

@@ -179,7 +179,8 @@ retry:
             if (seq->sr_resok4.sr_status_flags) 
                 print_sr_status_flags(1, seq->sr_resok4.sr_status_flags);
 
-            nfs41_session_bump_seq(session, args->sa_slotid);
+            nfs41_session_bump_seq(session, args->sa_slotid,
+                seq->sr_resok4.sr_target_highest_slotid);
 
             /* check sequence status flags for state revocation */
             if (try_recovery && seq->sr_resok4.sr_status_flags)

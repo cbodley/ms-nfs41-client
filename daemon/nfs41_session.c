@@ -54,9 +54,27 @@ static void init_slot_table(nfs41_slot_table *table)
     LeaveCriticalSection(&table->lock);
 }
 
+static void resize_slot_table(
+    IN nfs41_slot_table *table,
+    IN uint32_t target_highest_slotid)
+{
+    if (target_highest_slotid >= NFS41_MAX_NUM_SLOTS)
+        target_highest_slotid = NFS41_MAX_NUM_SLOTS - 1;
+
+    if (table->max_slots != target_highest_slotid + 1) {
+        dprintf(2, "updated max_slots %u to %u\n",
+            table->max_slots, target_highest_slotid + 1);
+        table->max_slots = target_highest_slotid + 1;
+
+        if (slot_table_avail(table))
+            WakeAllConditionVariable(&table->cond);
+    }
+}
+
 void nfs41_session_bump_seq(
     IN nfs41_session *session,
-    IN uint32_t slotid)
+    IN uint32_t slotid,
+    IN uint32_t target_highest_slotid)
 {
     nfs41_slot_table *table = &session->table;
 
@@ -65,6 +83,8 @@ void nfs41_session_bump_seq(
 
     if (slotid < NFS41_MAX_NUM_SLOTS)
         table->seq_nums[slotid]++;
+
+    resize_slot_table(table, target_highest_slotid);
 
     LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
@@ -135,6 +155,21 @@ void nfs41_session_get_slot(
 
     dprintf(2, "session %p: using slot#=%d with seq#=%d highest=%d\n",
         session, *slot, *seqid, *highest);
+}
+
+int nfs41_session_recall_slot(
+    IN nfs41_session *session,
+    IN OUT uint32_t target_highest_slotid)
+{
+    nfs41_slot_table *table = &session->table;
+
+    AcquireSRWLockShared(&session->client->session_lock);
+    EnterCriticalSection(&table->lock);
+    resize_slot_table(table, target_highest_slotid);
+    LeaveCriticalSection(&table->lock);
+    ReleaseSRWLockShared(&session->client->session_lock);
+
+    return NFS4_OK;
 }
 
 void nfs41_session_sequence(

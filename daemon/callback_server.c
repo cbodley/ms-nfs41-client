@@ -85,10 +85,12 @@ static enum_t handle_cb_layoutrecall(
 
 /* OP_CB_RECALL_SLOT */
 static enum_t handle_cb_recall_slot(
+    IN nfs41_rpc_clnt *rpc_clnt,
     IN struct cb_recall_slot_args *args,
     OUT struct cb_recall_slot_res *res)
 {
-    res->status = NFS4_OK;
+    res->status = nfs41_session_recall_slot(rpc_clnt->client->session,
+        args->target_highest_slotid);
 
     dprintf(CBSLVL, "  OP_CB_RECALL_SLOT { %u } %s\n",
         args->target_highest_slotid, nfs_error_string(res->status));
@@ -425,8 +427,8 @@ static void handle_cb_compound(nfs41_rpc_clnt *rpc_clnt, cb_req *req, struct cb_
             break;
         case OP_CB_RECALL_SLOT:
             dprintf(1, "OP_CB_RECALL_SLOT\n");
-            res->status = handle_cb_recall_slot(&argop->args.recall_slot,
-                &resop->res.recall_slot);
+            res->status = handle_cb_recall_slot(rpc_clnt,
+                &argop->args.recall_slot, &resop->res.recall_slot);
             break;
         case OP_CB_SEQUENCE:
             dprintf(1, "OP_CB_SEQUENCE\n");
