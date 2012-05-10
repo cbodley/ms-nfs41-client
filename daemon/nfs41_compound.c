@@ -159,10 +159,10 @@ retry:
             (nfs41_sequence_res *)compound->res.resarray[0].res;
         if (seq->sr_status == NFS4_OK) {
             // returned slotid must be the same we sent
-            status = NFS4ERR_IO;
             if (seq->sr_resok4.sr_slotid != args->sa_slotid) {
                 eprintf("[session] sr_slotid=%d != sa_slotid=%d\n",
                     seq->sr_resok4.sr_slotid, args->sa_slotid);
+                status = NFS4ERR_IO;
                 goto out_free_slot;
             }
             // returned sessionid must be the same we sent
@@ -173,14 +173,13 @@ retry:
                     seq->sr_resok4.sr_sessionid, NFS4_SESSIONID_SIZE);
                 print_hexbuf(1, (unsigned char *)"sa_sessionid", 
                     args->sa_sessionid, NFS4_SESSIONID_SIZE);
+                status = NFS4ERR_IO;
                 goto out_free_slot;
             }
             if (seq->sr_resok4.sr_status_flags) 
                 print_sr_status_flags(1, seq->sr_resok4.sr_status_flags);
 
-            status = nfs41_session_bump_seq(session, args->sa_slotid);
-            if (status)
-                goto out_free_slot;
+            nfs41_session_bump_seq(session, args->sa_slotid);
 
             /* check sequence status flags for state revocation */
             if (try_recovery && seq->sr_resok4.sr_status_flags)
@@ -444,11 +443,8 @@ out:
     return status;
 
 do_retry:
-    if (compound->res.resarray[0].op == OP_SEQUENCE) {
-        status = nfs41_session_get_slot(session, &args->sa_slotid, 
+    if (compound->res.resarray[0].op == OP_SEQUENCE)
+        nfs41_session_get_slot(session, &args->sa_slotid,
             &args->sa_sequenceid, &args->sa_highest_slotid);
-        if (status)
-            goto out;
-    }
     goto retry;
 }

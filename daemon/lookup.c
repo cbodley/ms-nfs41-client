@@ -120,9 +120,7 @@ static int lookup_rpc(
     compound_init(&compound, argops, resops, "lookup");
 
     compound_add_op(&compound, OP_SEQUENCE, &args->sequence, &res->sequence);
-    status = nfs41_session_sequence(&args->sequence, session, 0);
-    if (status)
-        goto out;
+    nfs41_session_sequence(&args->sequence, session, 0);
 
     if (dir == &res->root) {
         compound_add_op(&compound, OP_PUTROOTFH, NULL, &res->putfh);

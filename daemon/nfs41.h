@@ -345,22 +345,22 @@ int nfs41_session_set_lease(
 void nfs41_session_free(
     IN nfs41_session *session);
 
-int nfs41_session_bump_seq(
+void nfs41_session_bump_seq(
     IN nfs41_session *session,
     IN uint32_t slotid);
 
-int nfs41_session_free_slot(
+void nfs41_session_free_slot(
     IN nfs41_session *session,
     IN uint32_t slotid);
 
-int nfs41_session_get_slot(
+void nfs41_session_get_slot(
     IN nfs41_session *session, 
     OUT uint32_t *slot, 
     OUT uint32_t *seq, 
     OUT uint32_t *highest);
 
 struct __nfs41_sequence_args;
-int nfs41_session_sequence(
+void nfs41_session_sequence(
     struct __nfs41_sequence_args *args,
     nfs41_session *session,
     bool_t cachethis);

@@ -54,12 +54,11 @@ static void init_slot_table(nfs41_slot_table *table)
     LeaveCriticalSection(&table->lock);
 }
 
-int nfs41_session_bump_seq(
+void nfs41_session_bump_seq(
     IN nfs41_session *session,
     IN uint32_t slotid)
 {
     nfs41_slot_table *table = &session->table;
-    int status = NO_ERROR;
 
     AcquireSRWLockShared(&session->client->session_lock);
     EnterCriticalSection(&table->lock);
@@ -69,15 +68,13 @@ int nfs41_session_bump_seq(
 
     LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
-    return status;
 }
 
-int nfs41_session_free_slot(
+void nfs41_session_free_slot(
     IN nfs41_session *session,
     IN uint32_t slotid)
 {
     nfs41_slot_table *table = &session->table;
-    int status = NO_ERROR;
 
     AcquireSRWLockShared(&session->client->session_lock);
     EnterCriticalSection(&table->lock);
@@ -101,10 +98,9 @@ int nfs41_session_free_slot(
 
     LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
-    return status;
 }
 
-int nfs41_session_get_slot(
+void nfs41_session_get_slot(
     IN nfs41_session *session,
     OUT uint32_t *slot,
     OUT uint32_t *seqid,
@@ -112,7 +108,6 @@ int nfs41_session_get_slot(
 {
     nfs41_slot_table *table = &session->table;
     uint32_t i;
-    int status = NO_ERROR;
 
     AcquireSRWLockShared(&session->client->session_lock);
     EnterCriticalSection(&table->lock);
@@ -140,24 +135,17 @@ int nfs41_session_get_slot(
 
     dprintf(2, "session %p: using slot#=%d with seq#=%d highest=%d\n",
         session, *slot, *seqid, *highest);
-    return status;
 }
 
-int nfs41_session_sequence(
+void nfs41_session_sequence(
     nfs41_sequence_args *args,
     nfs41_session *session,
     bool_t cachethis)
 {
-    uint32_t status = NO_ERROR;
-
-    status = nfs41_session_get_slot(session, &args->sa_slotid, 
+    nfs41_session_get_slot(session, &args->sa_slotid, 
         &args->sa_sequenceid, &args->sa_highest_slotid);
-    if (status)
-        goto out;
     args->sa_sessionid = session->session_id;
     args->sa_cachethis = cachethis;
-out:
-    return status;
 }
 
 
