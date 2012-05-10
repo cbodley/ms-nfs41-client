@@ -370,6 +370,10 @@ void nfs41_session_sequence(
     nfs41_session *session,
     bool_t cachethis);
 
+int nfs41_session_bad_slot(
+    IN nfs41_session *session,
+    IN OUT struct __nfs41_sequence_args *args);
+
 
 /* nfs41_server.c */
 void nfs41_server_list_init();

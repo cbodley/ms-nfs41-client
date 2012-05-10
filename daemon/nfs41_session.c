@@ -172,6 +172,33 @@ int nfs41_session_recall_slot(
     return NFS4_OK;
 }
 
+int nfs41_session_bad_slot(
+    IN nfs41_session *session,
+    IN OUT nfs41_sequence_args *args)
+{
+    nfs41_slot_table *table = &session->table;
+    int status = NFS4ERR_BADSLOT;
+
+    if (args->sa_slotid == 0) {
+        eprintf("server bug detected: NFS4ERR_BADSLOT for slotid=0\n");
+        goto out;
+    }
+
+    /* avoid using any slots >= bad_slotid */
+    EnterCriticalSection(&table->lock);
+    if (table->max_slots > args->sa_slotid)
+        resize_slot_table(table, args->sa_slotid);
+    LeaveCriticalSection(&table->lock);
+
+    /* get a new slot */
+    nfs41_session_free_slot(session, args->sa_slotid);
+    nfs41_session_get_slot(session, &args->sa_slotid,
+        &args->sa_sequenceid, &args->sa_highest_slotid);
+    status = NFS4_OK;
+out:
+    return status;
+}
+
 void nfs41_session_sequence(
     nfs41_sequence_args *args,
     nfs41_session *session,

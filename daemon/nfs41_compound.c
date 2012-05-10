@@ -254,6 +254,12 @@ retry:
             goto do_retry;
         goto out;
 
+    case NFS4ERR_BADSLOT:
+        /* free the slot and retry with a new one */
+        if (op1 != OP_SEQUENCE || nfs41_session_bad_slot(session, args))
+            goto out;
+        goto retry;
+
     case NFS4ERR_GRACE:
     case NFS4ERR_DELAY:
 #define RETRY_INDEFINITELY
