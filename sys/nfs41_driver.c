@@ -3805,16 +3805,24 @@ NTSTATUS nfs41_Create(
     print_std_info(1, &nfs41_fcb->StandardInfo);
 #endif
 
-    if (Fcb->OpenCount > 0 && 
-            nfs41_fcb->changeattr != entry->u.Open.changeattr && 
+    /* aglo: 05/10/2012. it seems like always have to invalid the cache if the
+     * file has been opened before and being opened again for data access. 
+     * If the file was opened before, RDBSS might have cached (unflushed) data
+     * and by opening it again, we will not have the correct representation of
+     * the file size and data content. fileio tests 208, 219, 221.
+     */
+    if (Fcb->OpenCount > 0 && (isDataAccess(params->DesiredAccess) || 
+            nfs41_fcb->changeattr != entry->u.Open.changeattr) && 
                 !nfs41_fcb->StandardInfo.Directory) {
         ULONG flag = DISABLE_CACHING;
 #ifdef DEBUG_OPEN
-        DbgP("nfs41_Create: reopening (changed) file %wZ\n", SrvOpen->pAlreadyPrefixedName);
+        DbgP("nfs41_Create: reopening (changed) file %wZ\n", 
+            SrvOpen->pAlreadyPrefixedName);
 #endif
         RxChangeBufferingState((PSRV_OPEN)SrvOpen, ULongToPtr(flag), 1);
-    } else if (!nfs41_fcb->StandardInfo.Directory && 
-                isDataAccess(params->DesiredAccess)) {
+    } 
+    if (!nfs41_fcb->StandardInfo.Directory && 
+            isDataAccess(params->DesiredAccess)) {
         nfs41_fobx->deleg_type = entry->u.Open.deleg_type;
 #ifdef DEBUG_OPEN
         DbgP("nfs41_Create: received delegation %d\n", entry->u.Open.deleg_type);
