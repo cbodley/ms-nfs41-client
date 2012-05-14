@@ -3650,6 +3650,8 @@ NTSTATUS nfs41_Create(
     /* treat the NfsActOnLink ea as FILE_OPEN_REPARSE_POINT */
     if (ea && AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength))
         entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
+    if (entry->u.Open.access_mask & DELETE)
+        entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
     entry->u.Open.srv_open = SrvOpen;
     if (isDataAccess(params->DesiredAccess) || isOpen2Create(params->Disposition))
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
