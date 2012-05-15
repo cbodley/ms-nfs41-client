@@ -4746,8 +4746,28 @@ static NTSTATUS QueryCygwinEA(
         goto out;
 
     if (AnsiStrEq(&NfsSymlinkTargetName, query->EaName, query->EaNameLength)) {
-        status = QueryCygwinSymlink(RxContext, query, info);
-        goto out;
+        __notnull PNFS41_FCB nfs41_fcb = NFS41GetFcbExtension(RxContext->pFcb);
+        if (nfs41_fcb->BasicInfo.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+            status = QueryCygwinSymlink(RxContext, query, info);
+            goto out;
+        } else {
+            const LONG LengthRequired = sizeof(FILE_FULL_EA_INFORMATION) +
+                NfsSymlinkTargetName.Length - sizeof(CHAR);
+            if (LengthRequired > RxContext->Info.LengthRemaining) {
+                status = STATUS_BUFFER_TOO_SMALL;
+                RxContext->InformationToReturn = LengthRequired;
+                goto out;
+            }
+            info->NextEntryOffset = 0;
+            info->Flags = 0;
+            info->EaValueLength = 0;
+            info->EaNameLength = (UCHAR)NfsActOnLink.Length;
+            RtlCopyMemory(info->EaName, NfsSymlinkTargetName.Buffer, 
+                NfsSymlinkTargetName.Length);
+            RxContext->Info.LengthRemaining = LengthRequired;
+            status = STATUS_SUCCESS;
+            goto out;
+        }
     }
 
     if (AnsiStrEq(&NfsV3Attributes, query->EaName, query->EaNameLength)) {
