@@ -191,7 +191,6 @@ typedef struct _updowncall_entry {
         struct {
             FILE_BASIC_INFORMATION binfo;
             FILE_STANDARD_INFORMATION sinfo;
-            PUNICODE_STRING filename;
             UNICODE_STRING symlink;
             ULONG access_mask;
             ULONG access_mode;
@@ -209,7 +208,6 @@ typedef struct _updowncall_entry {
             PVOID EaBuffer;
         } Open;
         struct {
-            PUNICODE_STRING filename;
             HANDLE srv_open;
             BOOLEAN remove;
             BOOLEAN renamed;
@@ -227,21 +225,18 @@ typedef struct _updowncall_entry {
             ULONGLONG ChangeTime;
         } QueryFile;
         struct {
-            PUNICODE_STRING filename;
             PVOID buf;
             ULONG buf_len;
             FILE_INFORMATION_CLASS InfoClass;
             ULONGLONG ChangeTime;
         } SetFile;
         struct {
-            PUNICODE_STRING filename;
             PVOID buf;
             ULONG buf_len;
             DWORD mode;
             ULONGLONG ChangeTime;
         } SetEa;
         struct {
-            PUNICODE_STRING filename;
             PVOID buf;
             ULONG buf_len;
             PVOID EaList;
@@ -252,7 +247,6 @@ typedef struct _updowncall_entry {
             BOOLEAN RestartScan;
         } QueryEa;
         struct {
-            PUNICODE_STRING filename;
             PUNICODE_STRING target;
             BOOLEAN set;
         } Symlink;
@@ -628,10 +622,9 @@ NTSTATUS marshal_nfs41_mount(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
+
     /* 03/25/2011: Kernel crash to nfsd not running but mount upcall cued up */
     if (!MmIsAddressValid(entry->u.Mount.srv_name) || 
             !MmIsAddressValid(entry->u.Mount.root)) {
@@ -686,18 +679,17 @@ NTSTATUS marshal_nfs41_open(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
-    header_len = *len + length_as_utf8(entry->u.Open.filename) +
+    if (status) goto out;
+    else tmp += *len;
+
+    header_len = *len + length_as_utf8(entry->filename) +
         7 * sizeof(ULONG) + 2 * sizeof(HANDLE) +
         length_as_utf8(&entry->u.Open.symlink);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    status = marshall_unicode_as_utf8(&tmp, entry->u.Open.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.Open.access_mask, 
         sizeof(entry->u.Open.access_mask));
@@ -738,13 +730,12 @@ NTSTATUS marshal_nfs41_open(
         goto out;
     }
     RtlCopyMemory(tmp, &entry->u.Open.EaBuffer, sizeof(HANDLE));
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_open: name=%wZ mask=0x%x access=0x%x attrs=0x%x "
          "opts=0x%x dispo=0x%x open_owner_id=0x%x mode=%o srv_open=%p ea=%p\n",
-         entry->u.Open.filename, entry->u.Open.access_mask,
+         entry->filename, entry->u.Open.access_mask,
          entry->u.Open.access_mode, entry->u.Open.attrs, entry->u.Open.copts,
          entry->u.Open.disp, entry->u.Open.open_owner_id, entry->u.Open.mode,
          entry->u.Open.srv_open, entry->u.Open.EaBuffer);
@@ -764,10 +755,9 @@ NTSTATUS marshal_nfs41_rw(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
+
     header_len = *len + sizeof(entry->u.ReadWrite.len) +
         sizeof(entry->u.ReadWrite.offset) + sizeof(HANDLE);
     if (header_len > buf_len) { 
@@ -798,7 +788,6 @@ NTSTATUS marshal_nfs41_rw(
         goto out;
     }
     RtlCopyMemory(tmp, &entry->u.ReadWrite.buf, sizeof(HANDLE));
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
@@ -821,10 +810,8 @@ NTSTATUS marshal_nfs41_lock(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
 
     header_len = *len + 2 * sizeof(LONGLONG) + 2 * sizeof(BOOLEAN);
     if (header_len > buf_len) { 
@@ -838,8 +825,6 @@ NTSTATUS marshal_nfs41_lock(
     RtlCopyMemory(tmp, &entry->u.Lock.exclusive, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.Lock.blocking, sizeof(BOOLEAN));
-    tmp += sizeof(BOOLEAN);
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
@@ -863,10 +848,8 @@ NTSTATUS marshal_nfs41_unlock(
     PLOWIO_LOCK_LIST lock;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
 
     header_len = *len + sizeof(ULONG) + 
         entry->u.Unlock.count * 2 * sizeof(LONGLONG);
@@ -885,7 +868,6 @@ NTSTATUS marshal_nfs41_unlock(
         tmp += sizeof(LONGLONG);
         lock = lock->Next;
     }
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
@@ -906,15 +888,12 @@ NTSTATUS marshal_nfs41_close(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
-
+    if (status) goto out;
+    else tmp += *len;
 
     header_len = *len + sizeof(BOOLEAN) + sizeof(HANDLE);
     if (entry->u.Close.remove)
-        header_len += length_as_utf8(entry->u.Close.filename) +
+        header_len += length_as_utf8(entry->filename) +
             sizeof(BOOLEAN);
 
     if (header_len > buf_len) { 
@@ -926,16 +905,15 @@ NTSTATUS marshal_nfs41_close(
     RtlCopyMemory(tmp, &entry->u.Close.srv_open, sizeof(HANDLE));
     if (entry->u.Close.remove) {
         tmp += sizeof(HANDLE);
-        status = marshall_unicode_as_utf8(&tmp, entry->u.Close.filename);
+        status = marshall_unicode_as_utf8(&tmp, entry->filename);
         if (status) goto out;
         RtlCopyMemory(tmp, &entry->u.Close.renamed, sizeof(BOOLEAN));
     }
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_close: name=%wZ remove=%d srv_open=%p renamed=%d\n", 
-        entry->u.Close.filename->Length?entry->u.Close.filename:&SLASH, 
+        entry->filename->Length?entry->filename:&SLASH, 
         entry->u.Close.remove, entry->u.Close.srv_open, entry->u.Close.renamed);
 #endif
 out:
@@ -953,10 +931,8 @@ NTSTATUS marshal_nfs41_dirquery(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
 
     header_len = *len + 2 * sizeof(ULONG) + sizeof(HANDLE) +
         length_as_utf8(entry->u.QueryFile.filter) + 3 * sizeof(BOOLEAN);
@@ -1018,10 +994,9 @@ NTSTATUS marshal_nfs41_filequery(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
+
     header_len = *len + 2 * sizeof(ULONG);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1034,7 +1009,6 @@ NTSTATUS marshal_nfs41_filequery(
     RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
     RtlCopyMemory(tmp, &entry->open_state, sizeof(HANDLE));
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
@@ -1055,32 +1029,27 @@ NTSTATUS marshal_nfs41_fileset(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
-    header_len = *len + length_as_utf8(entry->u.SetFile.filename) +
+    if (status) goto out;
+    else tmp += *len;
+
+    header_len = *len + length_as_utf8(entry->filename) +
         2 * sizeof(ULONG) + entry->u.SetFile.buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    status = marshall_unicode_as_utf8(&tmp, entry->u.SetFile.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetFile.InfoClass, sizeof(ULONG));
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.SetFile.buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, entry->u.SetFile.buf, entry->u.SetFile.buf_len);
-    tmp += entry->u.SetFile.buf_len;
-
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_fileset: filename='%wZ' class=%d\n",
-        entry->u.SetFile.filename, entry->u.SetFile.InfoClass);
-    print_hexbuf(0, (unsigned char *)"setfile buffer", entry->u.SetFile.buf,
-        entry->u.SetFile.buf_len);
+        entry->filename, entry->u.SetFile.InfoClass);
 #endif
 out:
     return status;
@@ -1097,30 +1066,28 @@ NTSTATUS marshal_nfs41_easet(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
-    header_len = *len + length_as_utf8(entry->u.SetEa.filename) + 
+    if (status) goto out;
+    else tmp += *len;
+
+    header_len = *len + length_as_utf8(entry->filename) + 
         sizeof(ULONG) + entry->u.SetEa.buf_len  + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    status = marshall_unicode_as_utf8(&tmp, entry->u.SetEa.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetEa.mode, sizeof(DWORD));
     tmp += sizeof(DWORD);
     RtlCopyMemory(tmp, &entry->u.SetEa.buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, entry->u.SetEa.buf, entry->u.SetEa.buf_len);
-    
+    RtlCopyMemory(tmp, entry->u.SetEa.buf, entry->u.SetEa.buf_len);    
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_easet: filename=%wZ, buflen=%d mode=0x%x\n", 
-        entry->u.SetEa.filename, entry->u.SetEa.buf_len, entry->u.SetEa.mode);
+        entry->filename, entry->u.SetEa.buf_len, entry->u.SetEa.mode);
 #endif
 out:
     return status;
@@ -1137,11 +1104,10 @@ NTSTATUS marshal_nfs41_eaget(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else
-        tmp += *len;
-    header_len = *len + length_as_utf8(entry->u.QueryEa.filename) + 
+    if (status) goto out;
+    else tmp += *len;
+
+    header_len = *len + length_as_utf8(entry->filename) + 
         3 * sizeof(ULONG) + entry->u.QueryEa.EaListLength + 2 * sizeof(BOOLEAN);
 
     if (header_len > buf_len) { 
@@ -1149,7 +1115,7 @@ NTSTATUS marshal_nfs41_eaget(
         goto out;
     }
 
-    status = marshall_unicode_as_utf8(&tmp, entry->u.QueryEa.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->filename);
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.QueryEa.EaIndex, sizeof(ULONG));
     tmp += sizeof(ULONG);
@@ -1164,12 +1130,11 @@ NTSTATUS marshal_nfs41_eaget(
     if (entry->u.QueryEa.EaList && entry->u.QueryEa.EaListLength)
         RtlCopyMemory(tmp, entry->u.QueryEa.EaList,
             entry->u.QueryEa.EaListLength);
-
     *len = header_len; 
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_eaget: filename=%wZ, index=%d list_len=%d "
-        "rescan=%d single=%d\n", entry->u.QueryEa.filename, 
+        "rescan=%d single=%d\n", entry->filename, 
         entry->u.QueryEa.EaIndex, entry->u.QueryEa.EaListLength, 
         entry->u.QueryEa.RestartScan, entry->u.QueryEa.ReturnSingleEntry);
 #endif
@@ -1188,12 +1153,10 @@ NTSTATUS marshal_nfs41_symlink(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
-    header_len = *len + sizeof(BOOLEAN) +
-        length_as_utf8(entry->u.Symlink.filename);
+    if (status) goto out;
+    else tmp += *len;
+
+    header_len = *len + sizeof(BOOLEAN) + length_as_utf8(entry->filename);
     if (entry->u.Symlink.set)
         header_len += length_as_utf8(entry->u.Symlink.target);
     if (header_len > buf_len) { 
@@ -1201,17 +1164,19 @@ NTSTATUS marshal_nfs41_symlink(
         goto out;
     }
 
-    marshall_unicode_as_utf8(&tmp, entry->u.Symlink.filename);
+    status = marshall_unicode_as_utf8(&tmp, entry->filename);
+    if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.Symlink.set, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
-    if (entry->u.Symlink.set)
-        marshall_unicode_as_utf8(&tmp, entry->u.Symlink.target);
-
+    if (entry->u.Symlink.set) {
+        status = marshall_unicode_as_utf8(&tmp, entry->u.Symlink.target);
+        if (status) goto out;
+    }
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_symlink: name %wZ symlink target %wZ\n", 
-         entry->u.Symlink.filename, 
+         entry->filename, 
          entry->u.Symlink.set?entry->u.Symlink.target : NULL);
 #endif
 out:
@@ -1229,10 +1194,9 @@ NTSTATUS marshal_nfs41_volume(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
+
     header_len = *len + sizeof(FS_INFORMATION_CLASS);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1260,10 +1224,9 @@ NTSTATUS marshal_nfs41_getacl(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
+
     header_len = *len + sizeof(SECURITY_INFORMATION);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1291,10 +1254,9 @@ NTSTATUS marshal_nfs41_setacl(
     unsigned char *tmp = buf;
 
     status = marshal_nfs41_header(entry, tmp, buf_len, len);
-    if (status == STATUS_INSUFFICIENT_RESOURCES) 
-        goto out;
-    else 
-        tmp += *len;
+    if (status) goto out;
+    else tmp += *len;
+
     header_len = *len + sizeof(SECURITY_INFORMATION) +
         sizeof(ULONG) + entry->u.Acl.buf_len;
     if (header_len > buf_len) { 
@@ -1326,17 +1288,15 @@ NTSTATUS marshal_nfs41_shutdown(
     return marshal_nfs41_header(entry, buf, buf_len, len);
 }
 
-NTSTATUS nfs41_invalidate_cache (
+void nfs41_invalidate_cache (
     IN PRX_CONTEXT RxContext)
 {
-    NTSTATUS status = STATUS_SUCCESS;
     PLOWIO_CONTEXT LowIoContext = &RxContext->LowIoContext;
     unsigned char *buf = LowIoContext->ParamsFor.IoCtl.pInputBuffer;
     ULONG flag = DISABLE_CACHING;
     PMRX_SRV_OPEN srv_open;
 
     RtlCopyMemory(&srv_open, buf, sizeof(HANDLE));
-
 #ifdef DEBUG_INVALIDATE_CACHE
     DbgP("nfs41_invalidate_cache: received srv_open=%p %wZ\n", 
         srv_open, srv_open->pAlreadyPrefixedName);
@@ -1345,7 +1305,6 @@ NTSTATUS nfs41_invalidate_cache (
         RxIndicateChangeOfBufferingStateForSrvOpen(
             srv_open->pFcb->pNetRoot->pSrvCall, srv_open,
             srv_open->Key, ULongToPtr(flag));
-    return status;
 }
 
 NTSTATUS handle_upcall(
@@ -1806,7 +1765,8 @@ void unmarshal_nfs41_getattr(
     RtlCopyMemory(&cur->u.QueryFile.ChangeTime, *buf, sizeof(LONGLONG));
 #ifdef DEBUG_MARSHAL_DETAIL
     if (cur->u.QueryFile.InfoClass == FileBasicInformation)
-        DbgP("[unmarshal_nfs41_getattr] ChangeTime %llu\n", cur->u.QueryFile.ChangeTime);
+        DbgP("[unmarshal_nfs41_getattr] ChangeTime %llu\n", 
+            cur->u.QueryFile.ChangeTime);
 #endif
 }
 
@@ -1838,8 +1798,8 @@ void unmarshal_nfs41_symlink(
     nfs41_updowncall_entry *cur,
     unsigned char **buf)
 {
-    if (cur->u.Symlink.set)
-        return;
+    if (cur->u.Symlink.set) return;
+
     RtlCopyMemory(&cur->u.Symlink.target->Length, *buf, sizeof(USHORT));
     *buf += sizeof(USHORT);
     if (cur->u.Symlink.target->Length > 
@@ -1867,8 +1827,7 @@ NTSTATUS nfs41_downcall(
 
     tmp = RxAllocatePoolWithTag(NonPagedPool, sizeof(nfs41_updowncall_entry), 
             NFS41_MM_POOLTAG_DOWN);
-    if (tmp == NULL)
-        goto out;
+    if (tmp == NULL) goto out;
 
     unmarshal_nfs41_header(tmp, &buf);
 
@@ -2377,7 +2336,7 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
         print_fs_ioctl(0, fsop);
         switch (fsop) {
         case IOCTL_NFS41_INVALCACHE:
-            status = nfs41_invalidate_cache(RxContext);
+            nfs41_invalidate_cache(RxContext);
             break;
         case IOCTL_NFS41_READ:
             status = nfs41_upcall(RxContext);
@@ -3639,7 +3598,6 @@ NTSTATUS nfs41_Create(
         SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.Open.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Open.access_mask = params->DesiredAccess;
     entry->u.Open.access_mode = params->ShareAccess;
     entry->u.Open.attrs = params->FileAttributes;
@@ -3647,12 +3605,11 @@ NTSTATUS nfs41_Create(
         entry->u.Open.attrs |= FILE_ATTRIBUTE_ARCHIVE;
     entry->u.Open.disp = params->Disposition;
     entry->u.Open.copts = params->CreateOptions;
-    /* treat the NfsActOnLink ea as FILE_OPEN_REPARSE_POINT */
-    if (ea && AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength))
-        entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
-    if (entry->u.Open.access_mask & DELETE)
-        entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
     entry->u.Open.srv_open = SrvOpen;
+    /* treat the NfsActOnLink ea as FILE_OPEN_REPARSE_POINT */
+    if ((ea && AnsiStrEq(&NfsActOnLink, ea->EaName, ea->EaNameLength)) ||
+            (entry->u.Open.access_mask & DELETE))
+        entry->u.Open.copts |= FILE_OPEN_REPARSE_POINT;
     if (isDataAccess(params->DesiredAccess) || isOpen2Create(params->Disposition))
         entry->u.Open.open_owner_id = InterlockedIncrement(&open_owner_id);
     // if we are creating a file check if nfsv3attributes were passed in
@@ -3894,7 +3851,7 @@ retry_on_link:
                 sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG_OPEN);
             if (oentry == NULL) {
                 status = STATUS_INSUFFICIENT_RESOURCES;
-                goto out;
+                goto out_free;
             }
             oentry->fcb = RxContext->pFcb;
             oentry->nfs41_fobx = nfs41_fobx;
@@ -4073,7 +4030,6 @@ NTSTATUS nfs41_CloseSrvOpen(
     if (status) goto out;
 
     entry->u.Close.srv_open = SrvOpen;
-    entry->u.Close.filename = SrvOpen->pAlreadyPrefixedName;
     if (nfs41_fcb->StandardInfo.DeletePending)
         nfs41_fcb->DeletePending = TRUE;
     if (!RxContext->pFcb->OpenCount || 
@@ -4627,7 +4583,6 @@ NTSTATUS nfs41_SetEaInformation(
 {
     NTSTATUS status = STATUS_EAS_NOT_SUPPORTED;
     nfs41_updowncall_entry *entry;
-    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     __notnull PFILE_FULL_EA_INFORMATION eainfo = 
         (PFILE_FULL_EA_INFORMATION)RxContext->Info.Buffer;        
     nfs3_attrs *attrs = NULL;
@@ -4675,7 +4630,6 @@ NTSTATUS nfs41_SetEaInformation(
     }
     entry->u.SetEa.buf = eainfo;
     entry->u.SetEa.buf_len = buflen;
-    entry->u.SetEa.filename = FileName;
     
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
     if (status) goto out;
@@ -4778,7 +4732,6 @@ static NTSTATUS QueryCygwinSymlink(
         NetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = FALSE;
 
@@ -4877,7 +4830,6 @@ NTSTATUS nfs41_QueryEaInformation(
     nfs41_updowncall_entry *entry;
     PFILE_GET_EA_INFORMATION query = (PFILE_GET_EA_INFORMATION)
             RxContext->CurrentIrpSp->Parameters.QueryEa.EaList;
-    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     ULONG buflen = RxContext->CurrentIrpSp->Parameters.QueryEa.Length;
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
@@ -4909,7 +4861,6 @@ NTSTATUS nfs41_QueryEaInformation(
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.QueryEa.filename = FileName;
     entry->u.QueryEa.buf_len = buflen;
     entry->u.QueryEa.buf = RxContext->Info.Buffer;
     entry->u.QueryEa.EaList = query;
@@ -5506,7 +5457,6 @@ NTSTATUS nfs41_SetFileInformation(
     nfs41_updowncall_entry *entry;
     FILE_INFORMATION_CLASS InfoClass = RxContext->Info.FileInformationClass;
     FILE_RENAME_INFORMATION rinfo;
-    PUNICODE_STRING FileName = GET_ALREADY_PREFIXED_NAME_FROM_CONTEXT(RxContext);
     __notnull PMRX_SRV_OPEN SrvOpen = RxContext->pRelevantSrvOpen;
     __notnull PNFS41_V_NET_ROOT_EXTENSION pVNetRootContext =
         NFS41GetVNetRootExtension(SrvOpen->pVNetRoot);
@@ -5587,9 +5537,10 @@ NTSTATUS nfs41_SetFileInformation(
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.SetFile.filename = FileName;
     entry->u.SetFile.InfoClass = InfoClass;
 
+    /* original irp has infoclass for remove but we need to rename instead, 
+     * thus we changed the local variable infoclass */
     if (RxContext->Info.FileInformationClass == FileDispositionInformation && 
             InfoClass == FileRenameInformation) {
         entry->u.SetFile.buf = &rinfo;
@@ -6358,7 +6309,7 @@ NTSTATUS check_nfs41_setreparse_args(
     }
 
     if (FsCtl->InputBufferLength < HeaderLen ||
-        FsCtl->InputBufferLength > MAXIMUM_REPARSE_DATA_BUFFER_SIZE) {
+            FsCtl->InputBufferLength > MAXIMUM_REPARSE_DATA_BUFFER_SIZE) {
         status = STATUS_IO_REPARSE_DATA_INVALID;
         goto out;
     }
@@ -6413,7 +6364,6 @@ NTSTATUS nfs41_SetReparsePoint(
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = TRUE;
 
@@ -6500,7 +6450,6 @@ NTSTATUS nfs41_GetReparsePoint(
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.Symlink.filename = SrvOpen->pAlreadyPrefixedName;
     entry->u.Symlink.target = &TargetName;
     entry->u.Symlink.set = FALSE;
 
