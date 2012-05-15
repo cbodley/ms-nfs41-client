@@ -5066,9 +5066,6 @@ NTSTATUS check_nfs41_setacl_args(
         status = STATUS_NOT_SUPPORTED;       
         goto out;
     }
-    if (RxContext->CurrentIrp->UserBuffer == NULL && 
-            RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length)
-        status = STATUS_INVALID_USER_BUFFER;    
 out:
     return status;
 }
