@@ -160,6 +160,9 @@ typedef struct _updowncall_entry {
     HANDLE open_state;
     HANDLE session;
     PUNICODE_STRING filename;
+    PVOID buf;
+    ULONG buf_len;
+    ULONGLONG ChangeTime;
     union {
         struct {
             PUNICODE_STRING srv_name;
@@ -172,11 +175,8 @@ typedef struct _updowncall_entry {
         } Mount;
         struct {                       
             PMDL MdlAddress;
-            PVOID buf;
             ULONGLONG offset;
-            ULONG len;
             PRX_CONTEXT rxcontext;
-            ULONGLONG ChangeTime;
         } ReadWrite;
         struct {
             LONGLONG offset;
@@ -200,7 +200,6 @@ typedef struct _updowncall_entry {
             ULONG cattrs;
             LONG open_owner_id;
             DWORD mode;
-            ULONGLONG changeattr;
             HANDLE srv_open;
             DWORD deleg_type;
             BOOLEAN symlink_embedded;
@@ -214,31 +213,20 @@ typedef struct _updowncall_entry {
         } Close;
         struct {
             PUNICODE_STRING filter;
-            PVOID buf;
-            ULONG buf_len;
             FILE_INFORMATION_CLASS InfoClass;
             BOOLEAN restart_scan;
             BOOLEAN return_single;
             BOOLEAN initial_query;
             PMDL mdl;
             PVOID mdl_buf;
-            ULONGLONG ChangeTime;
         } QueryFile;
         struct {
-            PVOID buf;
-            ULONG buf_len;
             FILE_INFORMATION_CLASS InfoClass;
-            ULONGLONG ChangeTime;
         } SetFile;
         struct {
-            PVOID buf;
-            ULONG buf_len;
             DWORD mode;
-            ULONGLONG ChangeTime;
         } SetEa;
         struct {
-            PVOID buf;
-            ULONG buf_len;
             PVOID EaList;
             ULONG EaListLength;
             ULONG Overflow;
@@ -252,14 +240,9 @@ typedef struct _updowncall_entry {
         } Symlink;
         struct {
             FS_INFORMATION_CLASS query;
-            PVOID buf;
-            ULONG buf_len;
         } Volume;
         struct {
             SECURITY_INFORMATION query;
-            PVOID buf;
-            DWORD buf_len;
-            ULONGLONG ChangeTime;
         } Acl;
     } u;
 
@@ -758,24 +741,24 @@ NTSTATUS marshal_nfs41_rw(
     if (status) goto out;
     else tmp += *len;
 
-    header_len = *len + sizeof(entry->u.ReadWrite.len) +
+    header_len = *len + sizeof(entry->buf_len) +
         sizeof(entry->u.ReadWrite.offset) + sizeof(HANDLE);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
 
-    RtlCopyMemory(tmp, &entry->u.ReadWrite.len, sizeof(entry->u.ReadWrite.len));
-    tmp += sizeof(entry->u.ReadWrite.len);
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(entry->buf_len));
+    tmp += sizeof(entry->buf_len);
     RtlCopyMemory(tmp, &entry->u.ReadWrite.offset, 
         sizeof(entry->u.ReadWrite.offset));
     tmp += sizeof(entry->u.ReadWrite.offset);
     __try {
         entry->u.ReadWrite.MdlAddress->MdlFlags |= MDL_MAPPING_CAN_FAIL;
-        entry->u.ReadWrite.buf = 
+        entry->buf = 
             MmMapLockedPagesSpecifyCache(entry->u.ReadWrite.MdlAddress, 
                 UserMode, MmNonCached, NULL, TRUE, NormalPagePriority);
-        if (entry->u.ReadWrite.buf == NULL) {
+        if (entry->buf == NULL) {
             print_error("MmMapLockedPagesSpecifyCache failed to map pages\n");
             status = STATUS_INSUFFICIENT_RESOURCES;
             goto out;
@@ -787,13 +770,13 @@ NTSTATUS marshal_nfs41_rw(
         status = STATUS_ACCESS_DENIED;
         goto out;
     }
-    RtlCopyMemory(tmp, &entry->u.ReadWrite.buf, sizeof(HANDLE));
+    RtlCopyMemory(tmp, &entry->buf, sizeof(HANDLE));
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_rw: len=%lu offset=%llu MdlAddress=%p Userspace=%p\n", 
-         entry->u.ReadWrite.len, entry->u.ReadWrite.offset, 
-         entry->u.ReadWrite.MdlAddress, entry->u.ReadWrite.buf);
+         entry->buf_len, entry->u.ReadWrite.offset, 
+         entry->u.ReadWrite.MdlAddress, entry->buf);
 #endif
 out:
     return status;
@@ -943,7 +926,7 @@ NTSTATUS marshal_nfs41_dirquery(
 
     RtlCopyMemory(tmp, &entry->u.QueryFile.InfoClass, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.buf_len, sizeof(ULONG));
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
     status = marshall_unicode_as_utf8(&tmp, entry->u.QueryFile.filter);
     if (status) goto out;
@@ -975,7 +958,7 @@ NTSTATUS marshal_nfs41_dirquery(
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_dirquery: filter='%wZ'class=%d len=%d "
          "1st\\restart\\single=%d\\%d\\%d\n", entry->u.QueryFile.filter, 
-         entry->u.QueryFile.InfoClass, entry->u.QueryFile.buf_len, 
+         entry->u.QueryFile.InfoClass, entry->buf_len, 
          entry->u.QueryFile.initial_query, entry->u.QueryFile.restart_scan, 
          entry->u.QueryFile.return_single);
 #endif
@@ -1004,7 +987,7 @@ NTSTATUS marshal_nfs41_filequery(
     }
     RtlCopyMemory(tmp, &entry->u.QueryFile.InfoClass, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, &entry->u.QueryFile.buf_len, sizeof(ULONG));
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->session, sizeof(HANDLE));
     tmp += sizeof(HANDLE);
@@ -1033,7 +1016,7 @@ NTSTATUS marshal_nfs41_fileset(
     else tmp += *len;
 
     header_len = *len + length_as_utf8(entry->filename) +
-        2 * sizeof(ULONG) + entry->u.SetFile.buf_len;
+        2 * sizeof(ULONG) + entry->buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -1042,9 +1025,9 @@ NTSTATUS marshal_nfs41_fileset(
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetFile.InfoClass, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, &entry->u.SetFile.buf_len, sizeof(ULONG));
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, entry->u.SetFile.buf, entry->u.SetFile.buf_len);
+    RtlCopyMemory(tmp, entry->buf, entry->buf_len);
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
@@ -1070,7 +1053,7 @@ NTSTATUS marshal_nfs41_easet(
     else tmp += *len;
 
     header_len = *len + length_as_utf8(entry->filename) + 
-        sizeof(ULONG) + entry->u.SetEa.buf_len  + sizeof(DWORD);
+        sizeof(ULONG) + entry->buf_len  + sizeof(DWORD);
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -1080,14 +1063,14 @@ NTSTATUS marshal_nfs41_easet(
     if (status) goto out;
     RtlCopyMemory(tmp, &entry->u.SetEa.mode, sizeof(DWORD));
     tmp += sizeof(DWORD);
-    RtlCopyMemory(tmp, &entry->u.SetEa.buf_len, sizeof(ULONG));
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
-    RtlCopyMemory(tmp, entry->u.SetEa.buf, entry->u.SetEa.buf_len);    
+    RtlCopyMemory(tmp, entry->buf, entry->buf_len);    
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("marshal_nfs41_easet: filename=%wZ, buflen=%d mode=0x%x\n", 
-        entry->filename, entry->u.SetEa.buf_len, entry->u.SetEa.mode);
+        entry->filename, entry->buf_len, entry->u.SetEa.mode);
 #endif
 out:
     return status;
@@ -1123,7 +1106,7 @@ NTSTATUS marshal_nfs41_eaget(
     tmp += sizeof(BOOLEAN);
     RtlCopyMemory(tmp, &entry->u.QueryEa.ReturnSingleEntry, sizeof(BOOLEAN));
     tmp += sizeof(BOOLEAN);
-    RtlCopyMemory(tmp, &entry->u.QueryEa.buf_len, sizeof(ULONG));
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(ULONG));
     tmp += sizeof(ULONG);
     RtlCopyMemory(tmp, &entry->u.QueryEa.EaListLength, sizeof(ULONG));
     tmp += sizeof(ULONG);
@@ -1258,7 +1241,7 @@ NTSTATUS marshal_nfs41_setacl(
     else tmp += *len;
 
     header_len = *len + sizeof(SECURITY_INFORMATION) +
-        sizeof(ULONG) + entry->u.Acl.buf_len;
+        sizeof(ULONG) + entry->buf_len;
     if (header_len > buf_len) { 
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
@@ -1266,14 +1249,14 @@ NTSTATUS marshal_nfs41_setacl(
 
     RtlCopyMemory(tmp, &entry->u.Acl.query, sizeof(SECURITY_INFORMATION));
     tmp += sizeof(SECURITY_INFORMATION);
-    RtlCopyMemory(tmp, &entry->u.Acl.buf_len, sizeof(DWORD));
-    tmp += sizeof(DWORD);
-    RtlCopyMemory(tmp, entry->u.Acl.buf, entry->u.Acl.buf_len);
+    RtlCopyMemory(tmp, &entry->buf_len, sizeof(ULONG));
+    tmp += sizeof(ULONG);
+    RtlCopyMemory(tmp, entry->buf, entry->buf_len);
     *len = header_len;
 
 #ifdef DEBUG_MARSHAL_DETAIL
-    DbgP("marshal_nfs41_setacl: class=0x%x sec_desc_len=%d\n", 
-         entry->u.Acl.query, entry->u.Acl.buf_len);
+    DbgP("marshal_nfs41_setacl: class=0x%x sec_desc_len=%lu\n", 
+         entry->u.Acl.query, entry->buf_len);
 #endif
 out:
     return status;
@@ -1614,12 +1597,12 @@ NTSTATUS unmarshal_nfs41_rw(
 {
     NTSTATUS status = STATUS_SUCCESS;
 
-    RtlCopyMemory(&cur->u.ReadWrite.len, *buf, sizeof(cur->u.ReadWrite.len));
-    *buf += sizeof(cur->u.ReadWrite.len);
-    RtlCopyMemory(&cur->u.ReadWrite.ChangeTime, *buf, sizeof(ULONGLONG));
+    RtlCopyMemory(&cur->buf_len, *buf, sizeof(cur->buf_len));
+    *buf += sizeof(cur->buf_len);
+    RtlCopyMemory(&cur->ChangeTime, *buf, sizeof(ULONGLONG));
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_rw: returned len %lu ChangeTime %llu\n", 
-        cur->u.ReadWrite.len, cur->u.ReadWrite.ChangeTime);
+        cur->buf_len, cur->ChangeTime);
 #endif
 #if 1
     /* 08/27/2010: it looks like we really don't need to call 
@@ -1628,7 +1611,7 @@ NTSTATUS unmarshal_nfs41_rw(
         * is already locked. 
         */
     __try {
-        MmUnmapLockedPages(cur->u.ReadWrite.buf, cur->u.ReadWrite.MdlAddress);
+        MmUnmapLockedPages(cur->buf, cur->u.ReadWrite.MdlAddress);
     } __except(EXCEPTION_EXECUTE_HANDLER) { 
         NTSTATUS code; 
         code = GetExceptionCode(); 
@@ -1663,7 +1646,7 @@ NTSTATUS unmarshal_nfs41_open(
     *buf += sizeof(HANDLE);
     RtlCopyMemory(&cur->u.Open.mode, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
-    RtlCopyMemory(&cur->u.Open.changeattr, *buf, sizeof(ULONGLONG));
+    RtlCopyMemory(&cur->ChangeTime, *buf, sizeof(ULONGLONG));
     *buf += sizeof(ULONGLONG);
     RtlCopyMemory(&cur->u.Open.deleg_type, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
@@ -1691,7 +1674,7 @@ NTSTATUS unmarshal_nfs41_open(
 #ifdef DEBUG_MARSHAL_DETAIL
     DbgP("unmarshal_nfs41_open: open_state 0x%x mode %o changeattr %llu "
         "deleg_type %d\n", cur->open_state, cur->u.Open.mode, 
-        cur->u.Open.changeattr, cur->u.Open.deleg_type);
+        cur->ChangeTime, cur->u.Open.deleg_type);
 #endif
 out:
     return status;
@@ -1717,9 +1700,9 @@ NTSTATUS unmarshal_nfs41_dirquery(
         print_error("MmUnmapLockedPages thrown exception=0x%0x\n", code);
         status = STATUS_ACCESS_DENIED;
     }
-    if (buf_len > cur->u.QueryFile.buf_len)
+    if (buf_len > cur->buf_len)
         cur->status = STATUS_BUFFER_TOO_SMALL;
-    cur->u.QueryFile.buf_len = buf_len;
+    cur->buf_len = buf_len;
 
     return status;
 }
@@ -1748,11 +1731,11 @@ void unmarshal_nfs41_eaget(
 {
     RtlCopyMemory(&cur->u.QueryEa.Overflow, *buf, sizeof(ULONG));
     *buf += sizeof(ULONG);
-    RtlCopyMemory(&cur->u.QueryEa.buf_len, *buf, sizeof(ULONG));
+    RtlCopyMemory(&cur->buf_len, *buf, sizeof(ULONG));
     *buf += sizeof(ULONG);
     if (cur->u.QueryEa.Overflow != ERROR_INSUFFICIENT_BUFFER) {
-        RtlCopyMemory(cur->u.QueryEa.buf, *buf, cur->u.QueryEa.buf_len);
-        *buf += cur->u.QueryEa.buf_len;
+        RtlCopyMemory(cur->buf, *buf, cur->buf_len);
+        *buf += cur->buf_len;
     }
 }
 
@@ -1760,13 +1743,11 @@ void unmarshal_nfs41_getattr(
     nfs41_updowncall_entry *cur,
     unsigned char **buf)
 {
-    unmarshal_nfs41_attrget(cur, cur->u.QueryFile.buf, 
-        &cur->u.QueryFile.buf_len, buf);
-    RtlCopyMemory(&cur->u.QueryFile.ChangeTime, *buf, sizeof(LONGLONG));
+    unmarshal_nfs41_attrget(cur, cur->buf, &cur->buf_len, buf);
+    RtlCopyMemory(&cur->ChangeTime, *buf, sizeof(LONGLONG));
 #ifdef DEBUG_MARSHAL_DETAIL
     if (cur->u.QueryFile.InfoClass == FileBasicInformation)
-        DbgP("[unmarshal_nfs41_getattr] ChangeTime %llu\n", 
-            cur->u.QueryFile.ChangeTime);
+        DbgP("[unmarshal_nfs41_getattr] ChangeTime %llu\n", cur->ChangeTime);
 #endif
 }
 
@@ -1779,16 +1760,16 @@ NTSTATUS unmarshal_nfs41_getacl(
 
     RtlCopyMemory(&buf_len, *buf, sizeof(DWORD));
     *buf += sizeof(DWORD);
-    cur->u.Acl.buf = RxAllocatePoolWithTag(NonPagedPool, 
+    cur->buf = RxAllocatePoolWithTag(NonPagedPool, 
         buf_len, NFS41_MM_POOLTAG_ACL);
-    if (cur->u.Acl.buf == NULL) {
+    if (cur->buf == NULL) {
         cur->status = status = STATUS_INSUFFICIENT_RESOURCES;
         goto out;
     }
-    RtlCopyMemory(cur->u.Acl.buf, *buf, buf_len);
-    if (buf_len > cur->u.Acl.buf_len)
+    RtlCopyMemory(cur->buf, *buf, buf_len);
+    if (buf_len > cur->buf_len)
         cur->status = STATUS_BUFFER_TOO_SMALL;
-    cur->u.Acl.buf_len = buf_len;
+    cur->buf_len = buf_len;
 
 out:
     return status;
@@ -1858,8 +1839,7 @@ NTSTATUS nfs41_downcall(
         switch(cur->opcode) {
         case NFS41_WRITE:
         case NFS41_READ:
-            MmUnmapLockedPages(cur->u.ReadWrite.buf, 
-                cur->u.ReadWrite.MdlAddress);
+            MmUnmapLockedPages(cur->buf, cur->u.ReadWrite.MdlAddress);
             break;
         case NFS41_DIR_QUERY:
             MmUnmapLockedPages(cur->u.QueryFile.mdl_buf, 
@@ -1910,20 +1890,19 @@ NTSTATUS nfs41_downcall(
             unmarshal_nfs41_symlink(cur, &buf);
             break;
         case NFS41_VOLUME_QUERY:
-            unmarshal_nfs41_attrget(cur, cur->u.Volume.buf, 
-                &cur->u.Volume.buf_len, &buf);
+            unmarshal_nfs41_attrget(cur, cur->buf, &cur->buf_len, &buf);
             break;
         case NFS41_ACL_QUERY:
             status = unmarshal_nfs41_getacl(cur, &buf);
             break;
         case NFS41_FILE_SET:
-            unmarshal_nfs41_setattr(cur, &cur->u.SetFile.ChangeTime, &buf);
+            unmarshal_nfs41_setattr(cur, &cur->ChangeTime, &buf);
             break;
         case NFS41_EA_SET:
-            unmarshal_nfs41_setattr(cur, &cur->u.SetEa.ChangeTime, &buf);
+            unmarshal_nfs41_setattr(cur, &cur->ChangeTime, &buf);
             break;
         case NFS41_ACL_SET:
-            unmarshal_nfs41_setattr(cur, &cur->u.Acl.ChangeTime, &buf);
+            unmarshal_nfs41_setattr(cur, &cur->ChangeTime, &buf);
             break;
         }
     }
@@ -1932,7 +1911,7 @@ NTSTATUS nfs41_downcall(
         if (cur->status == STATUS_SUCCESS) {
             cur->u.ReadWrite.rxcontext->StoredStatus = STATUS_SUCCESS;
             cur->u.ReadWrite.rxcontext->InformationToReturn = 
-                cur->u.ReadWrite.len;
+                cur->buf_len;
         } else {
             cur->u.ReadWrite.rxcontext->StoredStatus = 
                 map_readwrite_errors(cur->status);
@@ -3752,13 +3731,13 @@ retry_on_link:
     // we get attributes only for data access and file (not directories)
     if (Fcb->OpenCount == 0 || 
             (Fcb->OpenCount > 0 && 
-                nfs41_fcb->changeattr != entry->u.Open.changeattr)) {
+                nfs41_fcb->changeattr != entry->ChangeTime)) {
         RtlCopyMemory(&nfs41_fcb->BasicInfo, &entry->u.Open.binfo, 
             sizeof(entry->u.Open.binfo));
         RtlCopyMemory(&nfs41_fcb->StandardInfo, &entry->u.Open.sinfo, 
             sizeof(entry->u.Open.sinfo));
         nfs41_fcb->mode = entry->u.Open.mode;
-        nfs41_fcb->changeattr = entry->u.Open.changeattr;
+        nfs41_fcb->changeattr = entry->ChangeTime;
         if (((params->CreateOptions & FILE_DELETE_ON_CLOSE) && 
                 !pVNetRootContext->read_only) || oldDeletePending)
             nfs41_fcb->StandardInfo.DeletePending = TRUE;
@@ -3797,7 +3776,7 @@ retry_on_link:
      * the file size and data content. fileio tests 208, 219, 221.
      */
     if (Fcb->OpenCount > 0 && (isDataAccess(params->DesiredAccess) || 
-            nfs41_fcb->changeattr != entry->u.Open.changeattr) && 
+            nfs41_fcb->changeattr != entry->ChangeTime) && 
                 !nfs41_fcb->StandardInfo.Directory) {
         ULONG flag = DISABLE_CACHING;
 #ifdef DEBUG_OPEN
@@ -3845,7 +3824,7 @@ retry_on_link:
             nfs41_fcb_list_entry *oentry;
 #ifdef DEBUG_OPEN
             DbgP("nfs41_Create: received no delegations: srv_open=%p "
-                "ctime=%llu\n", SrvOpen, entry->u.Open.changeattr);
+                "ctime=%llu\n", SrvOpen, entry->ChangeTime);
 #endif
             oentry = RxAllocatePoolWithTag(NonPagedPool, 
                 sizeof(nfs41_fcb_list_entry), NFS41_MM_POOLTAG_OPEN);
@@ -3856,7 +3835,7 @@ retry_on_link:
             oentry->fcb = RxContext->pFcb;
             oentry->nfs41_fobx = nfs41_fobx;
             oentry->session = pVNetRootContext->session;
-            oentry->ChangeTime = entry->u.Open.changeattr;
+            oentry->ChangeTime = entry->ChangeTime;
             oentry->skip = FALSE;
             nfs41_AddEntry(fcblistLock, openlist, oentry);
         }
@@ -4181,8 +4160,8 @@ NTSTATUS nfs41_QueryDirectory(
     if (status) goto out;
 
     entry->u.QueryFile.InfoClass = InfoClass;
-    entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
-    entry->u.QueryFile.buf = RxContext->Info.Buffer;
+    entry->buf_len = RxContext->Info.LengthRemaining;
+    entry->buf = RxContext->Info.Buffer;
     entry->u.QueryFile.mdl = IoAllocateMdl(RxContext->Info.Buffer, 
         RxContext->Info.LengthRemaining, FALSE, FALSE, NULL);
     if (entry->u.QueryFile.mdl == NULL) {
@@ -4203,16 +4182,16 @@ NTSTATUS nfs41_QueryDirectory(
     MmUnlockPages(entry->u.QueryFile.mdl);
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        DbgP("nfs41_QueryDirectory: buffer too small provided %d need %d\n", 
-            RxContext->Info.LengthRemaining, entry->u.QueryFile.buf_len);
-        RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
+        DbgP("nfs41_QueryDirectory: buffer too small provided %d need %lu\n", 
+            RxContext->Info.LengthRemaining, entry->buf_len);
+        RxContext->InformationToReturn = entry->buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&readdir.sops); 
         InterlockedAdd64(&readdir.size, entry->u.QueryFile.buf_len);
 #endif
-        RxContext->Info.LengthRemaining -= entry->u.QueryFile.buf_len;
+        RxContext->Info.LengthRemaining -= entry->buf_len;
         status = STATUS_SUCCESS;
     } else {
         /* map windows ERRORs to NTSTATUS */
@@ -4392,14 +4371,14 @@ NTSTATUS nfs41_QueryVolumeInformation(
     if (status) goto out;
 
     entry->u.Volume.query = InfoClass;
-    entry->u.Volume.buf = RxContext->Info.Buffer;
-    entry->u.Volume.buf_len = RxContext->Info.LengthRemaining;
+    entry->buf = RxContext->Info.Buffer;
+    entry->buf_len = RxContext->Info.LengthRemaining;
 
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
     if (status) goto out;
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        RxContext->InformationToReturn = entry->u.Volume.buf_len;
+        RxContext->InformationToReturn = entry->buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
         if (InfoClass == FileFsAttributeInformation) {
@@ -4412,13 +4391,13 @@ NTSTATUS nfs41_QueryVolumeInformation(
                 FsName.MaximumLength); /* 'MaximumLength' to include null */
             attrs->FileSystemNameLength = FsName.Length;
 
-            entry->u.Volume.buf_len = FS_ATTR_LEN;
+            entry->buf_len = FS_ATTR_LEN;
         }
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&volume.sops); 
         InterlockedAdd64(&volume.size, entry->u.Volume.buf_len);
 #endif
-        RxContext->Info.LengthRemaining -= entry->u.Volume.buf_len;
+        RxContext->Info.LengthRemaining -= entry->buf_len;
         status = STATUS_SUCCESS;
     } else {
         status = map_volume_errors(entry->status);
@@ -4628,8 +4607,8 @@ NTSTATUS nfs41_SetEaInformation(
             goto out;
         }
     }
-    entry->u.SetEa.buf = eainfo;
-    entry->u.SetEa.buf_len = buflen;
+    entry->buf = eainfo;
+    entry->buf_len = buflen;
     
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
     if (status) goto out;
@@ -4641,11 +4620,11 @@ NTSTATUS nfs41_SetEaInformation(
 #endif
     status = map_setea_error(entry->status);
     if (!status) {
-        if (!nfs41_fobx->deleg_type && entry->u.SetEa.ChangeTime &&
+        if (!nfs41_fobx->deleg_type && entry->ChangeTime &&
                 (SrvOpen->DesiredAccess & 
                 (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
-            nfs41_update_fcb_list(RxContext->pFcb, entry->u.SetEa.ChangeTime);
-        nfs41_fcb->changeattr = entry->u.SetEa.ChangeTime;
+            nfs41_update_fcb_list(RxContext->pFcb, entry->ChangeTime);
+        nfs41_fcb->changeattr = entry->ChangeTime;
         nfs41_fcb->mode = entry->u.SetEa.mode;
     }
     RxFreePool(entry);
@@ -4861,8 +4840,8 @@ NTSTATUS nfs41_QueryEaInformation(
         pNetRootContext->nfs41d_version, SrvOpen->pAlreadyPrefixedName, &entry);
     if (status) goto out;
 
-    entry->u.QueryEa.buf_len = buflen;
-    entry->u.QueryEa.buf = RxContext->Info.Buffer;
+    entry->buf_len = buflen;
+    entry->buf = RxContext->Info.Buffer;
     entry->u.QueryEa.EaList = query;
     entry->u.QueryEa.EaListLength = query == NULL ? 0 :
         RxContext->QueryEa.UserEaListLength;
@@ -4877,15 +4856,15 @@ NTSTATUS nfs41_QueryEaInformation(
     if (entry->status == STATUS_SUCCESS) {
         switch (entry->u.QueryEa.Overflow) {
         case ERROR_INSUFFICIENT_BUFFER:
-            RxContext->InformationToReturn = entry->u.QueryEa.buf_len;
+            RxContext->InformationToReturn = entry->buf_len;
             status = STATUS_BUFFER_TOO_SMALL;
             break;
         case ERROR_BUFFER_OVERFLOW:
-            RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
+            RxContext->Info.LengthRemaining = entry->buf_len;
             status = RxContext->IoStatusBlock.Status = STATUS_BUFFER_OVERFLOW;
             break;
         default:
-            RxContext->Info.LengthRemaining = entry->u.QueryEa.buf_len;
+            RxContext->Info.LengthRemaining = entry->buf_len;
             RxContext->IoStatusBlock.Status = STATUS_SUCCESS;
             break;
         }
@@ -5011,7 +4990,7 @@ NTSTATUS nfs41_QuerySecurityInformation(
     /* we can't provide RxContext->CurrentIrp->UserBuffer to the upcall thread 
      * because it becomes an invalid pointer with that execution context
      */
-    entry->u.Acl.buf_len = RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length;
+    entry->buf_len = RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length;
 
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
     if (status) goto out;
@@ -5019,30 +4998,30 @@ NTSTATUS nfs41_QuerySecurityInformation(
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
 #ifdef DEBUG_ACL_QUERY
         DbgP("nfs41_QuerySecurityInformation: provided buffer size=%d but we "
-             "need %d\n", 
+             "need %lu\n", 
              RxContext->CurrentIrpSp->Parameters.QuerySecurity.Length, 
-             entry->u.Acl.buf_len);
+             entry->buf_len);
 #endif
         status = STATUS_BUFFER_OVERFLOW;
-        RxContext->InformationToReturn = entry->u.Acl.buf_len;
+        RxContext->InformationToReturn = entry->buf_len;
 
         /* Save ACL buffer */
-        nfs41_fobx->acl = entry->u.Acl.buf;
-        nfs41_fobx->acl_len = entry->u.Acl.buf_len;
+        nfs41_fobx->acl = entry->buf;
+        nfs41_fobx->acl_len = entry->buf_len;
         KeQuerySystemTime(&nfs41_fobx->time);
     } else if (entry->status == STATUS_SUCCESS) {
         PSECURITY_DESCRIPTOR sec_desc = (PSECURITY_DESCRIPTOR)
             RxContext->CurrentIrp->UserBuffer;
-        RtlCopyMemory(sec_desc, entry->u.Acl.buf, entry->u.Acl.buf_len); 
+        RtlCopyMemory(sec_desc, entry->buf, entry->buf_len); 
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&getacl.sops);
         InterlockedAdd64(&getacl.size, entry->u.Acl.buf_len);
 #endif
-        RxFreePool(entry->u.Acl.buf);
+        RxFreePool(entry->buf);
         nfs41_fobx->acl = NULL;
         nfs41_fobx->acl_len = 0;
         RxContext->IoStatusBlock.Information = RxContext->InformationToReturn = 
-            entry->u.Acl.buf_len;
+            entry->buf_len;
         RxContext->IoStatusBlock.Status = status = STATUS_SUCCESS;
     } else {
         status = map_query_acl_error(entry->status);
@@ -5146,8 +5125,8 @@ NTSTATUS nfs41_SetSecurityInformation(
     if (status) goto out;
 
     entry->u.Acl.query = info_class;
-    entry->u.Acl.buf = sec_desc;
-    entry->u.Acl.buf_len = RtlLengthSecurityDescriptor(sec_desc);
+    entry->buf = sec_desc;
+    entry->buf_len = RtlLengthSecurityDescriptor(sec_desc);
 #ifdef ENABLE_TIMINGS
     InterlockedIncrement(&setacl.sops); 
     InterlockedAdd64(&setacl.size, entry->u.Acl.buf_len);    
@@ -5158,11 +5137,11 @@ NTSTATUS nfs41_SetSecurityInformation(
  
     status = map_query_acl_error(entry->status);
     if (!status) {
-        if (!nfs41_fobx->deleg_type && entry->u.Acl.ChangeTime &&
+        if (!nfs41_fobx->deleg_type && entry->ChangeTime &&
                 (SrvOpen->DesiredAccess & 
                 (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
-            nfs41_update_fcb_list(RxContext->pFcb, entry->u.Acl.ChangeTime);
-        nfs41_fcb->changeattr = entry->u.Acl.ChangeTime;
+            nfs41_update_fcb_list(RxContext->pFcb, entry->ChangeTime);
+        nfs41_fcb->changeattr = entry->ChangeTime;
     }
     RxFreePool(entry);
 out:
@@ -5249,14 +5228,14 @@ NTSTATUS nfs41_QueryFileInformation(
     if (status) goto out;
 
     entry->u.QueryFile.InfoClass = InfoClass;
-    entry->u.QueryFile.buf = RxContext->Info.Buffer;
-    entry->u.QueryFile.buf_len = RxContext->Info.LengthRemaining;
+    entry->buf = RxContext->Info.Buffer;
+    entry->buf_len = RxContext->Info.LengthRemaining;
 
     status = nfs41_UpcallWaitForReply(entry, pVNetRootContext->timeout);
     if (status) goto out;
 
     if (entry->status == STATUS_BUFFER_TOO_SMALL) {
-        RxContext->InformationToReturn = entry->u.QueryFile.buf_len;
+        RxContext->InformationToReturn = entry->buf_len;
         status = STATUS_BUFFER_TOO_SMALL;
     } else if (entry->status == STATUS_SUCCESS) {
         BOOLEAN DeletePending = FALSE;
@@ -5264,7 +5243,7 @@ NTSTATUS nfs41_QueryFileInformation(
         InterlockedIncrement(&getattr.sops); 
         InterlockedAdd64(&getattr.size, entry->u.QueryFile.buf_len);
 #endif
-        RxContext->Info.LengthRemaining -= entry->u.QueryFile.buf_len;
+        RxContext->Info.LengthRemaining -= entry->buf_len;
         status = STATUS_SUCCESS;
 
         switch (InfoClass) {
@@ -5543,11 +5522,11 @@ NTSTATUS nfs41_SetFileInformation(
      * thus we changed the local variable infoclass */
     if (RxContext->Info.FileInformationClass == FileDispositionInformation && 
             InfoClass == FileRenameInformation) {
-        entry->u.SetFile.buf = &rinfo;
-        entry->u.SetFile.buf_len = sizeof(rinfo);
+        entry->buf = &rinfo;
+        entry->buf_len = sizeof(rinfo);
     } else {
-        entry->u.SetFile.buf = RxContext->Info.Buffer;
-        entry->u.SetFile.buf_len = RxContext->Info.Length;
+        entry->buf = RxContext->Info.Buffer;
+        entry->buf_len = RxContext->Info.Length;
     }
 #ifdef ENABLE_TIMINGS
     InterlockedIncrement(&setattr.sops); 
@@ -5559,11 +5538,11 @@ NTSTATUS nfs41_SetFileInformation(
 
     status = map_setfile_error(entry->status);
     if (!status) {
-        if (!nfs41_fobx->deleg_type && entry->u.SetFile.ChangeTime &&
+        if (!nfs41_fobx->deleg_type && entry->ChangeTime &&
                 (SrvOpen->DesiredAccess & 
                 (FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA)))
-            nfs41_update_fcb_list(RxContext->pFcb, entry->u.SetFile.ChangeTime);
-        nfs41_fcb->changeattr = entry->u.SetFile.ChangeTime;
+            nfs41_update_fcb_list(RxContext->pFcb, entry->ChangeTime);
+        nfs41_fcb->changeattr = entry->ChangeTime;
     }
     RxFreePool(entry);
 out:
@@ -5787,7 +5766,7 @@ NTSTATUS nfs41_Read(
     if (status) goto out;
 
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
-    entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
+    entry->buf_len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
     if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, 
             FO_SYNCHRONOUS_IO) == FALSE) {
@@ -5798,7 +5777,7 @@ NTSTATUS nfs41_Read(
     /* assume network speed is 100MB/s and disk speed is 100MB/s so add
      * time to transfer requested bytes over the network and read from disk
      */
-    io_delay = pVNetRootContext->timeout + 2 * entry->u.ReadWrite.len / 104857600;
+    io_delay = pVNetRootContext->timeout + 2 * entry->buf_len / 104857600;
     status = nfs41_UpcallWaitForReply(entry, io_delay);
     if (status) goto out;
 
@@ -5814,7 +5793,7 @@ NTSTATUS nfs41_Read(
         InterlockedAdd64(&read.size, entry->u.ReadWrite.len);
 #endif
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
-        RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
+        RxContext->IoStatusBlock.Information = entry->buf_len;
 
         if ((!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
                 LOWIO_READWRITEFLAG_PAGING_IO) && 
@@ -5903,7 +5882,7 @@ NTSTATUS nfs41_Write(
     if (status) goto out;
 
     entry->u.ReadWrite.MdlAddress = LowIoContext->ParamsFor.ReadWrite.Buffer;
-    entry->u.ReadWrite.len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
+    entry->buf_len = LowIoContext->ParamsFor.ReadWrite.ByteCount;
     entry->u.ReadWrite.offset = LowIoContext->ParamsFor.ReadWrite.ByteOffset;
 
     if (FlagOn(RxContext->CurrentIrpSp->FileObject->Flags, 
@@ -5915,7 +5894,7 @@ NTSTATUS nfs41_Write(
     /* assume network speed is 100MB/s and disk speed is 100MB/s so add
      * time to transfer requested bytes over the network and write to disk
      */
-    io_delay = pVNetRootContext->timeout + 2 * entry->u.ReadWrite.len / 104857600;
+    io_delay = pVNetRootContext->timeout + 2 * entry->buf_len / 104857600;
     status = nfs41_UpcallWaitForReply(entry, io_delay);
     if (status) goto out;
 
@@ -5931,11 +5910,11 @@ NTSTATUS nfs41_Write(
         InterlockedIncrement(&write.sops); 
         InterlockedAdd64(&write.size, entry->u.ReadWrite.len);
 #endif
-        nfs41_fcb->StandardInfo.EndOfFile.QuadPart = entry->u.ReadWrite.len + 
+        nfs41_fcb->StandardInfo.EndOfFile.QuadPart = entry->buf_len + 
             entry->u.ReadWrite.offset;
         status = RxContext->CurrentIrp->IoStatus.Status = STATUS_SUCCESS;
-        RxContext->IoStatusBlock.Information = entry->u.ReadWrite.len;
-        nfs41_fcb->changeattr = entry->u.ReadWrite.ChangeTime;
+        RxContext->IoStatusBlock.Information = entry->buf_len;
+        nfs41_fcb->changeattr = entry->ChangeTime;
 
         //re-enable write buffering
         if (!BooleanFlagOn(LowIoContext->ParamsFor.ReadWrite.Flags, 
@@ -5950,7 +5929,7 @@ NTSTATUS nfs41_Write(
             enable_caching(SrvOpen, nfs41_fobx, nfs41_fcb->changeattr, 
                 pVNetRootContext->session);
         } else if (!nfs41_fobx->deleg_type) 
-            nfs41_update_fcb_list(RxContext->pFcb, entry->u.ReadWrite.ChangeTime);
+            nfs41_update_fcb_list(RxContext->pFcb, entry->ChangeTime);
 
     } else {
         status = map_readwrite_errors(entry->status);
@@ -6719,21 +6698,21 @@ VOID fcbopen_main(PVOID ctx)
             if (status) goto out;
 
             entry->u.QueryFile.InfoClass = FileBasicInformation;
-            entry->u.QueryFile.buf = &binfo;
-            entry->u.QueryFile.buf_len = sizeof(binfo);
+            entry->buf = &binfo;
+            entry->buf_len = sizeof(binfo);
 
             status = nfs41_UpcallWaitForReply(entry, UPCALL_TIMEOUT_DEFAULT);
             if (status) goto out;
 
-            if (cur->ChangeTime != entry->u.QueryFile.ChangeTime) {
+            if (cur->ChangeTime != entry->ChangeTime) {
                 ULONG flag = DISABLE_CACHING;
                 PMRX_SRV_OPEN srv_open;
                 PLIST_ENTRY psrvEntry;
 #ifdef DEBUG_TIME_BASED_COHERENCY
                 DbgP("fcbopen_main: old ctime=%llu new_ctime=%llu\n", 
-                    cur->ChangeTime, entry->u.QueryFile.ChangeTime);
+                    cur->ChangeTime, entry->ChangeTime);
 #endif
-                cur->ChangeTime = entry->u.QueryFile.ChangeTime;
+                cur->ChangeTime = entry->ChangeTime;
                 cur->skip = TRUE;
                 psrvEntry = &cur->fcb->SrvOpenList;
                 psrvEntry = psrvEntry->Flink;
@@ -6761,7 +6740,7 @@ VOID fcbopen_main(PVOID ctx)
                 };
             }
             nfs41_fcb = (PNFS41_FCB)cur->fcb->Context;
-            nfs41_fcb->changeattr = entry->u.QueryFile.ChangeTime;
+            nfs41_fcb->changeattr = entry->ChangeTime;
             RxFreePool(entry);
 out:
             if (pEntry->Flink == &openlist.head) {
