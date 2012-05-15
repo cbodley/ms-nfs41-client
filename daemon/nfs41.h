@@ -222,6 +222,7 @@ typedef struct __nfs41_slot_table {
     uint32_t max_slots;
     uint32_t highest_used;
     uint32_t num_used;
+    ULONGLONG target_delay;
     CRITICAL_SECTION lock;
     CONDITION_VARIABLE cond;
 } nfs41_slot_table;

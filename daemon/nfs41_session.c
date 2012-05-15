@@ -29,6 +29,11 @@
 #include "daemon_debug.h"
 
 
+/* after a CB_RECALL_SLOT or NFS4ERR_BADSLOT, wait a short time for the
+ * SEQUENCE.target_highest_slotid to catch up before updating max_slots again */
+#define MAX_SLOTS_DELAY 2000 /* in milliseconds */
+
+
 /* predicate for nfs41_slot_table.cond */
 static int slot_table_avail(
     IN const nfs41_slot_table *table)
@@ -47,6 +52,7 @@ static void init_slot_table(nfs41_slot_table *table)
         table->used_slots[i] = 0;
     }
     table->highest_used = table->num_used = 0;
+    table->target_delay = 0;
 
     /* wake any threads waiting on a slot */
     if (slot_table_avail(table))
@@ -84,7 +90,10 @@ void nfs41_session_bump_seq(
     if (slotid < NFS41_MAX_NUM_SLOTS)
         table->seq_nums[slotid]++;
 
-    resize_slot_table(table, target_highest_slotid);
+    /* adjust max_slots in response to changes in target_highest_slotid,
+     * but not immediately after a CB_RECALL_SLOT or NFS4ERR_BADSLOT error */
+    if (table->target_delay <= GetTickCount64())
+        resize_slot_table(table, target_highest_slotid);
 
     LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
@@ -166,6 +175,7 @@ int nfs41_session_recall_slot(
     AcquireSRWLockShared(&session->client->session_lock);
     EnterCriticalSection(&table->lock);
     resize_slot_table(table, target_highest_slotid);
+    table->target_delay = GetTickCount64() + MAX_SLOTS_DELAY;
     LeaveCriticalSection(&table->lock);
     ReleaseSRWLockShared(&session->client->session_lock);
 
@@ -186,8 +196,10 @@ int nfs41_session_bad_slot(
 
     /* avoid using any slots >= bad_slotid */
     EnterCriticalSection(&table->lock);
-    if (table->max_slots > args->sa_slotid)
+    if (table->max_slots > args->sa_slotid) {
         resize_slot_table(table, args->sa_slotid);
+        table->target_delay = GetTickCount64() + MAX_SLOTS_DELAY;
+    }
     LeaveCriticalSection(&table->lock);
 
     /* get a new slot */
