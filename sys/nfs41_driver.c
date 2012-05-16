@@ -5798,7 +5798,9 @@ NTSTATUS nfs41_Read(
     if (status) goto out;
 
     if (async) {
+#ifdef DEBUG_READ
         DbgP("This is asynchronous read, returning control back to the user\n");
+#endif
         status = STATUS_PENDING;
         goto out;
     }
@@ -5915,7 +5917,9 @@ NTSTATUS nfs41_Write(
     if (status) goto out;
 
     if (async) {
+#ifdef DEBUG_WRITE
         DbgP("This is asynchronous write, returning control back to the user\n");
+#endif
         status = STATUS_PENDING;
         goto out;
     }
