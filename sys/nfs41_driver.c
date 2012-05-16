@@ -3536,8 +3536,6 @@ NTSTATUS nfs41_Create(
 {
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     nfs41_updowncall_entry *entry = NULL;
-    FCB_INIT_PACKET InitPacket;
-    RX_FILE_TYPE StorageType = 0;
     PNT_CREATE_PARAMETERS params = &RxContext->Create.NtCreateParameters;
     PFILE_FULL_EA_INFORMATION ea = (PFILE_FULL_EA_INFORMATION)
         RxContext->CurrentIrp->AssociatedIrp.SystemBuffer;
@@ -3732,6 +3730,8 @@ retry_on_link:
     if (Fcb->OpenCount == 0 || 
             (Fcb->OpenCount > 0 && 
                 nfs41_fcb->changeattr != entry->ChangeTime)) {
+        FCB_INIT_PACKET InitPacket;
+        RX_FILE_TYPE StorageType = FileTypeNotYetKnown;
         RtlCopyMemory(&nfs41_fcb->BasicInfo, &entry->u.Open.binfo, 
             sizeof(entry->u.Open.binfo));
         RtlCopyMemory(&nfs41_fcb->StandardInfo, &entry->u.Open.sinfo, 
@@ -4876,18 +4876,16 @@ NTSTATUS nfs41_QueryEaInformation(
     if (entry->status == STATUS_SUCCESS) {
         switch (entry->u.QueryEa.Overflow) {
         case ERROR_INSUFFICIENT_BUFFER:
-            RxContext->InformationToReturn = entry->buf_len;
             status = STATUS_BUFFER_TOO_SMALL;
             break;
         case ERROR_BUFFER_OVERFLOW:
-            RxContext->Info.LengthRemaining = entry->buf_len;
             status = RxContext->IoStatusBlock.Status = STATUS_BUFFER_OVERFLOW;
             break;
         default:
-            RxContext->Info.LengthRemaining = entry->buf_len;
             RxContext->IoStatusBlock.Status = STATUS_SUCCESS;
             break;
         }
+        RxContext->InformationToReturn = entry->buf_len;
 #ifdef ENABLE_TIMINGS
         InterlockedIncrement(&getexattr.sops); 
         InterlockedAdd64(&getexattr.size, entry->u.QueryEa.buf_len);
@@ -5516,12 +5514,12 @@ NTSTATUS nfs41_SetFileInformation(
     case FileRenameInformation:
         {
             /* noop if filename and destination are the same */
-            PFILE_RENAME_INFORMATION rinfo =
+            PFILE_RENAME_INFORMATION prinfo =
                 (PFILE_RENAME_INFORMATION)RxContext->Info.Buffer;
-            const UNICODE_STRING dst = { (USHORT)rinfo->FileNameLength,
-                (USHORT)rinfo->FileNameLength, rinfo->FileName };
+            const UNICODE_STRING dst = { (USHORT)prinfo->FileNameLength,
+                (USHORT)prinfo->FileNameLength, prinfo->FileName };
             if (RtlCompareUnicodeString(&dst,
-                SrvOpen->pAlreadyPrefixedName, FALSE) == 0) {
+                    SrvOpen->pAlreadyPrefixedName, FALSE) == 0) {
                 status = STATUS_SUCCESS;
                 goto out;
             }
