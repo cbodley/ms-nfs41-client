@@ -2316,6 +2316,7 @@ NTSTATUS nfs41_DevFcbXXXControlFile(
         switch (fsop) {
         case IOCTL_NFS41_INVALCACHE:
             nfs41_invalidate_cache(RxContext);
+            status = STATUS_SUCCESS;
             break;
         case IOCTL_NFS41_READ:
             status = nfs41_upcall(RxContext);
