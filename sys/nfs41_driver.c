@@ -6756,7 +6756,7 @@ VOID fcbopen_main(PVOID ctx)
 #endif
                         break;
                     }
-                    pEntry = pEntry->Flink;
+                    psrvEntry = psrvEntry->Flink;
                 };
             }
             nfs41_fcb = (PNFS41_FCB)cur->fcb->Context;
