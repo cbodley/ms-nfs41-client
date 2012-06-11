@@ -895,10 +895,18 @@ static int handle_close(nfs41_upcall *upcall)
         nfs41_delegation_return(state->session, &state->file,
             OPEN_DELEGATE_WRITE, TRUE);
 
-        dprintf(1, "calling nfs41_remove for %s\n", name->name);
+		dprintf(1, "calling nfs41_remove for %s\n", name->name);
+retry_delete:
         rm_status = nfs41_remove(state->session, &state->parent,
             name, state->file.fh.fileid);
         if (rm_status) {
+			if (rm_status == NFS4ERR_FILE_OPEN) {
+				status = do_nfs41_close(state);
+				if (!status) {
+					state->do_close = 0;
+					goto retry_delete;
+				}  else goto out;
+			}
             dprintf(1, "nfs41_remove() failed with error %s.\n",
                 nfs_error_string(rm_status));
             rm_status = nfs_to_windows_error(rm_status, ERROR_INTERNAL_ERROR);
