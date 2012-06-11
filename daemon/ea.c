@@ -73,7 +73,7 @@ static int set_ea_value(
     createattrs.attrmask.count = 2;
     createattrs.attrmask.arr[0] = FATTR4_WORD0_SIZE;
     createattrs.attrmask.arr[1] = FATTR4_WORD1_MODE;
-    createattrs.size = ea->EaValueLength;
+    createattrs.size = 0;
     createattrs.mode = 0664;
 
     status = nfs41_open(session, parent, &file, owner, &claim,
