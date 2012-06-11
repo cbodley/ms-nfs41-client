@@ -63,26 +63,27 @@ static int handle_nfs41_setattr(setattr_upcall_args *args)
     stateid_arg stateid;
     nfs41_file_info info = { 0 }, old_info = { 0 };
     int status = NO_ERROR, getattr_status;
+	
+	if (basic_info->FileAttributes) {
+		info.hidden = basic_info->FileAttributes & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
+		info.system = basic_info->FileAttributes & FILE_ATTRIBUTE_SYSTEM ? 1 : 0;
+		info.archive = basic_info->FileAttributes & FILE_ATTRIBUTE_ARCHIVE ? 1 : 0;
+		getattr_status = nfs41_attr_cache_lookup(session_name_cache(state->session),
+			state->file.fh.fileid, &old_info);
 
-    info.hidden = basic_info->FileAttributes & FILE_ATTRIBUTE_HIDDEN ? 1 : 0;
-    info.system = basic_info->FileAttributes & FILE_ATTRIBUTE_SYSTEM ? 1 : 0;
-    info.archive = basic_info->FileAttributes & FILE_ATTRIBUTE_ARCHIVE ? 1 : 0;
-    getattr_status = nfs41_attr_cache_lookup(session_name_cache(state->session),
-        state->file.fh.fileid, &old_info);
-
-    if (getattr_status || info.hidden != old_info.hidden) {
-        info.attrmask.arr[0] = FATTR4_WORD0_HIDDEN;
-        info.attrmask.count = 1;
-    }
-    if (getattr_status || info.archive != old_info.archive) {
-        info.attrmask.arr[0] |= FATTR4_WORD0_ARCHIVE;
-        info.attrmask.count = 1;
-    }
-    if (getattr_status || info.system != old_info.system) {
-        info.attrmask.arr[1] = FATTR4_WORD1_SYSTEM;
-        info.attrmask.count = 2;
-    }
-
+		if (getattr_status || info.hidden != old_info.hidden) {
+			info.attrmask.arr[0] = FATTR4_WORD0_HIDDEN;
+			info.attrmask.count = 1;
+		}
+		if (getattr_status || info.archive != old_info.archive) {
+			info.attrmask.arr[0] |= FATTR4_WORD0_ARCHIVE;
+			info.attrmask.count = 1;
+		}
+		if (getattr_status || info.system != old_info.system) {
+			info.attrmask.arr[1] = FATTR4_WORD1_SYSTEM;
+			info.attrmask.count = 2;
+		}
+	}
     if (old_info.mode == 0444 && 
             ((basic_info->FileAttributes & FILE_ATTRIBUTE_READONLY) == 0)) {
         info.mode = 0644;
