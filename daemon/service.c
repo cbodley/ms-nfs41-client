@@ -367,9 +367,9 @@ void CmdInstallService()
                                 schSCManager,               // SCManager database
                                 TEXT(SZSERVICENAME),        // name of service
                                 TEXT(SZSERVICEDISPLAYNAME), // name to display
-                                SERVICE_QUERY_STATUS,         // desired access
+                                SERVICE_QUERY_STATUS,       // desired access
                                 SERVICE_WIN32_OWN_PROCESS,  // service type
-                                SERVICE_DEMAND_START,       // start type
+                                SERVICE_AUTO_START,         // start type
                                 SERVICE_ERROR_NORMAL,       // error control type
                                 szPath,                     // service's binary
                                 NULL,                       // no load ordering group
